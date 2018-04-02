@@ -27,8 +27,9 @@ logger.addHandler(consoleHandler)
 class TimeSeriesDataset():
 	
 	# Attributes
-	timeIndex = None # data attribute for time index in data loaded
-
+	timeIndex = None
+	groupIndex = None 
+	
 	# custom header and types, dataset specific
 	""" List of column names as in file """
 	dataHeader = ([ "TSTAMP", "THING", "CONF","SPEED","S_IBATCB1_CB1","S_IBATCB2_CB2",
@@ -44,28 +45,32 @@ class TimeSeriesDataset():
 	"S_VBATCB2_CB2" : np.uint16,"S_VINCB1_CB1" : np.uint16,"S_VINCB2_CB2" : np.uint16,
 	"S_CORRBATT_FLG1" : np.int16,"S_TENSBATT_FLG1" : np.float32 })
 
-	normalization = dataHeader[2:]
+	dataColumns = dataHeader[2:] # column with valid data
 	
-	def test(self):
+	relevant = dataHeader[4:10] # relevant
+	
+	def runExample(self):
 		df = self.load("dataset")
-		tsp = TimeSeriesPreprocessing("TSTAMP","THING")
+		tsp = TimeSeriesPreprocessing()
 		# first normalize all dataset
-		df = tsp.normalize(df,self.normalization)
+		logger.info(df.shape)
+		df = tsp.dropIrrelevant(df,self.relevant)
+		logger.info(df.shape)
+		df = tsp.normalize(df,self.dataColumns)
 		# separate batteries
-		grp = tsp.groupByThing(df)
+		grp = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
 		# separate by date one battery
-		dayGrp = tsp.groupByDay(grp[0])
-		self.plot(dayGrp[0])
-		# separate by date other battery
-		dayGrp = tsp.groupByDay(grp[1])
-		self.plot(dayGrp[0])
+		for i in range(np.minimum(2,len(grp))):
+			dayGrp = tsp.groupByTimeIndex(grp[i],self.timeIndex)
+			self.plot(dayGrp[0])
 	
 	#Constructor
-	def __init__(self,timeIdx):
+	def __init__(self):
 		""" 
-		Init the TimeSeriesLoader to work with the specified index as datetime index 
+		Init the TimeSeriesLoader
 		"""
-		self.timeIndex = timeIdx
+		self.timeIndex = self.dataHeader[0]
+		self.groupIndex = self.dataHeader[1]
 	
 	# public methods
 	def load(self,dataFolder,dataFile=None,force=False):
@@ -82,11 +87,12 @@ class TimeSeriesDataset():
 	def plot(self,data):
 		#column index of the sequence time index
 		dateIndex = self.dataHeader.index(self.timeIndex)
+		groupIndex = self.dataHeader.index(self.groupIndex)
 		# values to plot
 		values = data.values
 		# getting YYYY-mm-dd for the plot title
 		date =  values[:, dateIndex][0].strftime("%Y-%m-%d")
-		batteryName =  values[:, 1][0]
+		batteryName =  values[:, groupIndex][0]
 		#time series for all data that we want to plot
 		# plot each column except TSTAMP and THING(wich is constant for the same battery)
 		toPlot = range(2,18)
@@ -110,7 +116,7 @@ class TimeSeriesDataset():
 	
 	# private methods
 	def __readFolder(self,dataFolder):
-		""" Read all files in folder as pandas dataframe """
+		""" Read all files in folder as one pandas dataframe """
 		tt = time.clock()
 		logger.info("Reading data from folder %s" %  dataFolder)
 		if( not os.path.isdir(dataFolder)):
@@ -127,7 +133,7 @@ class TimeSeriesDataset():
 		""" 
 		Load data with pandas from the specified dataSource file
 		Parameters: 
-			file: file to read from
+			file: file to read dataset from
 		Output:
 			pandas dataframe
 		"""
@@ -142,7 +148,7 @@ class TimeSeriesDataset():
 		return data
 		
 	def __saveDataFrame(self,data,saveFile=None):
-		""" Save dataframe to gzip file, if specified """
+		""" Save dataframe to a gzip file """
 		if(saveFile):
 			logger.info("Saving dataframe to %s" % saveFile)
 			fp = gzip.open(saveFile,'wb')
@@ -153,7 +159,7 @@ class TimeSeriesDataset():
 			logger.debug("No save file specified, nothing to do.")
 			
 	def __loadDataFrame(self,dataFile=None):
-		""" Load a previous saved dataframe (gzip) """
+		""" Load a previous saved dataframe from gzip file """
 		out = None
 		if(dataFile and os.path.isfile(dataFile)):
 			logger.info("Loading data from %s" % dataFile)
@@ -167,12 +173,16 @@ class TimeSeriesDataset():
 
 class TimeSeriesPreprocessing():
 	
-	timeIndex = None
-	groupIndex = None
-	
-	def __init__(self,timeIndex,groupIndex):
-		self.timeIndex = timeIndex
-		self.groupIndex = groupIndex
+	def dropIrrelevant(self,data,relevant,threshold=0.001):
+		"""
+		Drop from data all rows that have a value lesser than threshold
+		in relevant columns
+		"""
+		logger.info("Dropping row with %s lesser than %f" % (relevant,threshold) )
+		tt = time.clock()
+		data = data.loc[(data[relevant] >= threshold).any(axis=1)] # axis 1 tells to check in rows
+		logger.info("Dropping row completed in %f second(s)" % (time.clock() - tt))
+		return data
 	
 	def normalize(self,data,normalization,minRange=-1,maxRange=1):
 		""" 
@@ -194,7 +204,7 @@ class TimeSeriesPreprocessing():
 		logger.info("Normalization completed in %f second(s)" % (time.clock() - tt))
 		return data
 	
-	def groupByThing(self,data):
+	def groupAndSort(self,data,groupIndex=None,sortIndex=None,asc=True):
 		""" 
 		In:
 		dat: dataframe to group
@@ -202,29 +212,36 @@ class TimeSeriesPreprocessing():
 		list of dataframe grouped by groupIndex.
 		"""
 		tt = time.clock()
-		thingData = [ group[1] for group in data.groupby(self.groupIndex) ]
-		logger.debug("There are %s thing(s) in dataset. Elapes %s second(s)" % (len(thingData),(time.clock() - tt) ))
-		if(self.timeIndex):
-			for idx in range(0,len(thingData)):			
+		if(groupIndex):
+			logger.debug("Grouping by %s", groupIndex)
+			grouped = [ group[1] for group in data.groupby(groupIndex) ]
+		else:
+			logger.debug("No group option specified. Nothing will be done.")
+			grouped = [data]
+		logger.debug("There are %s groups in dataset. Elapes %s second(s)" % (len(grouped),(time.clock() - tt) ))
+		if(sortIndex):
+			for idx in range(0,len(grouped)):			
 				tt = time.clock()
-				logger.info("Sorting data by %s" % self.timeIndex)
-				thingData[idx] = thingData[idx].sort_values(by=self.timeIndex,ascending=True)
+				logger.info("Sorting data by %s" % sortIndex)
+				grouped[idx] = grouped[idx].sort_values(by=sortIndex,ascending=asc)
 				logger.info("Data sort complete. Elapsed %f second(s)" %  (time.clock() - tt))
-		return thingData
+		else:
+			logger.debug("No sort option specified. Nothing will be done.")
+		return grouped
 	
-	def groupByDay(self,data):
+	def groupByTimeIndex(self,data,timeIndex):
 		""" 
 		In:
 		data: dataframe to group
 		Out:
-		Create a list of dataframe grouped by day.
+		Create a list of dataframe grouped by specified time index.
 		"""
-		startDate = data[self.timeIndex].min()
-		endDate = data[self.timeIndex].max()
+		startDate = data[timeIndex].min()
+		endDate = data[timeIndex].max()
 		logger.debug("Datatime starts form %s and span to %s" % (startDate,endDate) )
-		logger.debug("Grouping data by day on column %s" % self.timeIndex)
+		logger.debug("Grouping data by day on column %s" % timeIndex)
 		tt = time.clock()
-		dayData = [ group[1] for group in data.groupby([data[self.timeIndex].dt.date]) ]
-		logger.debug("There are %s day(s) in dataset. Elapes %s second(s)" % (len(dayData),(time.clock() - tt) ))
+		dayData = [ group[1] for group in data.groupby([data[timeIndex].dt.date]) ]
+		logger.debug("There are %s day(s) in current group. Elapes %s second(s)" % (len(dayData),(time.clock() - tt) ))
 		return dayData
 		
