@@ -46,6 +46,20 @@ class TimeSeriesDataset():
 
 	normalization = dataHeader[2:]
 	
+	def test(self):
+		df = self.load("dataset")
+		tsp = TimeSeriesPreprocessing("TSTAMP","THING")
+		# first normalize all dataset
+		df = tsp.normalize(df,self.normalization)
+		# separate batteries
+		grp = tsp.groupByThing(df)
+		# separate by date one battery
+		dayGrp = tsp.groupByDay(grp[0])
+		self.plot(dayGrp[0])
+		# separate by date other battery
+		dayGrp = tsp.groupByDay(grp[1])
+		self.plot(dayGrp[0])
+	
 	#Constructor
 	def __init__(self,timeIdx):
 		""" 
@@ -180,7 +194,7 @@ class TimeSeriesPreprocessing():
 		logger.info("Normalization completed in %f second(s)" % (time.clock() - tt))
 		return data
 	
-	def groupDataFrame(self,data):
+	def groupByThing(self,data):
 		""" 
 		In:
 		dat: dataframe to group
@@ -197,4 +211,20 @@ class TimeSeriesPreprocessing():
 				thingData[idx] = thingData[idx].sort_values(by=self.timeIndex,ascending=True)
 				logger.info("Data sort complete. Elapsed %f second(s)" %  (time.clock() - tt))
 		return thingData
+	
+	def groupByDay(self,data):
+		""" 
+		In:
+		data: dataframe to group
+		Out:
+		Create a list of dataframe grouped by day.
+		"""
+		startDate = data[self.timeIndex].min()
+		endDate = data[self.timeIndex].max()
+		logger.debug("Datatime starts form %s and span to %s" % (startDate,endDate) )
+		logger.debug("Grouping data by day on column %s" % self.timeIndex)
+		tt = time.clock()
+		dayData = [ group[1] for group in data.groupby([data[self.timeIndex].dt.date]) ]
+		logger.debug("There are %s day(s) in dataset. Elapes %s second(s)" % (len(dayData),(time.clock() - tt) ))
+		return dayData
 		
