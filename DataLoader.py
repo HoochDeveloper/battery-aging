@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 
 #Module logging
-logger = logging.getLogger("DataLoader")
+logger = logging.getLogger("TimeSeriesLoader")
 logger.setLevel(logging.DEBUG)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
 formatter = logging.Formatter('[%(name)s][%(levelname)s] %(message)s')
@@ -47,21 +47,22 @@ class TimeSeriesDataset():
 
 	dataColumns = dataHeader[2:] # column with valid data
 	
-	relevant = dataHeader[4:10] # relevant
+	relevant = dataHeader[4:10] # relevant columns
 	
 	def runExample(self):
 		df = self.load("dataset")
 		tsp = TimeSeriesPreprocessing()
-		# first normalize all dataset
+		# drop not relevant values form dataframe
 		logger.info(df.shape)
 		df = tsp.dropIrrelevant(df,self.relevant)
 		logger.info(df.shape)
+		# first normalize all dataset
 		df = tsp.normalize(df,self.dataColumns)
 		# separate batteries
 		grp = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
 		# separate by date one battery
 		for i in range(np.minimum(2,len(grp))):
-			dayGrp = tsp.groupByTimeIndex(grp[i],self.timeIndex)
+			dayGrp = tsp.groupByDayTimeIndex(grp[i],self.timeIndex)
 			self.plot(dayGrp[0])
 	
 	#Constructor
@@ -188,7 +189,7 @@ class TimeSeriesPreprocessing():
 		""" 
 		Normalize the specified columns in the min - max range 
 		Parameters:
-			data: dataframe to normalize
+			data: dataframe wich columns will be normalized
 			normalization: array of columns to normalize
 		Output:
 			dataframe with specified columns normalized
@@ -207,9 +208,12 @@ class TimeSeriesPreprocessing():
 	def groupAndSort(self,data,groupIndex=None,sortIndex=None,asc=True):
 		""" 
 		In:
-		dat: dataframe to group
+		data: dataframe to group and sort
+		groupIndex: column name to group by
+		sortIndex: column name to sort by
+		asc: perform sorting ascending, otherwise descending
 		Out:
-		list of dataframe grouped by groupIndex.
+		list of dataframe grouped by groupIndex and sorted by sortIndex
 		"""
 		tt = time.clock()
 		if(groupIndex):
@@ -229,16 +233,14 @@ class TimeSeriesPreprocessing():
 			logger.debug("No sort option specified. Nothing will be done.")
 		return grouped
 	
-	def groupByTimeIndex(self,data,timeIndex):
+	def groupByDayTimeIndex(self,data,timeIndex):
 		""" 
 		In:
 		data: dataframe to group
+		timeIndex: name of column to group by day 
 		Out:
-		Create a list of dataframe grouped by specified time index.
+		Create a list of dataframe grouped by day for the specified time index.
 		"""
-		startDate = data[timeIndex].min()
-		endDate = data[timeIndex].max()
-		logger.debug("Datatime starts form %s and span to %s" % (startDate,endDate) )
 		logger.debug("Grouping data by day on column %s" % timeIndex)
 		tt = time.clock()
 		dayData = [ group[1] for group in data.groupby([data[timeIndex].dt.date]) ]
