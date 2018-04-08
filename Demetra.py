@@ -14,6 +14,8 @@ import time,os,logging, matplotlib.pyplot as plt, six.moves.cPickle as pickle, g
 from datetime import datetime
 import pandas as pd
 import numpy as np
+from math import sqrt,ceil,trunc
+from random import randint, shuffle
 
 #Module logging
 logger = logging.getLogger("Demetra")
@@ -74,11 +76,65 @@ class TimeSeriesDataset():
 		self.groupIndex = self.dataHeader[1]
 	
 	# public methods
-	def loadLSTMData(self,dataFolder,dataFile=None,force=False):
+	def dataFormatKerasLSTM(self,dataFolder,dataFile=None,force=False,testPerc=0.2):
+		tt = time.clock()
 		dataList = self.loadEpisodedDataset(dataFolder,dataFile,force)
 		
+		testSize = ceil(len(dataList) * testPerc); 
+		trainSize = len(dataList) - testSize
 		
+		logger.info("Train: %d - Test: %d"  % (trainSize,testSize))
 		
+		X_train = []
+		Y_train = []
+		
+		X_valid = []
+		Y_valid = []
+		
+		X_test = []
+		Y_test = []
+		
+		padding = range(3600)
+		for battery in range(0,len(dataList)):
+			dailyEpisodes = []
+			for day in range(0,len(dataList[battery])): 
+	
+				for hour in range(0,len(dataList[battery][day])):
+					df = dataList[battery][day][hour]
+					df = df.reindex(index=padding)
+					df[self.timeIndex].fillna(pd.to_datetime('1900-01-01T00:00:00'),inplace=True)
+					df.fillna(0,inplace=True)
+					X = df.values.reshape(1,df.shape[0],df.shape[1]) 
+					df = df[4:] # frp unwanted prediction values 
+					Y = df.values.reshape(1,df.shape[0],df.shape[1])
+					dailyEpisodes.append([X,Y])
+					#end hour
+				#end day
+			# add the whole day data to train or test set
+			if(battery < trainSize):
+				# adding sample to train data
+				#split train and valid
+				trainIdx =  ceil(len(dailyEpisodes) * 0.8)
+				X_train.append(dailyEpisodes[:trainIdx][0])
+				Y_train.append(dailyEpisodes[:trainIdx][1])
+				
+				X_valid.append(dailyEpisodes[trainIdx:][0])
+				Y_valid.append(dailyEpisodes[trainIdx:][1])
+			else:
+				# adding sample to test data
+				X_test.append(dailyEpisodes[:][0])
+				Y_test.append(dailyEpisodes[:][1])
+		
+		# output structure are indexed as following X = data[0][trainSize][1,3600,18]  Y = data[1][trainSize][1,3600,16]
+		train = [X_train,Y_train]
+		valid = [X_valid,Y_valid]
+		test = [X_test,Y_test]
+		logger.info("Data for Keras complete. Elapsed %f second(s)" %  (time.clock() - tt))
+		logger.info("Train shape %s" % train[0][0].shape)
+		logger.info("Valid shape %s" % valid[0][0].shape)
+		logger.info("Test shape %s" % test[0][0].shape)
+		
+		return train, valid, test
 		
 	def loadEpisodedDataset(self,dataFolder,dataFile=None,force=False):
 		""" 

@@ -25,7 +25,8 @@ logger.addHandler(consoleHandler)
 
 def main():
 	tsd = TimeSeriesDataset()
-	batteries = tsd.loadEpisodedDataset("dataset",dataFile="episodedDF")
+	#batteries = tsd.loadEpisodedDataset("dataset",dataFile="episodedDF")
+	tsd.dataFormatKerasLSTM("dataset",dataFile="episodedDF")
 	logger.info("%d Batteries",len(batteries))
 	logger.info("%d Day(s) for battery 0 ",len(batteries[0]))
 	logger.info("%d Hour(s) for battery 0 in day 0" ,len(batteries[0][0]))
