@@ -51,22 +51,6 @@ class TimeSeriesDataset():
 	
 	relevant = dataHeader[4:10] # relevant columns
 	
-	def runExample(self):
-		df = self.load("dataset")
-		tsp = TimeSeriesPreprocessing()
-		# drop not relevant values form dataframe
-		logger.info(df.shape)
-		df = tsp.dropIrrelevant(df,self.relevant)
-		logger.info(df.shape)
-		# first scale all dataset
-		df = tsp.scale(df,self.dataColumns)
-		# separate batteries
-		grp = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
-		# separate by date one battery
-		for i in range(np.minimum(2,len(grp))):
-			dayGrp = tsp.groupByDayTimeIndex(grp[i],self.timeIndex)
-			self.plot(dayGrp[0])
-	
 	#Constructor
 	def __init__(self):
 		""" 
@@ -78,102 +62,95 @@ class TimeSeriesDataset():
 	# public methods
 	def dataFormatKerasLSTM(self,dataFolder,dataFile=None,force=False,testPerc=0.2):
 		tt = time.clock()
-		dataList = self.loadEpisodedDataset(dataFolder,dataFile,force)
+		loaded = None
+		if(not force):
+			loaded = self.__loadDataFrame(dataFile)
 		
-		testSize = ceil(len(dataList) * testPerc); 
-		trainSize = len(dataList) - testSize
+		trainX = []
+		trainY = []
+		validX = []
+		validY = []
+		testX  = []
+		testY  = []
 		
-		logger.info("Train: %d - Test: %d"  % (trainSize,testSize))
+		if( loaded is None ):
+			train = [] #0 is X, 1 is Y
+			valid = []
+			test = []
+			logger.info("Building a new dataframe")
+			dataList = self.__loadEpisodedDataset(dataFolder)
+			testSize = ceil(len(dataList) * testPerc); 
+			trainSize = len(dataList) - testSize
+			logger.info("Train: %d - Test: %d"  % (trainSize,testSize))
+			padding = range(3600)
+			for battery in range(0,len(dataList)):
+				dailyEpisodes = []
+				logger.info("Building battery %d" % battery)
+				for day in range(0,len(dataList[battery])): 
+					for hour in range(0,len(dataList[battery][day])):
+						df = dataList[battery][day][hour]
+						# dropping timestamp and thing
+						df = df.drop(columns=["TSTAMP", "THING"])
+						df.reset_index(drop=True,inplace=True)
+						df = df.reindex(index=padding)
+						#df[self.timeIndex].fillna(pd.to_datetime('1900-01-01T00:00:00'),inplace=True)
+						df.fillna(0,inplace=True)
+						X = df.values#.reshape(df.shape[0],df.shape[1]) 
+						# dropping conf and speed from prediction
+						df = df.drop(columns=["CONF","SPEED"])
+						Y = df.values#.reshape(df.shape[0],df.shape[1])
+						dailyEpisodes.append([X,Y])
+						#end hour
+					#end day
+				# add the whole day data to train or test set
+				logger.debug("Days %d" % len(dailyEpisodes))
+				if(battery < trainSize):
+					# adding sample to train data
+					#split train and valid
+					trainIdx =  ceil(len(dailyEpisodes) * 0.8)
+					train.append(dailyEpisodes[:trainIdx])
+					valid.append(dailyEpisodes[trainIdx:])
+					
+				else:
+					# adding sample to test data
+					logger.debug("test %d" % len(dailyEpisodes))
+					test.append(dailyEpisodes)
+			#end for battery
+			logger.info("Building train: %d" % len(train))
+			for i in range(len(train)):
+				x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in train[i]  ] )
+				y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in train[i]  ] )
+				logger.info(x.shape)
+				logger.info(y.shape)
+				trainX.append(x)
+				trainY.append(y)
+				x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in valid[i]  ] )
+				y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in valid[i]  ] )
+				validX.append(x)
+				validY.append(y)
+				logger.info(x.shape)
+				logger.info(y.shape)
+			
+			logger.info("Building test: %d" % len(test) )
+			for i in range(len(test)):
+				x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in test[i]  ] )
+				y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in test[i]  ] )
+				testX.append(x)
+				testY.append(y)
+				logger.info(x.shape)
+				logger.info(y.shape)
+			self.__saveDataFrame([trainX, trainY, validX, validY, testX, testY],dataFile)
+		else:
+			trainX = loaded[0]
+			trainY = loaded[1]
+			validX = loaded[2]
+			validY = loaded[3]
+			testX  = loaded[4]
+			testY  = loaded[5]
+
+		return trainX, trainY, validX, validY, testX, testY
 		
-		X_train = []
-		Y_train = []
-		
-		X_valid = []
-		Y_valid = []
-		
-		X_test = []
-		Y_test = []
-		
-		padding = range(3600)
-		for battery in range(0,len(dataList)):
-			dailyEpisodes = []
-			for day in range(0,len(dataList[battery])): 
-	
-				for hour in range(0,len(dataList[battery][day])):
-					df = dataList[battery][day][hour]
-					df = df.reindex(index=padding)
-					df[self.timeIndex].fillna(pd.to_datetime('1900-01-01T00:00:00'),inplace=True)
-					df.fillna(0,inplace=True)
-					X = df.values.reshape(1,df.shape[0],df.shape[1]) 
-					df = df[4:] # frp unwanted prediction values 
-					Y = df.values.reshape(1,df.shape[0],df.shape[1])
-					dailyEpisodes.append([X,Y])
-					#end hour
-				#end day
-			# add the whole day data to train or test set
-			if(battery < trainSize):
-				# adding sample to train data
-				#split train and valid
-				trainIdx =  ceil(len(dailyEpisodes) * 0.8)
-				X_train.append(dailyEpisodes[:trainIdx][0])
-				Y_train.append(dailyEpisodes[:trainIdx][1])
-				
-				X_valid.append(dailyEpisodes[trainIdx:][0])
-				Y_valid.append(dailyEpisodes[trainIdx:][1])
-			else:
-				# adding sample to test data
-				X_test.append(dailyEpisodes[:][0])
-				Y_test.append(dailyEpisodes[:][1])
-		
-		# output structure are indexed as following X = data[0][trainSize][1,3600,18]  Y = data[1][trainSize][1,3600,16]
-		train = [X_train,Y_train]
-		valid = [X_valid,Y_valid]
-		test = [X_test,Y_test]
-		logger.info("Data for Keras complete. Elapsed %f second(s)" %  (time.clock() - tt))
-		logger.info("Train shape %s" % train[0][0].shape)
-		logger.info("Valid shape %s" % valid[0][0].shape)
-		logger.info("Test shape %s" % test[0][0].shape)
-		
-		return train, valid, test
-		
-	def loadEpisodedDataset(self,dataFolder,dataFile=None,force=False):
-		""" 
-		Load the whole dataset form specified dataFolder
-		grouped in episodes
-		Save dataset to specifid file
-		list of [battery][day][hour]
-		"""
-		batteries = self.__loadDataFrame(dataFile)
-		if( batteries is None or force ):
-			df = self.loadRawDataset(dataFolder)
-			tsp = TimeSeriesPreprocessing()
-			# drop not relevant values form dataframe
-			df = tsp.dropIrrelevant(df,self.relevant)
-			# scale all dataset
-			df = tsp.scale(df,self.dataColumns)
-			# subset dataset by battery batteries
-			batteriesDf = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
-			batteries = []
-			for i in range(len(batteriesDf)):
-				daily = []
-				dailyDf = tsp.groupByDayTimeIndex(batteriesDf[i],self.timeIndex)
-				for j in range(len(dailyDf)):
-					hourDf = tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
-					daily.append(hourDf)
-				batteries.append(daily)
-			self.__saveDataFrame(batteries,dataFile)
-		return batteries
-	
-	def loadRawDataset(self,dataFolder,dataFile=None,force=False):
-		""" 
-		Load the whole raw dataset form specified dataFolder
-		Save dataset to specifid file
-		"""
-		df = self.__loadDataFrame(dataFile) # try to load existing dataframe
-		if( not df or force ): # if no df found or force option, reload data from folder and save in file
-			df = self.__readFolder(dataFolder)
-			self.__saveDataFrame(df,dataFile)
-		return df
+
 		
 	def plot(self,data):
 		#column index of the sequence time index
@@ -206,6 +183,32 @@ class TimeSeriesDataset():
 		plt.show()
 	
 	# private methods
+	
+	def __loadEpisodedDataset(self,dataFolder):
+		""" 
+		Load the whole dataset form specified dataFolder
+		grouped in episodes
+		Save dataset to specifid file
+		list of [battery][day][hour]
+		"""
+		df = self.__readFolder(dataFolder)
+		tsp = TimeSeriesPreprocessing()
+		# drop not relevant values form dataframe
+		df = tsp.dropIrrelevant(df,self.relevant)
+		# scale all dataset
+		df = tsp.scale(df,self.dataColumns)
+		# subset dataset by battery batteries
+		batteriesDf = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
+		batteries = []
+		for i in range(len(batteriesDf)):
+			daily = []
+			dailyDf = tsp.groupByDayTimeIndex(batteriesDf[i],self.timeIndex)
+			for j in range(len(dailyDf)):
+				hourDf = tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
+				daily.append(hourDf)
+			batteries.append(daily)
+		return batteries
+	
 	def __readFolder(self,dataFolder):
 		""" Read all files in folder as one pandas dataframe """
 		tt = time.clock()
@@ -241,11 +244,12 @@ class TimeSeriesDataset():
 	def __saveDataFrame(self,data,saveFile=None):
 		""" Save dataframe to a gzip file """
 		if(saveFile):
+			tt = time.clock()
 			logger.info("Saving dataframe to %s" % saveFile)
 			fp = gzip.open(saveFile,'wb')
 			pickle.dump(data,fp,protocol=-1)
 			fp.close()
-			logger.info("Dataframe saved to %s" % saveFile)
+			logger.info("Dataframe saved to %s. Elapsed %f second(s)" % (saveFile, (time.clock() - tt)))
 		else:
 			logger.debug("No save file specified, nothing to do.")
 			
@@ -253,11 +257,12 @@ class TimeSeriesDataset():
 		""" Load a previous saved dataframe from gzip file """
 		out = None
 		if(dataFile and os.path.isfile(dataFile)):
+			tt = time.clock()
 			logger.info("Loading data from %s" % dataFile)
 			fp = gzip.open(dataFile,'rb') # This assumes that primes.data is already packed with gzip
 			out=pickle.load(fp)
 			fp.close()
-			logger.info("Data loaded from %s" % dataFile)
+			logger.info("Data loaded from %s. Elapsed %f second(s)" % ( dataFile, (time.clock() - tt) ) ) 
 		else:
 			logger.info("No data file specified, nothing to do.")
 		return out
