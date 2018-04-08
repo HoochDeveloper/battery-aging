@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 
 #Module logging
-logger = logging.getLogger("TimeSeriesLoader")
+logger = logging.getLogger("Demetra")
 logger.setLevel(logging.DEBUG)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
 formatter = logging.Formatter('[%(name)s][%(levelname)s] %(message)s')
@@ -56,8 +56,8 @@ class TimeSeriesDataset():
 		logger.info(df.shape)
 		df = tsp.dropIrrelevant(df,self.relevant)
 		logger.info(df.shape)
-		# first normalize all dataset
-		df = tsp.normalize(df,self.dataColumns)
+		# first scale all dataset
+		df = tsp.scale(df,self.dataColumns)
 		# separate batteries
 		grp = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
 		# separate by date one battery
@@ -74,9 +74,43 @@ class TimeSeriesDataset():
 		self.groupIndex = self.dataHeader[1]
 	
 	# public methods
-	def load(self,dataFolder,dataFile=None,force=False):
+	def loadLSTMData(self,dataFolder,dataFile=None,force=False):
+		dataList = self.loadEpisodedDataset(dataFolder,dataFile,force)
+		
+		
+		
+		
+	def loadEpisodedDataset(self,dataFolder,dataFile=None,force=False):
 		""" 
 		Load the whole dataset form specified dataFolder
+		grouped in episodes
+		Save dataset to specifid file
+		list of [battery][day][hour]
+		"""
+		batteries = self.__loadDataFrame(dataFile)
+		if( batteries is None or force ):
+			df = self.loadRawDataset(dataFolder)
+			tsp = TimeSeriesPreprocessing()
+			# drop not relevant values form dataframe
+			df = tsp.dropIrrelevant(df,self.relevant)
+			# scale all dataset
+			df = tsp.scale(df,self.dataColumns)
+			# subset dataset by battery batteries
+			batteriesDf = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
+			batteries = []
+			for i in range(len(batteriesDf)):
+				daily = []
+				dailyDf = tsp.groupByDayTimeIndex(batteriesDf[i],self.timeIndex)
+				for j in range(len(dailyDf)):
+					hourDf = tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
+					daily.append(hourDf)
+				batteries.append(daily)
+			self.__saveDataFrame(batteries,dataFile)
+		return batteries
+	
+	def loadRawDataset(self,dataFolder,dataFile=None,force=False):
+		""" 
+		Load the whole raw dataset form specified dataFolder
 		Save dataset to specifid file
 		"""
 		df = self.__loadDataFrame(dataFile) # try to load existing dataframe
@@ -185,14 +219,14 @@ class TimeSeriesPreprocessing():
 		logger.info("Dropping row completed in %f second(s)" % (time.clock() - tt))
 		return data
 	
-	def normalize(self,data,normalization,minRange=-1,maxRange=1):
+	def scale(self,data,normalization,minRange=-1,maxRange=1):
 		""" 
-		Normalize the specified columns in the min - max range 
+		scale the specified columns in the min - max range 
 		Parameters:
-			data: dataframe wich columns will be normalized
-			normalization: array of columns to normalize
+			data: dataframe wich columns will be scaled
+			normalization: array of columns to scale
 		Output:
-			dataframe with specified columns normalized
+			dataframe with specified columns scaled
 		"""
 		logger.info("Data normalization in (%f,%f)" % (minRange,maxRange) )
 		tt = time.clock()
@@ -246,4 +280,17 @@ class TimeSeriesPreprocessing():
 		dayData = [ group[1] for group in data.groupby([data[timeIndex].dt.date]) ]
 		logger.debug("There are %s day(s) in current group. Elapes %s second(s)" % (len(dayData),(time.clock() - tt) ))
 		return dayData
+		
+	def groupByHourTimeIndex(self,data,timeIndex):
+		""" 
+		Create a list of dataframe grouped by hour.
+		"""
+		logger.debug("Grouping data by hour on column %s" % timeIndex)
+		startHour = data[timeIndex].dt.hour.min()
+		endHour = data[timeIndex].dt.hour.max()
+		logger.debug("Hour starts form %s and span to %s" % (startHour,endHour) )
+		tt = time.clock()
+		hourData = [ group[1] for group in data.groupby([data[timeIndex].dt.hour]) ]
+		logger.debug("There are %s hour(s) in current data. Elapes %s second(s)" % (len(hourData),(time.clock() - tt) ))
+		return hourData
 		
