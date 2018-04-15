@@ -16,6 +16,7 @@ import pandas as pd
 import numpy as np
 from math import sqrt,ceil,trunc
 from random import randint, shuffle
+from sklearn.preprocessing import MinMaxScaler
 
 #Module logging
 logger = logging.getLogger("Demetra")
@@ -31,6 +32,7 @@ class TimeSeriesDataset():
 	# Attributes
 	timeIndex = None
 	groupIndex = None 
+	timesteps = 3600
 	
 	# custom header and types, dataset specific
 	""" List of column names as in file """
@@ -50,108 +52,39 @@ class TimeSeriesDataset():
 	dataColumns = dataHeader[2:] # column with valid data
 	
 	relevant = dataHeader[4:10] # relevant columns
+	tsp = None
+	rootFolder = "."
+	resultFolder = "out"
+	testPerc = 0.2
+	outFolder = None
 	
 	#Constructor
 	def __init__(self):
 		""" 
-		Init the TimeSeriesLoader
+		Init the TimeSeriesLoader, set the timeindex and the groupindex
 		"""
+		self.outFolder = os.path.join(self.rootFolder,self.resultFolder)
+		if not os.path.exists(self.outFolder):
+			os.makedirs(self.outFolder)
 		self.timeIndex = self.dataHeader[0]
 		self.groupIndex = self.dataHeader[1]
+		self.tsp = TimeSeriesPreprocessing(self.outFolder)
+		
 	
 	# public methods
-	def dataFormatKerasLSTM(self,dataFolder,dataFile=None,force=False,testPerc=0.2):
+	def supervisedData4KerasLSTM(self,dataFolder,force=False):
+		""" 
+		Format the data to be used by Keras LSTM in batch fashion
+		"""
 		tt = time.clock()
 		loaded = None
-		if(not force):
-			loaded = self.__loadDataFrame(dataFile)
-		
-		trainX = []
-		trainY = []
-		validX = []
-		validY = []
-		testX  = []
-		testY  = []
-		
+		#if(not force):
+		#	loaded = self.__loadDataFrame(dataFile)		
 		if( loaded is None ):
-			train = [] #0 is X, 1 is Y
-			valid = []
-			test = []
-			logger.info("Building a new dataframe")
-			dataList = self.__loadEpisodedDataset(dataFolder)
-			testSize = ceil(len(dataList) * testPerc); 
-			trainSize = len(dataList) - testSize
-			logger.info("Train: %d - Test: %d"  % (trainSize,testSize))
-			padding = range(3600)
-			for battery in range(0,len(dataList)):
-				dailyEpisodes = []
-				logger.info("Building battery %d" % battery)
-				for day in range(0,len(dataList[battery])): 
-					for hour in range(0,len(dataList[battery][day])):
-						df = dataList[battery][day][hour]
-						# dropping timestamp and thing
-						df = df.drop(columns=["TSTAMP", "THING"])
-						df.reset_index(drop=True,inplace=True)
-						df = df.reindex(index=padding)
-						#df[self.timeIndex].fillna(pd.to_datetime('1900-01-01T00:00:00'),inplace=True)
-						df.fillna(0,inplace=True)
-						X = df.values#.reshape(df.shape[0],df.shape[1]) 
-						# dropping conf and speed from prediction
-						df = df.drop(columns=["CONF","SPEED"])
-						Y = df.values#.reshape(df.shape[0],df.shape[1])
-						dailyEpisodes.append([X,Y])
-						#end hour
-					#end day
-				# add the whole day data to train or test set
-				logger.debug("Days %d" % len(dailyEpisodes))
-				if(battery < trainSize):
-					# adding sample to train data
-					#split train and valid
-					trainIdx =  ceil(len(dailyEpisodes) * 0.8)
-					train.append(dailyEpisodes[:trainIdx])
-					valid.append(dailyEpisodes[trainIdx:])
-					
-				else:
-					# adding sample to test data
-					logger.debug("test %d" % len(dailyEpisodes))
-					test.append(dailyEpisodes)
-			#end for battery
-			logger.info("Building train: %d" % len(train))
-			for i in range(len(train)):
-				x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in train[i]  ] )
-				y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in train[i]  ] )
-				logger.info(x.shape)
-				logger.info(y.shape)
-				trainX.append(x)
-				trainY.append(y)
-				x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in valid[i]  ] )
-				y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in valid[i]  ] )
-				validX.append(x)
-				validY.append(y)
-				logger.info(x.shape)
-				logger.info(y.shape)
+			logger.info("Building supervised episodes")
+			#self.__supervisedEpisodes(dataFolder)
+			logger.info("Builded supervised episodes %f" % (time.clock() - tt))
 			
-			logger.info("Building test: %d" % len(test) )
-			for i in range(len(test)):
-				x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in test[i]  ] )
-				y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in test[i]  ] )
-				testX.append(x)
-				testY.append(y)
-				logger.info(x.shape)
-				logger.info(y.shape)
-			self.__saveDataFrame([trainX, trainY, validX, validY, testX, testY],dataFile)
-		else:
-			trainX = loaded[0]
-			trainY = loaded[1]
-			validX = loaded[2]
-			validY = loaded[3]
-			testX  = loaded[4]
-			testY  = loaded[5]
-
-		return trainX, trainY, validX, validY, testX, testY
-		
-
-		
 	def plot(self,data):
 		#column index of the sequence time index
 		dateIndex = self.dataHeader.index(self.timeIndex)
@@ -184,30 +117,56 @@ class TimeSeriesDataset():
 	
 	# private methods
 	
-	def __loadEpisodedDataset(self,dataFolder):
+	def __supervisedEpisodes(self,dataFolder):
 		""" 
 		Load the whole dataset form specified dataFolder
 		grouped in episodes
 		Save dataset to specifid file
 		list of [battery][day][hour]
 		"""
-		df = self.__readFolder(dataFolder)
-		tsp = TimeSeriesPreprocessing()
+		#df = None # remove me
+		#df = self.__readFolder(dataFolder)
 		# drop not relevant values form dataframe
-		df = tsp.dropIrrelevant(df,self.relevant)
+		#df = self.tsp.dropIrrelevant(df,self.relevant)
 		# scale all dataset
-		df = tsp.scale(df,self.dataColumns)
-		# subset dataset by battery batteries
-		batteriesDf = tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
-		batteries = []
-		for i in range(len(batteriesDf)):
-			daily = []
-			dailyDf = tsp.groupByDayTimeIndex(batteriesDf[i],self.timeIndex)
+		#df = self.tsp.scale(df,self.dataColumns)
+		# subset dataset by battery batteries, outputlfiles
+		#self.tsp.groupAndSort(df,self.groupIndex,self.timeIndex,True)
+		#
+		
+		#things = len(os.listdir(self.tsp.outFolder)
+		#testSize = ceil(totalSize) * self.testPerc); 
+		#trainSize = totalSize - testSize
+		#logger.info("Train: %d - Test: %d"  % (trainSize,testSize))
+		
+		padding = range(self.timesteps)
+		for f in  os.listdir(self.outFolder):
+			currentBattery = self.tsp.loadZip(f)
+			days = []
+			dailyDf = self.tsp.groupByDayTimeIndex(currentBattery,self.timeIndex)
 			for j in range(len(dailyDf)):
-				hourDf = tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
-				daily.append(hourDf)
-			batteries.append(daily)
-		return batteries
+				hourDfList = self.tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
+				for h in range(len(hourDfList)):
+					hourDf = hourDfList[h]
+					hourDf.drop(columns=["TSTAMP", "THING"],inplace=True)
+					
+					if(hourDf.shape[0] != self.timesteps):
+						logger.debug("Rows are different than %s. Padding hour %s in dat %s" % (self.timesteps,h,j))
+						hourDf.reset_index(drop=True,inplace=True)
+						hourDf = hourDf.reindex(index=padding)
+						# after reindex is necessary to put in NA a out of range value
+						hourDf.fillna(-2,inplace=True)
+						#df[self.timeIndex].fillna(pd.to_datetime('1900-01-01T00:00:00'),inplace=True)
+					
+					X = hourDf.values
+					hourDf.drop(columns=["CONF","SPEED"],inplace=True)
+					Y = hourDf.values
+					days.append([X,Y])
+			x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in days  ] )
+			logger.debug(x.shape)
+			y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in days  ] )
+			logger.debug(y.shape)
+			self.tsp.saveZip(f,[x,y])
 	
 	def __readFolder(self,dataFolder):
 		""" Read all files in folder as one pandas dataframe """
@@ -219,7 +178,9 @@ class TimeSeriesDataset():
 		folderDataframe = []
 		for file in os.listdir(dataFolder):
 			if(os.path.isfile(os.path.join(dataFolder,file))):
-				folderDataframe.append(self.__readFile(os.path.join(dataFolder,file)))
+				loaded = self.__readFile(os.path.join(dataFolder,file))
+				if(loaded is not None):
+					folderDataframe.append(loaded)
 		logger.info("Folder read complete. Elapsed %f second(s)" %  (time.clock() - tt))
 		return pd.concat( folderDataframe )
 		
@@ -233,12 +194,16 @@ class TimeSeriesDataset():
 		"""
 		tt = time.clock()
 		logger.info("Reading data from %s" %  file)
-		data = pd.read_csv(file, compression='gzip', header=None,error_bad_lines=True,sep=',', 
-			names=self.dataHeader,
-			dtype=self.dataTypes,
-			parse_dates=[self.timeIndex],
-			date_parser = pd.core.tools.datetimes.to_datetime)
-		logger.info("Data read complete. Elapsed %f second(s)" %  (time.clock() - tt))
+		try:
+			data = pd.read_csv(file, compression='gzip', header=None,error_bad_lines=True,sep=',', 
+				names=self.dataHeader,
+				dtype=self.dataTypes,
+				parse_dates=[self.timeIndex],
+				date_parser = pd.core.tools.datetimes.to_datetime)
+			logger.info("Data read complete. Elapsed %f second(s)" %  (time.clock() - tt))
+		except:
+			logger.error("Can't read file %s" % file)
+			data = None
 		return data
 		
 	def __saveDataFrame(self,data,saveFile=None):
@@ -268,7 +233,12 @@ class TimeSeriesDataset():
 		return out
 
 class TimeSeriesPreprocessing():
+		
+	outFolder = None
 	
+	def __init__(self,outFolder):
+		self.outFolder = outFolder
+		
 	def dropIrrelevant(self,data,relevant,threshold=0.001):
 		"""
 		Drop from data all rows that have a value lesser than threshold
@@ -279,7 +249,8 @@ class TimeSeriesPreprocessing():
 		data = data.loc[(data[relevant] >= threshold).any(axis=1)] # axis 1 tells to check in rows
 		logger.info("Dropping row completed in %f second(s)" % (time.clock() - tt))
 		return data
-	
+
+		
 	def scale(self,data,normalization,minRange=-1,maxRange=1):
 		""" 
 		scale the specified columns in the min - max range 
@@ -310,24 +281,32 @@ class TimeSeriesPreprocessing():
 		Out:
 		list of dataframe grouped by groupIndex and sorted by sortIndex
 		"""
-		tt = time.clock()
-		if(groupIndex):
-			logger.debug("Grouping by %s", groupIndex)
-			grouped = [ group[1] for group in data.groupby(groupIndex) ]
-		else:
-			logger.debug("No group option specified. Nothing will be done.")
-			grouped = [data]
-		logger.debug("There are %s groups in dataset. Elapes %s second(s)" % (len(grouped),(time.clock() - tt) ))
+		#tt = time.clock()
+		#if(groupIndex):
+		#	logger.debug("Grouping by %s", groupIndex)
+		#	count = 1
+		#	for group in data.groupby(groupIndex,sort=False,squeeze=True):
+		#		self.saveZip("THING_"+str(count)+".gzip",group[1])
+		#		count += 1
+		#	logger.debug("End save")
+		#else:
+		#	logger.debug("No group option specified. Nothing will be done.")
+		#	self.saveZip("wholeDataset.gzip",data)
+		#	
+		#logger.debug("There are %s things in dataset. Elapes %s second(s)" % (count,(time.clock() - tt) ))
+		
 		if(sortIndex):
-			for idx in range(0,len(grouped)):			
-				tt = time.clock()
-				logger.info("Sorting data by %s" % sortIndex)
-				grouped[idx] = grouped[idx].sort_values(by=sortIndex,ascending=asc)
-				logger.info("Data sort complete. Elapsed %f second(s)" %  (time.clock() - tt))
+			tt = time.clock()
+			for file in os.listdir(self.outFolder):
+				df2sort = self.loadZip(file)
+				df2sort.sort_values(by=sortIndex,ascending=asc,inplace=True)
+				self.saveZip(file,df2sort)
+			logger.debug("Data sort complete. Elapsed %f second(s)" %  (time.clock() - tt))	
 		else:
 			logger.debug("No sort option specified. Nothing will be done.")
-		return grouped
-	
+		
+		# prepare the dataframe
+		
 	def groupByDayTimeIndex(self,data,timeIndex):
 		""" 
 		In:
@@ -336,22 +315,37 @@ class TimeSeriesPreprocessing():
 		Out:
 		Create a list of dataframe grouped by day for the specified time index.
 		"""
-		logger.debug("Grouping data by day on column %s" % timeIndex)
-		tt = time.clock()
+		#logger.debug("Grouping data by day on column %s" % timeIndex)
+		#tt = time.clock()
 		dayData = [ group[1] for group in data.groupby([data[timeIndex].dt.date]) ]
-		logger.debug("There are %s day(s) in current group. Elapes %s second(s)" % (len(dayData),(time.clock() - tt) ))
+		#logger.debug("There are %s day(s) in current group. Elapes %s second(s)" % (len(dayData),(time.clock() - tt) ))
 		return dayData
 		
 	def groupByHourTimeIndex(self,data,timeIndex):
 		""" 
-		Create a list of dataframe grouped by hour.
+		Create a list of dataframe grouped by hour for the specified timeIndex.
 		"""
-		logger.debug("Grouping data by hour on column %s" % timeIndex)
-		startHour = data[timeIndex].dt.hour.min()
-		endHour = data[timeIndex].dt.hour.max()
-		logger.debug("Hour starts form %s and span to %s" % (startHour,endHour) )
-		tt = time.clock()
+		#logger.debug("Grouping data by hour on column %s" % timeIndex)
+		#startHour = data[timeIndex].dt.hour.min()
+		#endHour = data[timeIndex].dt.hour.max()
+		#logger.debug("Hour starts form %s and span to %s" % (startHour,endHour) )
+		#tt = time.clock()
 		hourData = [ group[1] for group in data.groupby([data[timeIndex].dt.hour]) ]
-		logger.debug("There are %s hour(s) in current data. Elapes %s second(s)" % (len(hourData),(time.clock() - tt) ))
+		#logger.debug("There are %s hour(s) in current data. Elapes %s second(s)" % (len(hourData),(time.clock() - tt) ))
 		return hourData
+		
+	def saveZip(self,fileName,data):
+		saveFile = os.path.join(self.outFolder,fileName)
+		logger.debug("Saving %s" % saveFile)
+		fp = gzip.open(saveFile,'wb')
+		pickle.dump(data,fp,protocol=-1)
+		fp.close()
+		logger.debug("Saved %s" % saveFile)
+		
+	def loadZip(self,fileName):
+		toLoad = os.path.join(self.outFolder,fileName)
+		fp = gzip.open(toLoad,'rb') # This assumes that primes.data is already packed with gzip
+		out=pickle.load(fp)
+		fp.close()
+		return out
 		

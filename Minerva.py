@@ -26,12 +26,8 @@ logger.addHandler(consoleHandler)
 
 def main():
 	tsd = TimeSeriesDataset()
-	#batteries = tsd.loadEpisodedDataset("dataset",dataFile="episodedDF")
-	trainX, trainY, validX, validY, testX, testY = tsd.dataFormatKerasLSTM("dataset",dataFile="kerasData.gzip",force=False)
-	
-	
-	
-	
+	#tsd.supervisedData4KerasLSTM("dataset",force=True) 
+	exit()
 	
 	
 	#if(True):
