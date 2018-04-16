@@ -26,30 +26,26 @@ logger.addHandler(consoleHandler)
 
 def main():
 	tsd = TimeSeriesDataset()
+	
+	batteries = len(os.listdir(tsd.outFolder))
+	testSize = ceil(batteries * 0.2)
+	trainSize = batteries - testSize
+	
+	logger.info("Train: %d - Test: %d"  % (trainSize,testSize))
+	
 	#tsd.supervisedData4KerasLSTM("dataset",force=True) 
-	exit()
-	
-	
-	#if(True):
-	#	i = 1
-	#	plt.figure()
-	#	for col in range(trainX[0].shape[2]):
-	#		plt.subplot(trainX[0].shape[2], 1, i)
-	#		plt.plot(trainX[0][0][:, col])
-	#		i += 1
-	#	plt.show()
 	
 	minerva = Minerva()
-	#minerva.getModel(trainX, trainY, validX, validY, testX, testY)
+	minerva.getModel(trainSize,tsd)
 	
-	testX = minerva.batchCompatible(300,testX)
+	#testX = minerva.batchCompatible(300,test[0])
 	
-	model = load_model('batteryLSTM.h5')
-	tt = time.clock()
-	Yhat = model.predict(testX[0],batch_size=300)
-	logger.info("Prediction completed. Elapsed %f second(s)" %  (time.clock() - tt))
-	logger.info(len(Yhat))
-	logger.info(Yhat.shape)
+	#model = load_model('batteryLSTM.h5')
+	#tt = time.clock()
+	#Yhat = model.predict(testX[0],batch_size=300)
+	#logger.info("Prediction completed. Elapsed %f second(s)" %  (time.clock() - tt))
+	#logger.info(len(Yhat))
+	#logger.info(Yhat.shape)
 	
 	if(True):
 		i = 1
@@ -63,30 +59,26 @@ def main():
 	
 		
 class Minerva():
+
+	modelName = "modelloNuovo.h5"
+
 	"""
 	Model for learning 
 	"""
-	def getModel(self,trainX, trainY, validX, validY, testX, testY):
+	def getModel(self,trainSize,tsd):
+	
+		f = os.listdir(tsd.outFolder)[0]
+		data = tsd.tsp.loadZip(f)
+		
 		tt = time.clock()
 		# battery, days, X, Y
-		batch_size = 300
-		epochs = 17
-		# shorten list to multiple of batch_size
-		trainX = self.batchCompatible(batch_size,trainX)
-		trainY = self.batchCompatible(batch_size,trainY)
-		validX = self.batchCompatible(batch_size,validX)
-		validY = self.batchCompatible(batch_size,validY)
-		testX = self.batchCompatible(batch_size,testX)
-		testY = self.batchCompatible(batch_size,testY)
+		batch_size = 150
+		epochs = 11
 
-		logger.info(trainX[0].shape)
-		logger.info(validX[0].shape)
-		logger.info(testX[0].shape)
-		
 		hiddenStateDim = 8
-		inputFeatures = trainX[0].shape[2]
-		outputFeatures = trainY[0].shape[2]
-		timeSteps = trainX[0].shape[1]
+		inputFeatures = data[0].shape[2]
+		outputFeatures = data[1].shape[2]
+		timeSteps = data[0].shape[1]
 		model = Sequential()
 		
 		encoder = (
@@ -104,26 +96,46 @@ class Minerva():
 		model.add(decoder)
 		model.compile(loss='mse', optimizer='adam')
 		
-		batteries = len(trainX)
-		logger.info("Training %s episodes" % batteries)
-		for battery in range(batteries):
-			print("Training battery %s of %s" % ((battery+1),batteries),end='\r')
+		
+		logger.info("Training %s batteries" % trainSize)
+		for train in range(trainSize):
+			f = os.listdir(tsd.outFolder)[train]
+			data = tsd.tsp.loadZip(f)
+			valididx = ceil(data[0].shape[0] * 0.8)
+			
+			trainX = data[0][:valididx]
+			trainY = data[1][:valididx]
+			validX = data[0][valididx:]
+			validY = data[1][valididx:]
+			
+			
+			trainX = self.batchCompatible(batch_size,trainX)
+			trainY = self.batchCompatible(batch_size,trainY)
+			validX = self.batchCompatible(batch_size,validX)
+			validY = self.batchCompatible(batch_size,validY)
+			
+			logger.info(trainX.shape)
+			logger.info(trainY.shape)
+			logger.info(validX.shape)
+			logger.info(validY.shape)
+			
+			
+			logger.info("Training battery %s of %s" % ((train+1),trainSize))
 			(
-			model.fit(trainX[battery],trainY[battery],
+			model.fit(trainX,trainY,
 			batch_size=batch_size, epochs=epochs, shuffle=False,
-			validation_data=(validX[battery], validY[battery]))
+			validation_data=(validX, validY))
 			)
 			model.reset_states()
-		model.save('batteryLSTM.h5')  # creates a HDF5 file 'batteryLSTM.h5'
+		model.save(self.modelName)  # creates a HDF5 file 'batteryLSTM.h5'
 		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 	
-	def batchCompatible(self,batch_size,list):
-		for i in range(len(list)):
-			exceed = list[i].shape[0] % batch_size
-			if(exceed > 0):
-				list[i] = list[i][:-exceed]
-		return list
+	def batchCompatible(self,batch_size,data):
+		exceed = data.shape[0] % batch_size
+		if(exceed > 0):
+			data = data[:-exceed]
+		return data
 	
 main()
 

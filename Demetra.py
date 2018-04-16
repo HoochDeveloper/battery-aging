@@ -343,9 +343,11 @@ class TimeSeriesPreprocessing():
 		logger.debug("Saved %s" % saveFile)
 		
 	def loadZip(self,fileName):
+		logger.debug("Loading zip %s" % fileName)
 		toLoad = os.path.join(self.outFolder,fileName)
 		fp = gzip.open(toLoad,'rb') # This assumes that primes.data is already packed with gzip
 		out=pickle.load(fp)
 		fp.close()
+		logger.debug("Loaded zip %s" % fileName)
 		return out
 		
