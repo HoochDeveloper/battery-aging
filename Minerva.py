@@ -36,45 +36,57 @@ def main():
 	#tsd.supervisedData4KerasLSTM("dataset",force=True) 
 	
 	minerva = Minerva()
-	minerva.getModel(trainSize,tsd)
+	model = minerva.getModel(trainSize,tsd)
 	
-	#testX = minerva.batchCompatible(300,test[0])
 	
-	#model = load_model('batteryLSTM.h5')
-	#tt = time.clock()
-	#Yhat = model.predict(testX[0],batch_size=300)
-	#logger.info("Prediction completed. Elapsed %f second(s)" %  (time.clock() - tt))
-	#logger.info(len(Yhat))
-	#logger.info(Yhat.shape)
+	f = os.listdir(tsd.outFolder)[trainSize+1]
+	test = tsd.tsp.loadZip(f)
 	
+	testX = minerva.batchCompatible(minerva.batchSize,test[0])
+	testY = minerva.batchCompatible(minerva.batchSize,test[1])
+	
+	logger.info("Evaluating")
+	tt = time.clock()
+	scores = model.evaluate(testX, testY, batch_size=minerva.batchSize)
+	logger.info('mse=%f' % (scores))
+	logger.info("Evaluation completed. Elapsed %f second(s)" %  (time.clock() - tt))
 	if(True):
+		logger.info("Predicting")
+		tt = time.clock()
+		Yhat = model.predict(testX,batch_size=minerva.batchSize)
+		logger.info("Prediction completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		i = 1
 		plt.figure()
-		for col in range(testY[0].shape[2]):
-			plt.subplot(testY[0].shape[2], 1, i)
+		for col in range(test[1].shape[2]):
+			plt.subplot(test[1].shape[2], 1, i)
 			plt.plot(Yhat[0][:, col])
-			plt.plot(testY[0][0][:, col])
+			plt.plot(test[1][0][:, col])
 			i += 1
 		plt.show()
 	
 		
 class Minerva():
 
-	modelName = "modelloNuovo.h5"
-
+	#modelName = "modelloNuovo.h5"
+	modelName = "20180418_deepModel.h5"
+	batchSize = 250
+	epochs = 5
 	"""
 	Model for learning 
 	"""
 	def getModel(self,trainSize,tsd):
-	
+		
+		if(os.path.exists(self.modelName)):
+			model = load_model(self.modelName)
+			return model
+		
+		logger.info("Model %s does not exists. Training a new model." % self.modelName )
 		f = os.listdir(tsd.outFolder)[0]
 		data = tsd.tsp.loadZip(f)
 		
 		tt = time.clock()
 		# battery, days, X, Y
-		batch_size = 150
-		epochs = 11
-
+		
 		hiddenStateDim = 8
 		inputFeatures = data[0].shape[2]
 		outputFeatures = data[1].shape[2]
@@ -83,15 +95,31 @@ class Minerva():
 		
 		encoder = (
 		LSTM(hiddenStateDim, 
-		batch_input_shape=(batch_size, timeSteps, inputFeatures),stateful=True,
-		return_sequences=True))
+		batch_input_shape=(self.batchSize, timeSteps, inputFeatures),stateful=True,
+		return_sequences=True,shuffle=False ))
 		
 		model.add(encoder)
+		
+		hiddenEncoder = (
+		LSTM(int(hiddenStateDim / 2), 
+		batch_input_shape=(self.batchSize, timeSteps, inputFeatures),stateful=True,
+		return_sequences=True,shuffle=False ))
+		
+		model.add(hiddenEncoder)
+		
+		
+		hiddenDecoder = (
+		LSTM(hiddenStateDim,
+		input_shape=(timeSteps,int(hiddenStateDim / 2)),
+		return_sequences=True,stateful=True,shuffle=False )
+		)
+		model.add(hiddenDecoder)
+		
 		
 		decoder = (
 		LSTM(outputFeatures,
 		input_shape=(timeSteps,hiddenStateDim),
-		return_sequences=True,stateful=True)
+		return_sequences=True,stateful=True,shuffle=False )
 		)
 		model.add(decoder)
 		model.compile(loss='mse', optimizer='adam')
@@ -108,11 +136,11 @@ class Minerva():
 			validX = data[0][valididx:]
 			validY = data[1][valididx:]
 			
-			
-			trainX = self.batchCompatible(batch_size,trainX)
-			trainY = self.batchCompatible(batch_size,trainY)
-			validX = self.batchCompatible(batch_size,validX)
-			validY = self.batchCompatible(batch_size,validY)
+			# TODO batch size may vary
+			trainX = self.batchCompatible(self.batchSize,trainX)
+			trainY = self.batchCompatible(self.batchSize,trainY)
+			validX = self.batchCompatible(self.batchSize,validX)
+			validY = self.batchCompatible(self.batchSize,validY)
 			
 			logger.info(trainX.shape)
 			logger.info(trainY.shape)
@@ -123,14 +151,16 @@ class Minerva():
 			logger.info("Training battery %s of %s" % ((train+1),trainSize))
 			(
 			model.fit(trainX,trainY,
-			batch_size=batch_size, epochs=epochs, shuffle=False,
+			batch_size=self.batchSize, epochs=self.epochs, shuffle=False,
 			validation_data=(validX, validY))
 			)
 			model.reset_states()
 		model.save(self.modelName)  # creates a HDF5 file 'batteryLSTM.h5'
 		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
-	
+		
+		return model
+		
 	def batchCompatible(self,batch_size,data):
 		exceed = data.shape[0] % batch_size
 		if(exceed > 0):
