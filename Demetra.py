@@ -16,7 +16,6 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 from math import sqrt,ceil,trunc
-from random import randint, shuffle
 from sklearn.preprocessing import MinMaxScaler
 
 #Module logging
@@ -49,7 +48,8 @@ class EpisodedTimeSeries():
 	"S_VBATCB2_CB2" : np.uint16,"S_VINCB1_CB1" : np.uint16,"S_VINCB2_CB2" : np.uint16,
 	"S_CORRBATT_FLG1" : np.int16,"S_TENSBATT_FLG1" : np.float32 })
 
-	dataColumns = dataHeader[2:] # column with valid data
+	dropX = [dataHeader[0],dataHeader[1]] # columns to drop for X
+	keepY = [dataHeader[16],dataHeader[17]] # columns to keep for Y
 	
 	# Attributes
 	timeIndex = None
@@ -80,7 +80,75 @@ class EpisodedTimeSeries():
 		# used for determing when an episode start, charge and discharge
 		self.currentIndex = self.dataHeader[16]
 		self.voltageIndex = self.dataHeader[17]
+	
+	def loadTrainSet(self):
+		load = self.loadZip("scaled","XYT_XYV")
 		
+		x_train = load[0]
+		y_train = load[1]
+		x_valid = load[2]
+		y_valid = load[3]
+		
+		return x_train, y_train, x_valid, y_valid
+	
+	def scaleTrainSet(self,validPerc=0.2):
+		"""
+		build x_train, y_train, x_valid, y_valid
+		"""
+		
+		Xall = []
+		Yall = []
+		logger.info("Build lists X,Y")
+		for f in os.listdir(self.resultPath):
+			episodeList = self.loadZip(self.resultPath,f)
+			for e in range(len(episodeList)):
+				x = episodeList[e].drop(columns=self.dropX)
+				y = episodeList[e][self.keepY]
+				Xall.append(x)
+				Yall.append(y)
+		
+		
+		logger.info("Scaling")
+		minRange=-1
+		maxRange=1
+		scaler = self.getScaleDict(Xall)
+		for i in range(len(Xall)):
+			logger.info("Scaling X %d of %d" % (i+1,len(Xall)))
+			for k in scaler.keys():
+				min_value = scaler[k][0]
+				max_value = scaler[k][0]
+				Xall[i][k] = (Xall[i][k] - min_value) / (max_value - min_value)
+				Xall[i][k] =  Xall[i][k] * (maxRange - minRange) + minRange 
+			logger.info("Scaling Y %d of %d" % (i+1,len(Xall)))
+			for k in self.keepY:
+				min_value = scaler[k][0]
+				max_value = scaler[k][0]
+				Yall[i][k] = (Yall[i][k] - min_value) / (max_value - min_value)
+				Yall[i][k] =  Yall[i][k] * (maxRange - minRange) + minRange 
+				
+		
+		logger.info("Build shuffled")
+		shuffledX = np.zeros([len(Xall),Xall[0].shape[0],Xall[0].shape[1]])
+		shuffledY = np.zeros([len(Yall),Yall[0].shape[0],Yall[0].shape[1]])
+		logger.info(shuffledX.shape)
+		logger.info(shuffledY.shape)
+		
+		np.random.seed(42)
+		shuffled = np.random.permutation(len(Xall))
+		for i in range(len(Xall)):
+			shuffledX[i] = Xall[shuffled[i]]
+			shuffledY[i] = Yall[shuffled[i]]
+		
+		validStartIdx = int( len(Xall) * (1 - validPerc) )
+		x_train = shuffledX[:validStartIdx]
+		y_train = shuffledY[:validStartIdx]
+		x_valid = shuffledX[validStartIdx:]
+		y_valid = shuffledY[validStartIdx:]
+		
+		self.saveZip("scaled","XYT_XYV",[x_train, y_train, x_valid, y_valid])
+		
+		return x_train, y_train, x_valid, y_valid
+	
 	
 	# public methods
 	def timeSeries2relevantEpisodes(self,dataFolder,force=False):
@@ -279,25 +347,22 @@ class EpisodedTimeSeries():
 			logger.warning("File %s does not exists" % toLoad)
 		return out
 		
-	def scale(self,data,normalization,minRange=-1,maxRange=1):
+	def getScaleDict(self,list,minRange=-1,maxRange=1):
 		""" 
 		scale the specified columns in the min - max range 
 		Parameters:
 			data: dataframe wich columns will be scaled
-			normalization: array of columns to scale
 		Output:
 			dataframe with specified columns scaled
 		"""
-		logger.info("Data normalization in (%f,%f)" % (minRange,maxRange) )
+		data = pd.concat(list)
+		scaleDict = {}
 		tt = time.clock()
-		for i in normalization:
-			logger.debug("Normalizing %s" % i)
+		for i in data.columns:
 			max_value = data[i].max()
 			min_value = data[i].min()
-			data[i] = (data[i] - min_value) / (max_value - min_value)
-			data[i] = data[i] * (maxRange - minRange) + minRange 
-		logger.info("Normalization completed in %f second(s)" % (time.clock() - tt))
-		return data
+			scaleDict[i] = [min_value,max_value]
+		return scaleDict
 		
 
 		

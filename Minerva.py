@@ -27,9 +27,29 @@ logger.addHandler(consoleHandler)
 
 def main():
 	ets = EpisodedTimeSeries()
-	ets.timeSeries2relevantEpisodes(os.path.join(".","dataset"),force=True)
+	#ets.timeSeries2relevantEpisodes(os.path.join(".","dataset"),force=True)
+	#x_train, y_train, x_valid, y_valid = ets.scaleTrainSet()
 	
-	#minerva = Minerva()
+	x_train, y_train, x_valid, y_valid = ets.loadTrainSet()
+	
+	logger.info(x_train.shape)
+	
+	i = 1
+	plt.figure()
+	
+	for col in range(x_train.shape[2]):
+		plt.subplot(x_train.shape[2], 1, i)
+		plt.plot(x_train[0,:, col])
+		i += 1
+	plt.show()
+	
+	
+	minerva = Minerva()
+	
+	
+	
+	
+	#minerva.trainModel(x_train, y_train, x_valid, y_valid)
 	
 	#minerva.evaluateModel(tsd,"./testData")
 	
@@ -75,104 +95,69 @@ def main():
 class Minerva():
 
 	#modelName = "modelloNuovo.h5"
-	modelName = "ADAM_DEEP_20180421_test_deepModel.h5"
+	modelName = "episoded_deepModel.h5"
 	batchSize = 250
 	epochs = 4
 	learningRate = 0.001
 	"""
 	Model for learning 
 	"""
-	def getModel(self,trainSize,tsd,force=False):
+	def trainModel(self,x_train, y_train, x_valid, y_valid,force=False):
 		
-		if(force and os.path.exists(self.modelName)):
-			model = load_model(self.modelName)
-			return model
+		x_train = self.batchCompatible(self.batchSize,x_train)
+		y_train = self.batchCompatible(self.batchSize,y_train)
+		x_valid = self.batchCompatible(self.batchSize,x_valid)
+		y_valid = self.batchCompatible(self.batchSize,y_valid)
 		
-		logger.info("Model %s does not exists. Training a new model." % self.modelName )
-		f = os.listdir(tsd.outFolder)[0]
-		data = tsd.tsp.loadZip(f)
+		
 		
 		tt = time.clock()
-		# battery, days, X, Y
 		
-		inputFeatures = data[0].shape[2]
-		outputFeatures = data[1].shape[2]
+		inputFeatures  = x_train.shape[2]
+		outputFeatures = y_train.shape[2]
 		
 		hiddenStateDim = 8
 		
-		timeSteps = 1#data[0].shape[1]
+		timeSteps =  x_train.shape[1]
 		model = Sequential()
 		
 		encoder = (
 		LSTM(hiddenStateDim, 
 		batch_input_shape=(self.batchSize, timeSteps, inputFeatures),
-		return_sequences=True,stateful=True))
+		return_sequences=True,stateful=False))
 		
 		model.add(encoder)
 		
 		hiddenEncoder = (
 		LSTM(int(hiddenStateDim / 2), 
 		batch_input_shape=(self.batchSize, timeSteps, inputFeatures),
-		return_sequences=True,stateful=True))
+		return_sequences=True,stateful=False))
 		model.add(hiddenEncoder)
         
 		hiddenDecoder = (
 		LSTM(hiddenStateDim,
-		input_shape=(timeSteps,int(hiddenStateDim / 2)),
-		return_sequences=True,stateful=True )
+		batch_input_shape=(self.batchSize,timeSteps,int(hiddenStateDim / 2)),
+		return_sequences=True,stateful=False )
 		)
 		model.add(hiddenDecoder)
 
 		decoder = (
 		LSTM(outputFeatures,
-		input_shape=(1,hiddenStateDim),
-		return_sequences=False,stateful=True )
+		batch_input_shape=(self.batchSize,timeSteps,hiddenStateDim),
+		return_sequences=True,stateful=False )
 		)
 		model.add(decoder)
+		
+		
 		
 		#sgd = optimizers.SGD(lr=self.learningRate, decay=1e-6, momentum=0.9, nesterov=True)
 		#model.compile(loss='mse', optimizer=sgd,metrics=['mae'])
 		
 		model.compile(loss='mse', optimizer='adam',metrics=['mae'])
 		
-		logger.info("Training %s batteries" % trainSize)
-		for train in range(trainSize):
-			f = os.listdir(tsd.outFolder)[train]
-			data = tsd.tsp.loadZip(f)
-			trainX = data[0]
-			trainY = data[1]
-			bachInEpoch = int( trainX.shape[0] / self.batchSize )
-			trainX = self.batchCompatible(self.batchSize,trainX)
-			trainY = self.batchCompatible(self.batchSize,trainY)
-			logger.info("bachInEpoch %s" % bachInEpoch)
-			for epoch in range(self.epochs):
-				mean_tr_mae = []
-				
-				mean_tr_loss = []
-				logger.info("Epoch %s" % epoch)
-				for sample in range(bachInEpoch):
-					batchStartIdx = self.batchSize * sample
-					batchEndIdx = batchStartIdx + self.batchSize
-					logger.info("Batch %s of %s" % (sample , bachInEpoch))
-					for timeStep in range(trainX.shape[1]):
-						tr_loss, tr_mae = (
-								model.train_on_batch(
-									np.expand_dims(trainX[batchStartIdx:batchEndIdx,timeStep,:],axis=1)
-									,
-									trainY[batchStartIdx:batchEndIdx,timeStep,:]
-								)
-						)
-						
-						mean_tr_loss.append(tr_loss)
-						mean_tr_mae.append(tr_mae)
-				#reset every epoch
-				model.reset_states()
-				
-				print('Epoch MAE training = {}'.format(np.mean(mean_tr_mae)))
-				print('Epoch loss training = {}'.format(np.mean(mean_tr_loss)))
-				print('___________________________________')
-			#end epoch for
-		# end train for	
+		model.fit(x_train, y_train,batch_size=self.batchSize, epochs=10, shuffle=False,
+			validation_data=(x_valid, y_valid))
+		
 		model.save(self.modelName)  # creates a HDF5 file 'batteryLSTM.h5'
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		return model
