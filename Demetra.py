@@ -58,10 +58,12 @@ class EpisodedTimeSeries():
 	currentIndex = None
 	voltageIndex = None
 	
-	processor = None
+	
 	rootResultFolder = "."
-	resultFolder = "tempOut"
+	resultFolder = "episodes"
 	resultPath = None
+	
+	timeSteps = 30
 	
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	
@@ -75,7 +77,6 @@ class EpisodedTimeSeries():
 			os.makedirs(self.resultPath)
 		self.timeIndex = self.dataHeader[0]
 		self.groupIndex = self.dataHeader[1]
-		self.processor = TimeSeriesPreprocessor()
 		# used for determing when an episode start, charge and discharge
 		self.currentIndex = self.dataHeader[16]
 		self.voltageIndex = self.dataHeader[17]
@@ -89,7 +90,7 @@ class EpisodedTimeSeries():
 		"""
 		tt = time.clock()
 		logger.info("timeSeries2relevantEpisodes - start")
-		self.__readRawDataSet(dataFolder)
+		self.__readFolderAsEpisodedDataframes(dataFolder,force)
 		logger.info("timeSeries2relevantEpisodes - end - Elapsed: %f" % (time.clock() - tt))
 			
 	def plot(self,data,startIdx=None,endIdx=None,savePath=None):
@@ -136,42 +137,9 @@ class EpisodedTimeSeries():
 		
 	# private methods
 	
-	def __readRawDataSet(self,dataFolder):
-		""" 
-		Load the whole dataset form specified dataFolder
-		grouped in episodes
-		Save dataset to specifid file
-		list of [battery][day][hour]
-		"""
-		episodedDataframes = self.__readFolderAsEpisodedDataframes(dataFolder)
-		#scaledDataframe = self.tsp.scale(episodedDataframe,self.dataColumns)
-		#
-		#groups = [ group[1] for group in scaledDataframe.groupby(self.groupIndex) ]
-		# this is important for memory efficency
-		#for  in batteries:
-		#	self.tsp.saveZip(b["THING"],b)
-		#batteries = None
-		#
-		#for f in  os.listdir(self.outFolder):
-		#	currentBattery = self.tsp.loadZip(dataFolder,f)
-		#	days = []
-		#	dailyDf = self.tsp.groupByDayTimeIndex(currentBattery,self.timeIndex)
-		#	for j in range(len(dailyDf)):
-		#		hourDfList = self.tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
-		#		for h in range(len(hourDfList)):
-		#			hourDf = hourDfList[h]
-		#			hourDf.drop(columns=["TSTAMP", "THING"],inplace=True)
-		#			X = hourDf.values
-		#			hourDf.drop(columns=["CONF","SPEED"],inplace=True)
-		#			Y = hourDf.values
-		#			days.append([X,Y])
-		#	x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in days  ] )
-		#	logger.debug(x.shape)
-		#	y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in days  ] )
-		#	logger.debug(y.shape)
-		#	self.tsp.saveZip(f,[x,y])
 	
-	def __readFolderAsEpisodedDataframes(self,dataFolder):
+	
+	def __readFolderAsEpisodedDataframes(self,dataFolder,force=False):
 		""" 
 		Read all files in folder as episoded dataframe 
 		Every item in the return list is a different thing
@@ -185,18 +153,25 @@ class EpisodedTimeSeries():
 		if( not os.path.isdir(dataFolder)):
 			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
 			return None
-		episodedDataFrames = []
 		for file in os.listdir(dataFolder):
 			if(os.path.isfile(os.path.join(dataFolder,file))):
 				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
 				if(loaded is not None):
-					fileEpisodes = self.__findEpisodeInDataframe(loaded,45)
-					batteryName = fileEpisodes[0][self.groupIndex].values[0]
-					logger.info("Battery name loaded is %s" % batteryName)
-					self.saveZip(self.resultPath,batteryName,fileEpisodes)
-					episodedDataFrames.append(fileEpisodes)
+					batteryName = loaded[self.groupIndex].values[0]
+					logger.info("Checking episodes for battery %s" % batteryName)
+					savePath = os.path.join(self.resultPath,batteryName)
+					if(force or (not os.path.exists(savePath))):
+						fileEpisodes = self.__findEpisodeInDataframe(loaded,self.timeSteps)
+						logger.info("Episodes are %d" % len(fileEpisodes))
+						if(len(fileEpisodes) > 0):
+							self.saveZip(self.resultPath,batteryName,fileEpisodes)
+							
+						else:
+							logger.info("No episodes in file")
+					else:
+						logger.info("Episodes for battery %s already exists" % batteryName)
 		logger.info("Folder read complete. Elapsed %f" %  (time.clock() - tt))
-		return episodedDataFrames
+		# TODO load all dataframe from file?
 		
 	def __readFileAsDataframe(self,file):
 		""" 
@@ -229,7 +204,7 @@ class EpisodedTimeSeries():
 		"""
 		tt = time.clock()
 		episodes = []
-		maxVoltage = int(np.max(dataframe[self.voltageIndex].values))
+		maxVoltage = 30 #int(np.max(dataframe[self.voltageIndex].values))
 		logger.debug("Max integer voltage %s" % maxVoltage)
 		episodeStart = False
 		
@@ -290,8 +265,19 @@ class EpisodedTimeSeries():
 		pickle.dump(data,fp,protocol=-1)
 		fp.close()
 		logger.debug("Saved %s" % saveFile)
-
-class TimeSeriesPreprocessor():
+	
+	def loadZip(self,folder,fileName):
+		toLoad = os.path.join(folder,fileName)
+		logger.debug("Loading zip %s" % toLoad)
+		out = None
+		if( os.path.exists(toLoad) ):
+			fp = gzip.open(toLoad,'rb') # This assumes that primes.data is already packed with gzip
+			out = pickle.load(fp)
+			fp.close()
+			logger.debug("Loaded zip %s" % fileName)
+		else:
+			logger.warning("File %s does not exists" % toLoad)
+		return out
 		
 	def scale(self,data,normalization,minRange=-1,maxRange=1):
 		""" 
@@ -313,36 +299,9 @@ class TimeSeriesPreprocessor():
 		logger.info("Normalization completed in %f second(s)" % (time.clock() - tt))
 		return data
 		
-	def groupByDayTimeIndex(self,data,timeIndex):
-		""" 
-		In:
-		data: dataframe to group
-		timeIndex: name of column to group by day 
-		Out:
-		Create a list of dataframe grouped by day for the specified time index.
-		"""
-		dayData = [ group[1] for group in data.groupby([data[timeIndex].dt.date]) ]
-		return dayData
-		
-	def groupByHourTimeIndex(self,data,timeIndex):
-		""" 
-		Create a list of dataframe grouped by hour for the specified timeIndex.
-		"""
-		hourData = [ group[1] for group in data.groupby([data[timeIndex].dt.hour]) ]
-		return hourData
+
 		
 	
 		
-	def loadZip(self,folder,fileName):
-		toLoad = os.path.join(folder,fileName)
-		logger.debug("Loading zip %s" % toLoad)
-		out = None
-		if( os.path.exists(toLoad) ):
-			fp = gzip.open(toLoad,'rb') # This assumes that primes.data is already packed with gzip
-			out = pickle.load(fp)
-			fp.close()
-			logger.debug("Loaded zip %s" % fileName)
-		else:
-			logger.warning("File %s does not exists" % toLoad)
-		return out
+	
 		

@@ -4,7 +4,7 @@ from math import sqrt,ceil,trunc
 import pandas as pd
 
 #Project module import
-from Demetra import EpisodedTimeSeries,TimeSeriesPreprocessor
+from Demetra import EpisodedTimeSeries
 
 from keras.models import Sequential
 from keras.layers import LSTM, Dense, TimeDistributed
@@ -27,7 +27,7 @@ logger.addHandler(consoleHandler)
 
 def main():
 	ets = EpisodedTimeSeries()
-	ets.timeSeries2relevantEpisodes(os.path.join(".","partialDS"))
+	ets.timeSeries2relevantEpisodes(os.path.join(".","dataset"),force=True)
 	
 	#minerva = Minerva()
 	
