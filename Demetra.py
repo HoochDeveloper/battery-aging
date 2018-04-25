@@ -10,6 +10,7 @@ Requires:
 	numpy	(http://www.numpy.org/)
 """
 #Imports
+import uuid
 import time,os,logging, matplotlib.pyplot as plt, six.moves.cPickle as pickle, gzip
 from datetime import datetime
 import pandas as pd
@@ -27,11 +28,10 @@ consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
-class TimeSeriesDataset():
-	
-	# Attributes
-	timeIndex = None
-	groupIndex = None 
+class EpisodedTimeSeries():
+	"""
+	Give access to episode in timeseries
+	"""
 	
 	
 	# custom header and types, dataset specific
@@ -51,45 +51,56 @@ class TimeSeriesDataset():
 
 	dataColumns = dataHeader[2:] # column with valid data
 	
-	tsp = None
-	rootFolder = "."
-	resultFolder = "out"
-	testPerc = 0.2
-	outFolder = None
+	# Attributes
+	timeIndex = None
+	groupIndex = None 
+	
+	currentIndex = None
+	voltageIndex = None
+	
+	processor = None
+	rootResultFolder = "."
+	resultFolder = "tempOut"
+	resultPath = None
+	
+	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	
 	#Constructor
 	def __init__(self):
 		""" 
-		Init the TimeSeriesLoader, set the timeindex and the groupindex
+		Create, if not exists, the result path for storing the episoded dataset
 		"""
-		self.outFolder = os.path.join(self.rootFolder,self.resultFolder)
-		if not os.path.exists(self.outFolder):
-			os.makedirs(self.outFolder)
+		self.resultPath = os.path.join(self.rootResultFolder,self.resultFolder)
+		if not os.path.exists(self.resultPath):
+			os.makedirs(self.resultPath)
 		self.timeIndex = self.dataHeader[0]
 		self.groupIndex = self.dataHeader[1]
-		self.tsp = TimeSeriesPreprocessing(self.outFolder)
+		self.processor = TimeSeriesPreprocessor()
+		# used for determing when an episode start, charge and discharge
+		self.currentIndex = self.dataHeader[16]
+		self.voltageIndex = self.dataHeader[17]
 		
 	
 	# public methods
-	def supervisedData4KerasLSTM(self,dataFolder,force=False):
+	def timeSeries2relevantEpisodes(self,dataFolder,force=False):
 		""" 
-		Format the data to be used by Keras LSTM in batch fashion
+		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
+		force: if True entire results will be created even if already exists
 		"""
 		tt = time.clock()
-		loaded = None
-		if(not force):
-			loaded = self.__loadDataFrame(dataFolder)		
-		if( loaded is None ):
-			logger.info("Building supervised episodes")
-			self.__supervisedEpisodes(dataFolder)
-			logger.info("Builded supervised episodes %f" % (time.clock() - tt))
+		logger.info("timeSeries2relevantEpisodes - start")
+		self.__readRawDataSet(dataFolder)
+		logger.info("timeSeries2relevantEpisodes - end - Elapsed: %f" % (time.clock() - tt))
 			
-	def plot(self,data):
+	def plot(self,data,startIdx=None,endIdx=None,savePath=None):
 		#column index of the sequence time index
 		dateIndex = self.dataHeader.index(self.timeIndex)
 		groupIndex = self.dataHeader.index(self.groupIndex)
 		# values to plot
-		values = data.values
+		if(startIdx is None and endIdx is None):
+			values = data.values
+		else:
+			values = data.loc[startIdx:endIdx,:].values
 		# getting YYYY-mm-dd for the plot title
 		date =  values[:, dateIndex][0].strftime("%Y-%m-%d")
 		batteryName =  values[:, groupIndex][0]
@@ -98,7 +109,7 @@ class TimeSeriesDataset():
 		toPlot = range(2,18)
 		i = 1
 		plt.figure()
-		plt.suptitle("Data for battery %s in day %s " % (batteryName,date), fontsize=16)
+		plt.suptitle("Data for battery %s in day %s" % (batteryName,date), fontsize=16)
 		for col in toPlot:
 			plt.subplot(len(toPlot), 1, i)
 			plt.plot(values[:, col])
@@ -109,71 +120,91 @@ class TimeSeriesDataset():
 		# integer range, needed for setting xlabel as HH:MM:SS
 		xs = range(len(timeLabel))
 		# setting HH:MM:SS as xlabel
-		frequency = int(len(timeLabel) / 40)
+		frequency = int(len(timeLabel) / 4)
 		plt.xticks(xs[::frequency], timeLabel[::frequency])
-		plt.xticks(rotation=90)
-		plt.show()
-	
+		plt.xticks(rotation=45)
+		if(savePath is None):
+			plt.show()
+		else:
+			batteryImagePath = os.path.join(savePath,batteryName)
+			if not os.path.exists(batteryImagePath):
+				os.makedirs(batteryImagePath)
+			#saveImageName = "%s_%s.png" % (startIdx,endIdx)
+			unique_filename = str(uuid.uuid4())
+			plt.savefig(os.path.join(batteryImagePath,unique_filename), bbox_inches='tight')
+			plt.close()
+		
 	# private methods
 	
-	def __supervisedEpisodes(self,dataFolder):
+	def __readRawDataSet(self,dataFolder):
 		""" 
 		Load the whole dataset form specified dataFolder
 		grouped in episodes
 		Save dataset to specifid file
 		list of [battery][day][hour]
 		"""
-		df = self.__readFolder(dataFolder)
-		dfs = self.tsp.scale(df,self.dataColumns)
-		
-		batteries = [ group[1] for group in dfs.groupby("THING") ]
+		episodedDataframes = self.__readFolderAsEpisodedDataframes(dataFolder)
+		#scaledDataframe = self.tsp.scale(episodedDataframe,self.dataColumns)
+		#
+		#groups = [ group[1] for group in scaledDataframe.groupby(self.groupIndex) ]
 		# this is important for memory efficency
-		for b in batteries:
-			self.tsp.saveZip(b["THING"],b)
-		batteries = None
-		
-		for f in  os.listdir(self.outFolder):
-			currentBattery = self.tsp.loadZip(dataFolder,f)
-			days = []
-			dailyDf = self.tsp.groupByDayTimeIndex(currentBattery,self.timeIndex)
-			for j in range(len(dailyDf)):
-				hourDfList = self.tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
-				for h in range(len(hourDfList)):
-					hourDf = hourDfList[h]
-					hourDf.drop(columns=["TSTAMP", "THING"],inplace=True)
-					X = hourDf.values
-					hourDf.drop(columns=["CONF","SPEED"],inplace=True)
-					Y = hourDf.values
-					days.append([X,Y])
-			x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in days  ] )
-			logger.debug(x.shape)
-			y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in days  ] )
-			logger.debug(y.shape)
-			self.tsp.saveZip(f,[x,y])
+		#for  in batteries:
+		#	self.tsp.saveZip(b["THING"],b)
+		#batteries = None
+		#
+		#for f in  os.listdir(self.outFolder):
+		#	currentBattery = self.tsp.loadZip(dataFolder,f)
+		#	days = []
+		#	dailyDf = self.tsp.groupByDayTimeIndex(currentBattery,self.timeIndex)
+		#	for j in range(len(dailyDf)):
+		#		hourDfList = self.tsp.groupByHourTimeIndex(dailyDf[j],self.timeIndex)
+		#		for h in range(len(hourDfList)):
+		#			hourDf = hourDfList[h]
+		#			hourDf.drop(columns=["TSTAMP", "THING"],inplace=True)
+		#			X = hourDf.values
+		#			hourDf.drop(columns=["CONF","SPEED"],inplace=True)
+		#			Y = hourDf.values
+		#			days.append([X,Y])
+		#	x = np.array( [ [ [x for x in X ] for X in day[0] ] for day in days  ] )
+		#	logger.debug(x.shape)
+		#	y = np.array( [ [ [y for y in Y ] for Y in day[1] ] for day in days  ] )
+		#	logger.debug(y.shape)
+		#	self.tsp.saveZip(f,[x,y])
 	
-	def __readFolder(self,dataFolder):
-		""" Read all files in folder as one pandas dataframe """
+	def __readFolderAsEpisodedDataframes(self,dataFolder):
+		""" 
+		Read all files in folder as episoded dataframe 
+		Every item in the return list is a different thing
+		Every inner item is a list of episode for the current thing
+		
+		result[thing][episode] = dataframe for episode in thing
+		
+		"""
 		tt = time.clock()
 		logger.info("Reading data from folder %s" %  dataFolder)
 		if( not os.path.isdir(dataFolder)):
-			logger.warning("%s is not a valid folder, nothing will be done")
+			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
 			return None
-		folderDataframe = []
+		episodedDataFrames = []
 		for file in os.listdir(dataFolder):
 			if(os.path.isfile(os.path.join(dataFolder,file))):
-				loaded = self.__readFile(os.path.join(dataFolder,file))
+				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
 				if(loaded is not None):
-					folderDataframe.append(loaded)
-		logger.info("Folder read complete. Elapsed %f second(s)" %  (time.clock() - tt))
-		return pd.concat( folderDataframe )
+					fileEpisodes = self.__findEpisodeInDataframe(loaded,45)
+					batteryName = fileEpisodes[0][self.groupIndex].values[0]
+					logger.info("Battery name loaded is %s" % batteryName)
+					self.saveZip(self.resultPath,batteryName,fileEpisodes)
+					episodedDataFrames.append(fileEpisodes)
+		logger.info("Folder read complete. Elapsed %f" %  (time.clock() - tt))
+		return episodedDataFrames
 		
-	def __readFile(self,file):
+	def __readFileAsDataframe(self,file):
 		""" 
-		Load data with pandas from the specified dataSource file
+		Load data with pandas from the specified csv file
 		Parameters: 
-			file: file to read dataset from
+			file: csv file to read. Must be compliant with the specified dataHeader
 		Output:
-			pandas dataframe
+			pandas dataframe, if an error occurs, return None
 		"""
 		tt = time.clock()
 		logger.info("Reading data from %s" %  file)
@@ -183,21 +214,84 @@ class TimeSeriesDataset():
 				dtype=self.dataTypes,
 				parse_dates=[self.timeIndex],
 				date_parser = pd.core.tools.datetimes.to_datetime)
+			data.set_index(self.timeIndex,inplace=True,drop=False)
+			data.sort_index(inplace=True)
 			logger.info("Data read complete. Elapsed %f second(s)" %  (time.clock() - tt))
 		except:
 			logger.error("Can't read file %s" % file)
 			data = None
 		return data
 		
-	
-
-
-class TimeSeriesPreprocessing():
+	def __findEpisodeInDataframe(self,dataframe,episodeLength=30):
+		"""
+		Creates episoed of episodeLength sec length where the series starts at zero current and same voltage.
+		The series musth be 60sec complete of pure charge or discharge.
+		"""
+		tt = time.clock()
+		episodes = []
+		maxVoltage = int(np.max(dataframe[self.voltageIndex].values))
+		logger.debug("Max integer voltage %s" % maxVoltage)
+		episodeStart = False
 		
-	outFolder = None
-	
-	def __init__(self,outFolder):
-		self.outFolder = outFolder
+		dischargeCount = 0
+		chargeCount = 0
+		startIndex = None
+		endIndex = None
+		for index, row in dataframe.iterrows():
+
+			i = row[self.currentIndex]
+			v = int(row[self.voltageIndex])
+			
+			# CHECK DISCHARGE
+			if( (i < 0 and episodeStart) # start discharging
+				or
+				(i < 0 and dischargeCount > 0) # continue discharging
+			): 
+				dischargeCount += 1
+				if(dischargeCount == episodeLength):
+					#logger.debug("Complete discharge at index %s to %s" % (startIndex , index))
+					#self.plot(dataframe,startIndex,index,self.episodeImageFolder)
+					episodes.append(dataframe.loc[startIndex:index,:])
+					startIndex = None
+					dischargeCount = 0
+					
+			else:
+				dischargeCount = 0
+			# CHECK CHARGE
+			if( (i > 0 and episodeStart) # start discharging
+				or
+				(i > 0 and chargeCount > 0) # continue discharging
+			): 
+				chargeCount += 1
+				if(chargeCount == episodeLength):
+					#logger.debug("Complete charge at index %s to %s" % (startIndex , index))
+					#self.plot(dataframe,startIndex,index,self.episodeImageFolder)
+					episodes.append(dataframe.loc[startIndex:index,:])
+					startIndex = None
+					chargeCount = 0
+				
+			else:
+				chargeCount = 0
+			
+			# CHECK EPISODE START
+			if( v == maxVoltage and i == 0 ):
+				#logger.debug("Starting episode at index %s" % index)
+				startIndex = index
+				episodeStart = True
+			else:
+				episodeStart = False
+		logger.info("Episodes created. Elapsed %f second(s)" %  (time.clock() - tt))
+		return episodes
+		
+	def saveZip(self,folder,fileName,data):
+		saveFile = os.path.join(folder,fileName)
+		logger.debug("Saving %s" % saveFile)
+		fp = gzip.open(saveFile,'wb')
+		pickle.dump(data,fp,protocol=-1)
+		fp.close()
+		logger.debug("Saved %s" % saveFile)
+
+class TimeSeriesPreprocessor():
 		
 	def scale(self,data,normalization,minRange=-1,maxRange=1):
 		""" 
@@ -237,17 +331,11 @@ class TimeSeriesPreprocessing():
 		hourData = [ group[1] for group in data.groupby([data[timeIndex].dt.hour]) ]
 		return hourData
 		
-	def saveZip(self,fileName,data):
-		saveFile = os.path.join(self.outFolder,fileName)
-		logger.debug("Saving %s" % saveFile)
-		fp = gzip.open(saveFile,'wb')
-		pickle.dump(data,fp,protocol=-1)
-		fp.close()
-		logger.debug("Saved %s" % saveFile)
+	
 		
 	def loadZip(self,folder,fileName):
-		logger.debug("Loading zip %s" % fileName)
 		toLoad = os.path.join(folder,fileName)
+		logger.debug("Loading zip %s" % toLoad)
 		out = None
 		if( os.path.exists(toLoad) ):
 			fp = gzip.open(toLoad,'rb') # This assumes that primes.data is already packed with gzip

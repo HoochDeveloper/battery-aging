@@ -4,7 +4,7 @@ from math import sqrt,ceil,trunc
 import pandas as pd
 
 #Project module import
-from Demetra import TimeSeriesDataset,TimeSeriesPreprocessing
+from Demetra import EpisodedTimeSeries,TimeSeriesPreprocessor
 
 from keras.models import Sequential
 from keras.layers import LSTM, Dense, TimeDistributed
@@ -26,13 +26,14 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	tsd = TimeSeriesDataset()
-	#tsd.supervisedData4KerasLSTM("dataset",force=True) 
-	minerva = Minerva()
+	ets = EpisodedTimeSeries()
+	ets.timeSeries2relevantEpisodes(os.path.join(".","partialDS"))
+	
+	#minerva = Minerva()
 	
 	#minerva.evaluateModel(tsd,"./testData")
 	
-	minerva.prediction(tsd,"./testData","THING_1.gzip")
+	#minerva.prediction(tsd,"./testData","THING_1.gzip")
 	#minerva.testModel(tsd,"./testData","THING_24.gzip")
 	
 	
