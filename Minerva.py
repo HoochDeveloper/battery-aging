@@ -32,16 +32,16 @@ def main():
 	
 	x_train, y_train, x_valid, y_valid = ets.loadTrainSet()
 	
-	logger.info(x_train.shape)
+	logger.info(x_valid.shape)
 	
-	i = 1
-	plt.figure()
-	
-	for col in range(x_train.shape[2]):
-		plt.subplot(x_train.shape[2], 1, i)
-		plt.plot(x_train[0,:, col])
-		i += 1
-	plt.show()
+	#i = 1
+	#plt.figure()
+	#
+	#for col in range(x_train.shape[2]):
+	#	plt.subplot(x_train.shape[2], 1, i)
+	#	plt.plot(x_train[0,:, col])
+	#	i += 1
+	#plt.show()
 	
 	
 	minerva = Minerva()
@@ -49,7 +49,33 @@ def main():
 	
 	
 	
-	#minerva.trainModel(x_train, y_train, x_valid, y_valid)
+	minerva.trainModel(x_train, y_train, x_valid, y_valid)
+	
+	if(False):
+		model = load_model(minerva.modelName)
+		
+		x_valid = minerva.batchCompatible(minerva.batchSize,x_valid)
+			
+		y_valid = minerva.batchCompatible(minerva.batchSize,y_valid)
+		
+		
+		y_pred = model.predict(x_valid,  batch_size=minerva.batchSize)
+		
+		logger.info(y_pred.shape)
+	
+	
+	
+	
+	for sample2plot in range(y_pred.shape[0]):
+		plt.figure()
+		i = 1
+		for col in range(y_pred.shape[2]):
+			plt.subplot(y_pred.shape[2], 1, i)
+			plt.plot(y_pred[sample2plot][:, col],color="navy")
+			plt.plot(y_valid[sample2plot][:, col],color="orange")
+			i += 1
+		plt.show()
+	
 	
 	#minerva.evaluateModel(tsd,"./testData")
 	

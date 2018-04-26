@@ -112,8 +112,15 @@ class EpisodedTimeSeries():
 		minRange=-1
 		maxRange=1
 		scaler = self.getScaleDict(Xall)
+		for k in scaler.keys():
+			min_value = scaler[k][0]
+			max_value = scaler[k][1]
+			logger.info("Key %s has minValue %f and maxValue %f" % (k,min_value, max_value))
+			
+		
+		
 		for i in range(len(Xall)):
-			logger.info("Scaling X %d of %d" % (i+1,len(Xall)))
+			logger.info("Scaling X %d of %d" % (i+1,len(Xall)))	
 			for k in scaler.keys():
 				min_value = scaler[k][0]
 				max_value = scaler[k][1]
@@ -125,8 +132,7 @@ class EpisodedTimeSeries():
 				max_value = scaler[k][1]
 				Yall[i][k] = (Yall[i][k] - min_value) / (max_value - min_value)
 				Yall[i][k] =  Yall[i][k] * (maxRange - minRange) + minRange 
-				
-		
+
 		logger.info("Build shuffled")
 		shuffledX = np.zeros([len(Xall),Xall[0].shape[0],Xall[0].shape[1]])
 		shuffledY = np.zeros([len(Yall),Yall[0].shape[0],Yall[0].shape[1]])
