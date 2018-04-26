@@ -116,13 +116,13 @@ class EpisodedTimeSeries():
 			logger.info("Scaling X %d of %d" % (i+1,len(Xall)))
 			for k in scaler.keys():
 				min_value = scaler[k][0]
-				max_value = scaler[k][0]
+				max_value = scaler[k][1]
 				Xall[i][k] = (Xall[i][k] - min_value) / (max_value - min_value)
 				Xall[i][k] =  Xall[i][k] * (maxRange - minRange) + minRange 
 			logger.info("Scaling Y %d of %d" % (i+1,len(Xall)))
 			for k in self.keepY:
 				min_value = scaler[k][0]
-				max_value = scaler[k][0]
+				max_value = scaler[k][1]
 				Yall[i][k] = (Yall[i][k] - min_value) / (max_value - min_value)
 				Yall[i][k] =  Yall[i][k] * (maxRange - minRange) + minRange 
 				
