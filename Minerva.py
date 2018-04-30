@@ -27,24 +27,23 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	ets = EpisodedTimeSeries(30)
-
+	ets = EpisodedTimeSeries(30,scale=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"))
-	ets.buildScaledDataset()
+	ets.buildLearnSet()
 	
-	minerva = Minerva()
-	
-	train = sys.argv[1].lower() == 'train'
-	
-	if(train):
-		logger.info("Training")
-		x_train, y_train, x_valid, y_valid,scaler = ets.loadTrainset()	
-		#minerva.trainModel(x_train, y_train, x_valid, y_valid)
-		minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
-	else:
-		logger.info("Testing")
-		x_test, y_test, scaler = ets.loadTestset()	
-		minerva.evaluateModel(x_test, y_test)
+	#minerva = Minerva()
+	#
+	#train = sys.argv[1].lower() == 'train'
+	#
+	#if(train):
+	#	logger.info("Training")
+	#	x_train, y_train, x_valid, y_valid,scaler = ets.loadTrainset()	
+	#	#minerva.trainModel(x_train, y_train, x_valid, y_valid)
+	#	minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
+	#else:
+	#	logger.info("Testing")
+	#	x_test, y_test, scaler = ets.loadTestset()	
+	#	minerva.evaluateModel(x_test, y_test)
 		
 	#DEBUG PURPOSE ONLY
 	#x_test, y_test, scaler = ets.loadTestset()	
@@ -56,7 +55,7 @@ class Minerva():
 	#modelName = "modelloNuovo.h5"
 	#modelName = "bidirectional_episoded_deepModel.h5"
 	modelName = "LSTM_DeepModel.h5"
-	batchSize = 250
+	batchSize = 125
 	epochs = 50
 	
 	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
@@ -66,12 +65,6 @@ class Minerva():
 		x_valid = self.batchCompatible(self.batchSize,x_valid)
 		y_valid = self.batchCompatible(self.batchSize,y_valid)
 		
-		
-		
-		x_train = x_train[:,:-1,:].copy() 
-		y_train = y_train[:,:-1,:].copy() 
-		x_valid = x_valid[:,:-1,:].copy() 
-		y_valid = y_valid[:,:-1,:].copy() 
 		
 		tt = time.clock()
 		
@@ -85,26 +78,31 @@ class Minerva():
 		hiddenStateDim4 = int(hiddenStateDim3 / 2)
 		stateDim = 10
 		
+		timeCompression = 2
 		drop = 0.5
 		
 		timesteps =  x_train.shape[1]
 		#input_shape=(timesteps,inputFeatures)
 		model = Sequential()
 		
-		model.add( LSTM(hiddenStateDim0,return_sequences=True,input_shape=(timesteps,inputFeatures)))
-		model.add( LSTM(hiddenStateDim2,dropout = drop) )
-		model.add( Dense(hiddenStateDim4,activation='relu') )
+		model.add( LSTM(hiddenStateDim0,name='EN_0',return_sequences=True,activation='tanh',input_shape=(timesteps,inputFeatures)))
+		model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
+		model.add( LSTM(hiddenStateDim2,name='EN_2',dropout = drop,activation='tanh') )
 		
+		model.add( Dense(hiddenStateDim4,name='EN_3',activation='relu') )
 		# rapp
-		model.add( Dense(stateDim,activation='relu') )
+		model.add( Dense(stateDim,activation='relu',name='ENCODED') )
 		# end rapp
+		model.add(Dense(hiddenStateDim4,name='DC_3',activation='relu') )
 		
-		model.add(Dense(hiddenStateDim4,activation='relu') )
-		model.add(RepeatVector(timesteps))
+		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_2') )
+		model.add( LSTM(hiddenStateDim2,name='DC_2',return_sequences=True,activation='tanh') )
 		
-		model.add( LSTM(hiddenStateDim2,return_sequences=True) )
-		model.add( LSTM(hiddenStateDim0,return_sequences=True,dropout = drop) )
-		model.add( LSTM(outputFeatures,return_sequences=True) )
+		model.add(UpSampling1D(timeCompression,name='DC_TS_1') )
+		model.add( LSTM(hiddenStateDim0,name='DC_1',return_sequences=True,dropout = drop,activation='tanh') )
+		
+		model.add( LSTM(outputFeatures,name='DC_0',return_sequences=True,activation='tanh') )
+		
 		
 		# end model
 		
@@ -125,12 +123,13 @@ class Minerva():
 				
 		
 	def evaluateModel(self,x_test,y_test):
+		
+		logger.info("Loading model...")
 		model = load_model(self.modelName)
+		
+		logger.info("Preparing data...")
 		x_test = self.batchCompatible(self.batchSize,x_test)
 		y_test = self.batchCompatible(self.batchSize,y_test)
-		
-		x_test = x_test[:,:-1,:].copy() 
-		y_test = y_test[:,:-1,:].copy() 
 		
 		logger.info("Evaluating")
 		tt = time.clock()

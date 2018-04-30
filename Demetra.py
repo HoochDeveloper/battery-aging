@@ -66,11 +66,12 @@ class EpisodedTimeSeries():
 	testsetFolder = None 
 	testsetFile = None
 	timeSteps = 30
+	scale=True
 	
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	
 	#Constructor
-	def __init__(self,timeSteps):
+	def __init__(self,timeSteps,scale=True):
 		""" 
 		Create, if not exists, the result path for storing the episoded dataset
 		"""
@@ -79,6 +80,7 @@ class EpisodedTimeSeries():
 		self.testsetFolder = os.path.join(self.rootResultFolder, "testset")
 		self.espisodeFolder = self.espisodeFolder + "_" + str(self.timeSteps)
 		self.espisodePath = os.path.join(self.rootResultFolder,self.espisodeFolder)
+		self.scale = scale
 		
 		if not os.path.exists(self.espisodePath):
 			os.makedirs(self.espisodePath)
@@ -92,18 +94,25 @@ class EpisodedTimeSeries():
 		# used for determing when an episode start, charge and discharge
 		self.currentIndex = self.dataHeader[16]
 		self.voltageIndex = self.dataHeader[17]
+		if(self.scale):
+			self.trainsetFile = "scaled_train_%s" % self.timeSteps
+			self.testsetFile = "scaled_test_%s" % self.timeSteps
+		else:
+			self.trainsetFile = "raw_train_%s" % self.timeSteps
+			self.testsetFile = "raw_test_%s" % self.timeSteps
 		
-		self.trainsetFile = "train_%s" % self.timeSteps
-		self.testsetFile = "test_%s" % self.timeSteps
+		logger.info("Cur %s Volt %s " % (self.currentIndex,self.voltageIndex))
+		
 	
 	# public methods
-	def showEpisodes(self,scaler):
+	def showEpisodes(self,scaler=None):
 		for f in os.listdir(self.espisodePath):
 			episodes = self.loadZip(self.espisodePath,f)
 			for e in range(len(episodes)):
 				self.plot(episodes[e])
-				x = self.__scaleEpisode(episodes[e],scaler,scaler.keys())
-				self.plot(x)
+				if(scaler):
+					x = self.__scaleEpisode(episodes[e],scaler,scaler.keys())
+					self.plot(x)
 	#def showScaleEpisodes(self):
 	#	
 	
@@ -137,10 +146,10 @@ class EpisodedTimeSeries():
 			logger.info( "Datafolder has already %d espiodes. Force[%s]" % (existingEpisodes,force) )
 			return
 		
-		self.__readFolderAsEpisodedDataframes(dataFolder,force)
+		self.__buildEpisodedDataframesFromFolder(dataFolder,force)
 		logger.info("buildEpisodedDataset - end - Elapsed: %f" % (time.clock() - tt))
 	
-	def buildScaledDataset(self,valid=0.2,test=0.2,force=False):
+	def buildLearnSet(self,valid=0.2,test=0.2,force=False):
 		"""
 		Load the episoded dataframes from espisodePath
 		Build train, valid and test set scaled in -1,1
@@ -153,11 +162,11 @@ class EpisodedTimeSeries():
 			logger.info("Train / test set already exists, nothing to do.")
 			return
 		
+		logger.info("buildLearnSet - start")
 		start = time.clock()
-		logger.info("buildScaledDataset - start")
 		Xall = []
 		Yall = []
-		logger.info("Building X Y list")
+		logger.info("Dropping unused columns")
 		for f in os.listdir(self.espisodePath):
 			episodeList = self.loadZip(self.espisodePath,f)
 			for e in range(len(episodeList)):
@@ -167,19 +176,24 @@ class EpisodedTimeSeries():
 				Yall.append(y)
 		
 		
-		#logger.info("Scaling in [%d , %d]" % (minRange,maxRange) )
-		scaler = self.__getScaleDict(Xall)
-		for k in scaler.keys():
-			min_value = scaler[k][0]
-			max_value = scaler[k][1]
-			logger.info("Key %s has minValue %f and maxValue %f" % (k,min_value, max_value))
-		
-		for i in range(len(Xall)):
-			Xall[i] = self.__scaleEpisode(Xall[i],scaler,scaler.keys())
-			Yall[i] = self.__scaleEpisode(Yall[i],scaler,self.keepY)
-			if((i+1) % 1000 == 0):
-				logger.info("Scaling progress: %d of %d" % ( (i+1),len(Xall) ))
-				
+		if(self.scale == True):
+			logger.info("Scaling dataset")
+			startScale = time.clock()
+			scaler = self.__getScaleDict(Xall)
+			for k in scaler.keys():
+				min_value = scaler[k][0]
+				max_value = scaler[k][1]
+				logger.info("Key %s has minValue %f and maxValue %f" % (k,min_value, max_value))
+			
+			for i in range(len(Xall)):
+				Xall[i] = self.__scaleEpisode(Xall[i],scaler,scaler.keys())
+				Yall[i] = self.__scaleEpisode(Yall[i],scaler,self.keepY)
+				if((i+1) % 1000 == 0):
+					logger.info("Scaling progress: %d of %d" % ( (i+1),len(Xall) ))
+			
+			logger.info("Dataset scled. Elapsed %f" % (time.clock() - startScale))
+		else:
+			scaler = None
 		logger.info("Shuffling dataset")
 		shuffledX = np.zeros([len(Xall),Xall[0].shape[0],Xall[0].shape[1]])
 		shuffledY = np.zeros([len(Yall),Yall[0].shape[0],Yall[0].shape[1]])
@@ -211,7 +225,7 @@ class EpisodedTimeSeries():
 		logger.info(x_valid.shape)
 		self.saveZip(self.trainsetFolder,self.trainsetFile,[x_train, y_train, x_valid, y_valid,scaler])
 		
-		logger.info("buildScaledDataset - end - Elapsed: %f" % (time.clock() - start))
+		logger.info("buildLearnSet - end - Elapsed: %f" % (time.clock() - start))
 	
 	
 	def __scaleEpisode(self,episode,scaler,toScale,minRange=-1,maxRange=1):
@@ -265,7 +279,7 @@ class EpisodedTimeSeries():
 			plt.close()
 		
 	# private methods
-	def __readFolderAsEpisodedDataframes(self,dataFolder,force=False):
+	def __buildEpisodedDataframesFromFolder(self,dataFolder,force=False):
 		""" 
 		Read all files in folder as episoded dataframe 
 		Every item in the return list is a different thing
@@ -328,12 +342,19 @@ class EpisodedTimeSeries():
 		"""
 		tt = time.clock()
 		episodes = []
-		maxVoltage = 30 #int(np.max(dataframe[self.voltageIndex].values))
-		logger.debug("Max integer voltage %s" % maxVoltage)
+		#maxVoltage = 30 #int(np.max(dataframe[self.voltageIndex].values))
+		#logger.debug("Max integer voltage %s" % maxVoltage)
 		episodeStart = False
+		
+		totalChargeEpisodes = 0
+		totalDishargeEpisodes = 0
 		
 		dischargeCount = 0
 		chargeCount = 0
+		
+		startCount = 0
+		startLength = 2
+		
 		startIndex = None
 		endIndex = None
 		for index, row in dataframe.iterrows():
@@ -348,9 +369,16 @@ class EpisodedTimeSeries():
 			): 
 				dischargeCount += 1
 				if(dischargeCount == episodeLength):
-					episodes.append(dataframe.loc[startIndex:index,:])
+					ep = dataframe.loc[startIndex:index,:]
+					diff = ep.shape[0] - episodeLength
+					logger.debug("Diff %s" % diff)
+					if(diff > 0):
+						ep.drop(ep.tail(diff).index,inplace=True)
+					episodes.append(ep)
+					logger.debug("Discharge episode from index %s to %s" %( startIndex,index) ) 
 					startIndex = None
 					dischargeCount = 0
+					totalDishargeEpisodes += 1
 					
 			else:
 				dischargeCount = 0
@@ -362,22 +390,38 @@ class EpisodedTimeSeries():
 			): 
 				chargeCount += 1
 				if(chargeCount == episodeLength):
-					episodes.append(dataframe.loc[startIndex:index,:])
+					ep = dataframe.loc[startIndex:index,:]
+					diff = ep.shape[0] - episodeLength
+					logger.debug("Diff %s" % diff)
+					if(diff > 0):
+						ep.drop(ep.tail(diff).index,inplace=True)
+						
+					episodes.append(ep)
+					logger.debug("Charge episode from index %s to %s" %( startIndex,index) )  
 					startIndex = None
 					chargeCount = 0
+					totalChargeEpisodes += 1
 				
 			else:
 				chargeCount = 0
 			
 			# CHECK EPISODE START
-			if( v == maxVoltage and i == 0 ):
-				#logger.debug("Starting episode at index %s" % index)
-				startIndex = index
-				episodeStart = True
+			if( v >= 30 and i == 0 and chargeCount == 0 and dischargeCount == 0 ) :
+				if(startCount == 0):
+					startIndex = index
+				startCount += 1
+				if(startCount == startLength): # episode starts from a costant zone
+					episodeStart = True
+					startCount = 0
 			else:
 				episodeStart = False
+				startCount = 0
 			
-		logger.info("Episodes created. Elapsed %f second(s)" %  (time.clock() - tt))
+			
+			
+		logger.info("Episodes created. Discharge: %s - Charge: %s. Elapsed %f second(s)" %  
+						(totalDishargeEpisodes, totalChargeEpisodes, (time.clock() - tt)))
+		
 		return episodes
 		
 	def __getScaleDict(self,list,minRange=-1,maxRange=1):
