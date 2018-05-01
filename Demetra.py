@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# df = pd.DataFrame(np.random.randint(0,100,size=(100, 4)), columns=list('ABCD'))
+
 """
 Module for handling data loading
 @author: Michele Salvatore Rillo
@@ -367,20 +369,30 @@ class EpisodedTimeSeries():
 			& 
 			(dataframe[self.voltageIndex] >= voltThreshold)].index
 		)
+		logger.debug("Dropping consecutive condidates")
+		diff = startinTimeStep - np.roll(startinTimeStep,1)
+		startinTimeStep = startinTimeStep[ (diff.second > 1.5 ) ]
+		
 		logger.debug("Found %d candidates" % len(startinTimeStep))
 		for ts in startinTimeStep:
 			startRow = dataframe.index.get_loc(ts)
 			episodeCandidate = dataframe.iloc[startRow:startRow+episodeLength,:]
-			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
-			if(dischargeCount == (episodeLength-1)):
+			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] <= 0 ].shape[0]
+			if(dischargeCount == (episodeLength)):
 				# this is a discharge episodes
-				dischargeEpisodes.append(episodeCandidate)
+				if(scaler is not None):
+					dischargeEpisodes.append(self.__scaleEpisode(episodeCandidate,scaler,scaler.keys()))
+				else:
+					dischargeEpisodes.append(episodeCandidate)
 			else:
-				chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] > 0 ].shape[0]
-				if(chargeCount == (episodeLength-1)):
+				chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] >= 0 ].shape[0]
+				if(chargeCount == (episodeLength)):
 					# this is a charge episodes
-					chargeEpisodes.append(episodeCandidate)
-		
+					if(scaler is not None):
+						chargeEpisodes.append(self.__scaleEpisode(episodeCandidate,scaler,scaler.keys()))
+					else:
+						chargeEpisodes.append(episodeCandidate)
+
 		logger.info("Episodes created. Discharge: %s - Charge: %s. Elapsed %f second(s)" %  
 						(len(dischargeEpisodes), len(chargeEpisodes), (time.clock() - tt)))
 		

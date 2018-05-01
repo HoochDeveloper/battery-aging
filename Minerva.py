@@ -27,10 +27,10 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	ets = EpisodedTimeSeries(30,scale=False)
+	ets = EpisodedTimeSeries(30,scale=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"))
-	#ets.buildLearnSet()
-	
+	ets.buildLearnSet()
+	#ets.showEpisodes(None)
 	#minerva = Minerva()
 	#train = sys.argv[1].lower() == 'train'
 	
