@@ -27,14 +27,13 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	ets = EpisodedTimeSeries(30,scale=True)
+	ets = EpisodedTimeSeries(30,scale=False)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"))
-	ets.buildLearnSet()
+	#ets.buildLearnSet()
 	
 	#minerva = Minerva()
-	#
 	#train = sys.argv[1].lower() == 'train'
-	#
+	
 	#if(train):
 	#	logger.info("Training")
 	#	x_train, y_train, x_valid, y_valid,scaler = ets.loadTrainset()	
@@ -55,7 +54,7 @@ class Minerva():
 	#modelName = "modelloNuovo.h5"
 	#modelName = "bidirectional_episoded_deepModel.h5"
 	modelName = "LSTM_DeepModel.h5"
-	batchSize = 125
+	batchSize = 150
 	epochs = 50
 	
 	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
@@ -95,13 +94,15 @@ class Minerva():
 		# end rapp
 		model.add(Dense(hiddenStateDim4,name='DC_3',activation='relu') )
 		
-		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_2') )
-		model.add( LSTM(hiddenStateDim2,name='DC_2',return_sequences=True,activation='tanh') )
+		model.add(Dense(hiddenStateDim2,name='DC_2',activation='relu') )
 		
-		model.add(UpSampling1D(timeCompression,name='DC_TS_1') )
-		model.add( LSTM(hiddenStateDim0,name='DC_1',return_sequences=True,dropout = drop,activation='tanh') )
+		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
+		model.add( LSTM(hiddenStateDim1,name='DC_1',return_sequences=True,activation='tanh') )
 		
-		model.add( LSTM(outputFeatures,name='DC_0',return_sequences=True,activation='tanh') )
+		model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
+		model.add( LSTM(hiddenStateDim0,name='DC_0',return_sequences=True,dropout = drop,activation='tanh') )
+		
+		model.add( LSTM(outputFeatures,name='decoded',return_sequences=True,activation='tanh') )
 		
 		
 		# end model
