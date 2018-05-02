@@ -1,20 +1,20 @@
 #Standard Imports
-import time,os,logging, numpy as np, sys, pandas as pd #, matplotlib.pyplot as plt 
+import time,os,logging, numpy as np, sys, pandas as pd 
 
 #Project module import
 from Demetra import EpisodedTimeSeries
 
 #KERAS
-from keras.models import Sequential, Model
-from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation
-from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D
-from keras.models import load_model
-from keras import optimizers
-
-KERAS ENV GPU
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
-os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
+#from keras.models import Sequential, Model
+#from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation
+#from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D
+#from keras.models import load_model
+#from keras import optimizers
+#
+#KERAS ENV GPU
+#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+#os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
+#os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
 
 #Module logging
 logger = logging.getLogger("Minerva")
@@ -27,8 +27,10 @@ logger.addHandler(consoleHandler)
 def main():
 	
 	ets = EpisodedTimeSeries(30,normalize=True)
-	ets.buildEpisodedDataset(os.path.join(".","dataset"))
-	ets.buildLearnSet()
+	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=False)
+	ets.buildLearnSet(force=False)
+	
+	ets.showEpisodes()
 	
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 		minerva = Minerva()

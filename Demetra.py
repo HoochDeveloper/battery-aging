@@ -10,12 +10,12 @@ Requires:
 	numpy	(http://www.numpy.org/)
 """
 #Imports
-import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np #, matplotlib.pyplot as plt
+import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt
 from datetime import datetime
 
 #Module logging
 logger = logging.getLogger("Demetra")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
 formatter = logging.Formatter('[%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
@@ -355,13 +355,13 @@ class EpisodedTimeSeries():
 		for ts in startinTimeStep:
 			startRow = dataframe.index.get_loc(ts)
 			episodeCandidate = dataframe.iloc[startRow:startRow+episodeLength,:]
-			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] <= 0 ].shape[0]
-			if(dischargeCount == (episodeLength)):
+			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
+			if(dischargeCount == (episodeLength-1)):
 				# this is a discharge episodes
 				dischargeEpisodes.append(episodeCandidate)
 			else:
-				chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] >= 0 ].shape[0]
-				if(chargeCount == (episodeLength)):
+				chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] > 0 ].shape[0]
+				if(chargeCount == (episodeLength-1)):
 					# this is a charge episodes
 					chargeEpisodes.append(episodeCandidate)
 
