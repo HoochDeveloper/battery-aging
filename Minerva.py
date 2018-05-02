@@ -25,10 +25,11 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
+	force = True
 	
 	ets = EpisodedTimeSeries(30,normalize=True)
-	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=False)
-	ets.buildLearnSet(force=False)
+	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
+	ets.buildLearnSet(force=force)
 	
 	ets.showEpisodes()
 	

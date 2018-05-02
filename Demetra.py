@@ -220,15 +220,12 @@ class EpisodedTimeSeries():
 		logger.info("buildLearnSet - end - Elapsed: %f" % (time.clock() - start))
 	
 	
-	def plot(self,data,startIdx=None,endIdx=None,savePath=None):
+	def plot(self,data,savePath=None):
 		#column index of the sequence time index
 		dateIndex = self.dataHeader.index(self.timeIndex)
 		nameIndex = self.dataHeader.index(self.nameIndex)
 		# values to plot
-		if(startIdx is None and endIdx is None):
-			values = data.values
-		else:
-			values = data.loc[startIdx:endIdx,:].values
+		values = data.values
 		# getting YYYY-mm-dd for the plot title
 		date =  values[:, dateIndex][0].strftime("%Y-%m-%d")
 		batteryName =  values[:, nameIndex][0]
@@ -257,7 +254,6 @@ class EpisodedTimeSeries():
 			batteryImagePath = os.path.join(savePath,batteryName)
 			if not os.path.exists(batteryImagePath):
 				os.makedirs(batteryImagePath)
-			#saveImageName = "%s_%s.png" % (startIdx,endIdx)
 			unique_filename = str(uuid.uuid4())
 			plt.savefig(os.path.join(batteryImagePath,unique_filename), bbox_inches='tight')
 			plt.close()
@@ -291,7 +287,7 @@ class EpisodedTimeSeries():
 		for file in os.listdir(dataFolder):
 			if(os.path.isfile(os.path.join(dataFolder,file))):
 				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
-				if(loaded is not None):
+				if(loaded is not None and loaded.shape[0] > 0):
 					batteryName = loaded[self.nameIndex].values[0]
 					logger.info("Checking episodes for battery %s" % batteryName)
 					savePath = os.path.join(self.espisodePath,batteryName)
@@ -336,7 +332,7 @@ class EpisodedTimeSeries():
 		chargeEpisodes = []
 		dischargeEpisodes = []
 		voltThreshold = 30 
-		
+		maxZerosInEpisode = 10
 		# list of all eligible episodes index (time stamp)
 		# select all time steps with i = 0 and v >= threshold
 		startinTimeStep =  ( 
@@ -351,17 +347,25 @@ class EpisodedTimeSeries():
 		# keep only start episodes with a gap greater than 1.5 seconds
 		startinTimeStep = startinTimeStep[ (diff.second > 1.5 ) ]
 		allCandidates = len(startinTimeStep)
-		logger.debug("Found %d candidates" % allCandidates)
+		logger.info("Found %d candidates" % allCandidates)
 		for ts in startinTimeStep:
 			startRow = dataframe.index.get_loc(ts)
 			episodeCandidate = dataframe.iloc[startRow:startRow+episodeLength,:]
+			
+			zeroCurrentCount = episodeCandidate[ episodeCandidate[self.currentIndex] == 0 ].shape[0]
+			
+			# if there are too many zeros, then the episode is discarded
+			if(zeroCurrentCount > maxZerosInEpisode):
+				continue
+			
 			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
-			if(dischargeCount == (episodeLength-1)):
+			
+			if(dischargeCount == (episodeLength-zeroCurrentCount)):
 				# this is a discharge episodes
 				dischargeEpisodes.append(episodeCandidate)
 			else:
 				chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] > 0 ].shape[0]
-				if(chargeCount == (episodeLength-1)):
+				if(chargeCount == (episodeLength-zeroCurrentCount)):
 					# this is a charge episodes
 					chargeEpisodes.append(episodeCandidate)
 
