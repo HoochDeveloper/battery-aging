@@ -1,20 +1,20 @@
 #Standard Imports
-import time,os,logging, numpy as np, sys, pandas as pd 
+import time,os,logging, numpy as np, sys, pandas as pd , matplotlib.pyplot as plt
 
 #Project module import
 from Demetra import EpisodedTimeSeries
 
 #KERAS
-#from keras.models import Sequential, Model
-#from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation
-#from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D
-#from keras.models import load_model
-#from keras import optimizers
+from keras.models import Sequential, Model
+from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation
+from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D
+from keras.models import load_model
+from keras import optimizers
 #
 #KERAS ENV GPU
-#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-#os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
-#os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
+os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
 
 #Module logging
 logger = logging.getLogger("Minerva")
@@ -25,23 +25,29 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = True
+	force = False
 	
 	ets = EpisodedTimeSeries(30,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 	ets.buildLearnSet(force=force)
 	
-	ets.showEpisodes()
+	#ets.showEpisodes()
 	
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 		minerva = Minerva()
 		logger.info("Training")
+
 		x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
+		
+		logger.info(x_train.shape)
+		logger.info(x_valid.shape)
+		
 		minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
 	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
 		minerva = Minerva()
 		logger.info("Testing")
 		x_test, y_test, scaler = ets.loadTestset()	
+		logger.info(x_test.shape)
 		minerva.evaluateModel(x_test, y_test)
 	else:
 		logger.error("Invalid command line argument.")
@@ -51,7 +57,7 @@ class Minerva():
 
 	modelName = "LSTM_DeepModel.h5"
 	batchSize = 150
-	epochs = 50
+	epochs = 25
 	
 	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
 		
@@ -65,12 +71,12 @@ class Minerva():
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		
-		hiddenStateDim0 = 1024
+		hiddenStateDim0 = 256
 		hiddenStateDim1 = int(hiddenStateDim0 / 2) 
 		hiddenStateDim2 = int(hiddenStateDim1 / 2)
 		hiddenStateDim3 = int(hiddenStateDim2 / 2)
 		hiddenStateDim4 = int(hiddenStateDim3 / 2)
-		stateDim = 10
+		stateDim = 5
 		
 		timeCompression = 2
 		drop = 0.5
@@ -111,9 +117,11 @@ class Minerva():
 			epochs=self.epochs,
 			validation_data=(x_valid,y_valid)
 		)
-	
-		model.save(self.modelName)  # creates a HDF5 file 'batteryLSTM.h5'
+		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
+		logger.info("Save model")
+		model.save(self.modelName) 
+		logger.info("Model saved")
 		return model
 				
 		
