@@ -1,5 +1,5 @@
 #Standard Imports
-import time,os,logging, numpy as np, sys, pandas as pd , matplotlib.pyplot as plt
+import uuid,time,os,logging, numpy as np, sys, pandas as pd , matplotlib.pyplot as plt
 
 #Project module import
 from Demetra import EpisodedTimeSeries
@@ -48,7 +48,7 @@ def main():
 		logger.info("Testing")
 		x_test, y_test, scaler = ets.loadTestset()	
 		logger.info(x_test.shape)
-		minerva.evaluateModel(x_test, y_test)
+		minerva.evaluateModel(x_test, y_test,True)
 	else:
 		logger.error("Invalid command line argument.")
 
@@ -58,6 +58,7 @@ class Minerva():
 	modelName = "LSTM_DeepModel.h5"
 	batchSize = 150
 	epochs = 25
+	imgPath = "./images"
 	
 	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
 		
@@ -125,7 +126,7 @@ class Minerva():
 		return model
 				
 		
-	def evaluateModel(self,x_test,y_test):
+	def evaluateModel(self,x_test,y_test,saveImgs = False):
 		
 		logger.info("Loading model...")
 		model = load_model(self.modelName)
@@ -152,7 +153,11 @@ class Minerva():
 				plt.plot(y_pred[toPlot][:, col],color="navy")
 				plt.plot(y_test[toPlot][:, col],color="orange")
 				i += 1
-			plt.show()
+			if(saveImgs):
+				plt.savefig(os.path.join(self.imgPath,str(uuid.uuid4())), bbox_inches='tight')
+				plt.close()
+			else:
+				plt.show()
 	
 	
 		
