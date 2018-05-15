@@ -56,6 +56,9 @@ class EpisodedTimeSeries():
 	espisodeFolder = "episodes"
 	espisodePath = None
 	
+	chargePrefix = "charge_"
+	dischargePrefix = "discharge_"
+	
 	trainsetFolder = None 
 	trainsetFile = None
 	testsetFolder = None 
@@ -103,15 +106,29 @@ class EpisodedTimeSeries():
 		
 	
 	# public methods
-	def showEpisodes(self):
+	def showEpisodes(self,type=None):
+		total = 0
 		for f in os.listdir(self.espisodePath):
+			if(type == "D" and not str(f).startswith(self.dischargePrefix)):
+				continue
+			elif(type == "C" and not str(f).startswith(self.chargePrefix)):
+				continue
 			episodes = self.loadZip(self.espisodePath,f)
-			for e in range(len(episodes)):
-				self.plot(episodes[e])
-
+			total += len(episodes)
+			logger.info("There are %d episodes for %s" % (len(episodes),f))
+			#for e in range(min(4,len(episodes))):
+			#	self.plot(episodes[e])
+		logger.info("Total %d" % total)
 	
-	def loadTrainset(self):
-		load = self.loadZip(self.trainsetFolder,self.trainsetFile)
+	def loadTrainset(self,type=None):
+		
+		train2load = self.trainsetFile
+		if(type == "C"):
+			train2load = self.chargePrefix + self.trainsetFile
+		elif(type == "D"):
+			train2load = self.dischargePrefix + self.trainsetFile
+		
+		load = self.loadZip(self.trainsetFolder,train2load)
 		x_train = load[0]
 		y_train = load[1]
 		x_valid = load[2]
@@ -121,8 +138,15 @@ class EpisodedTimeSeries():
 			normalizer = load[4]
 		return x_train, y_train, x_valid, y_valid, normalizer
 		
-	def loadTestset(self):
-		load = self.loadZip(self.testsetFolder,self.testsetFile)
+	def loadTestset(self,type=None):
+	
+		test2load = self.testsetFile
+		if(type == "C"):
+			test2load = self.chargePrefix + self.testsetFile
+		elif(type == "D"):
+			test2load = self.dischargePrefix + self.testsetFile
+	
+		load = self.loadZip(self.testsetFolder,test2load)
 		x_test = load[0]
 		y_test = load[1]
 		normalizer = None
@@ -141,11 +165,91 @@ class EpisodedTimeSeries():
 		existingEpisodes = len(os.listdir(self.espisodePath))
 		
 		if(not force and existingEpisodes > 0):
-			logger.info( "Datafolder has already %d espiodes. Force[%s]" % (existingEpisodes,force) )
+			logger.info( "Datafolder has already %d episodes. Force[%s]" % (existingEpisodes,force) )
 			return
 		
 		self.__buildEpisodedDataframesFromFolder(dataFolder,force)
 		logger.info("buildEpisodedDataset - end - Elapsed: %f" % (time.clock() - tt))
+	
+	def buildDischargeSet(self,valid=0.2,test=0.2,force=False):
+		"""
+		Load all the discharge episodes and build train / test of charge episodes only
+		"""
+		if( not force 
+			and os.path.exists(os.path.join(self.trainsetFolder,self.dischargePrefix+self.trainsetFile)) 
+			and os.path.exists(os.path.join(self.testsetFolder,self.dischargePrefix+self.testsetFile))
+		):
+			logger.info("Discharge Train / Test set already exists, nothing to do.")
+			return
+		
+		logger.info("buildDischargeSet - start")
+		start = time.clock()
+		Xall = []
+		Yall = []
+		logger.info("Dropping unused columns")
+		for f in os.listdir(self.espisodePath):
+			if (not str(f).startswith(self.dischargePrefix) ):
+				logger.debug("File %s discarded, not a discharge episode." % f)
+				continue;
+			episodeList = self.loadZip(self.espisodePath,f)
+			for e in range(len(episodeList)):
+				x = episodeList[e].drop(columns=self.dropX)
+				y = episodeList[e][self.keepY]
+				Xall.append(x)
+				Yall.append(y)
+		
+		if(len(Xall) == 0):
+			logger.warning("No episodes file found, nothing will be done.")
+			return
+		
+		x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer = self.__trainTestSplit(Xall,Yall,valid,test)
+		
+		self.saveZip(self.testsetFolder,self.dischargePrefix+self.testsetFile,[x_test,y_test,normalizer])
+		self.saveZip(self.trainsetFolder,self.dischargePrefix+self.trainsetFile,[x_train, y_train, x_valid, y_valid,normalizer])
+		
+		logger.info("buildDischargeSet - end - Elapsed: %f" % (time.clock() - start))
+	
+	
+	
+	def buildChargeSet(self,valid=0.2,test=0.2,force=False):
+		"""
+		Load all the charge episodes and build train / test of charge episodes only
+		"""
+		if( not force 
+			and os.path.exists(os.path.join(self.trainsetFolder,self.chargePrefix+self.trainsetFile)) 
+			and os.path.exists(os.path.join(self.testsetFolder,self.chargePrefix+self.testsetFile))
+		):
+			logger.info("Charge Train / Test set already exists, nothing to do.")
+			return
+		
+		logger.info("buildChargeSet - start")
+		start = time.clock()
+		Xall = []
+		Yall = []
+		logger.info("Dropping unused columns")
+		for f in os.listdir(self.espisodePath):
+			if (not str(f).startswith(self.chargePrefix) ):
+				logger.debug("File %s discarded, not a charge episode." % f)
+				continue;
+			episodeList = self.loadZip(self.espisodePath,f)
+			for e in range(len(episodeList)):
+				x = episodeList[e].drop(columns=self.dropX)
+				y = episodeList[e][self.keepY]
+				Xall.append(x)
+				Yall.append(y)
+		
+		if(len(Xall) == 0):
+			logger.warning("No episodes file found, nothing will be done.")
+			return
+		
+		x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer = self.__trainTestSplit(Xall,Yall,valid,test)
+		
+		self.saveZip(self.testsetFolder,self.chargePrefix+self.testsetFile,[x_test,y_test,normalizer])
+		self.saveZip(self.trainsetFolder,self.chargePrefix+self.trainsetFile,[x_train, y_train, x_valid, y_valid,normalizer])
+		
+		logger.info("buildChargeSet - end - Elapsed: %f" % (time.clock() - start))
+		
+	
 	
 	def buildLearnSet(self,valid=0.2,test=0.2,force=False):
 		"""
@@ -176,6 +280,15 @@ class EpisodedTimeSeries():
 			logger.warning("No episodes file found, nothing will be done.")
 			return
 		
+		
+		x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer = self.__trainTestSplit(Xall,Yall,valid,test)
+		
+		self.saveZip(self.testsetFolder,self.testsetFile,[x_test,y_test,normalizer])
+		self.saveZip(self.trainsetFolder,self.trainsetFile,[x_train, y_train, x_valid, y_valid,normalizer])
+		
+		logger.info("buildLearnSet - end - Elapsed: %f" % (time.clock() - start))
+	
+	def __trainTestSplit(self,Xall,Yall,valid,test):
 		logger.debug("Shuffling dataset")
 		shuffledX = np.zeros([len(Xall),Xall[0].shape[0],Xall[0].shape[1]])
 		shuffledY = np.zeros([len(Yall),Yall[0].shape[0],Yall[0].shape[1]])
@@ -202,8 +315,6 @@ class EpisodedTimeSeries():
 		logger.info("Test set shape")
 		logger.info(x_test.shape)
 		
-		self.saveZip(self.testsetFolder,self.testsetFile,[x_test,y_test,normalizer])
-		
 		validIndex = int( x.shape[0] * (1 - valid) )
 		#TRAIN set
 		x_train = x[:validIndex]
@@ -215,9 +326,7 @@ class EpisodedTimeSeries():
 		logger.info("Valid set shape")
 		logger.info(x_valid.shape)
 		
-		self.saveZip(self.trainsetFolder,self.trainsetFile,[x_train, y_train, x_valid, y_valid,normalizer])
-		
-		logger.info("buildLearnSet - end - Elapsed: %f" % (time.clock() - start))
+		return x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer
 	
 	
 	def plot(self,data,savePath=None):
@@ -292,12 +401,14 @@ class EpisodedTimeSeries():
 					logger.info("Checking episodes for battery %s" % batteryName)
 					savePath = os.path.join(self.espisodePath,batteryName)
 					if(force or (not os.path.exists(savePath))):
+						dischargeEpisodes , chargeEpisodes = self.__fastEpisodeInDataframe(loaded,self.timeSteps)
+						if(len(chargeEpisodes) > 0):
+							self.saveZip(self.espisodePath,self.chargePrefix+batteryName,chargeEpisodes)
+						if(len(dischargeEpisodes) > 0):
+							self.saveZip(self.espisodePath,self.dischargePrefix+batteryName,dischargeEpisodes)
 						
-						fileEpisodes = self.__fastEpisodeInDataframe(loaded,self.timeSteps)
-						if(len(fileEpisodes) > 0):
-							self.saveZip(self.espisodePath,batteryName,fileEpisodes)
-						else:
-							logger.info("No episodes in file")
+						if(len(chargeEpisodes) == 0 and len(dischargeEpisodes) == 0):
+							logger.warning("No episodes in file")
 					else:
 						logger.info("Episodes for battery %s already exists" % batteryName)
 		logger.info("Folder read complete. Elapsed %f" %  (time.clock() - tt))
@@ -332,7 +443,7 @@ class EpisodedTimeSeries():
 		chargeEpisodes = []
 		dischargeEpisodes = []
 		voltThreshold = 30 
-		maxZerosInEpisode = 10
+		maxZerosInEpisode = 25
 		# list of all eligible episodes index (time stamp)
 		# select all time steps with i = 0 and v >= threshold
 		startinTimeStep =  ( 
@@ -375,7 +486,7 @@ class EpisodedTimeSeries():
 		logger.info("Episodes created. Discharge: %s - %f - Charge: %s - %f. Elapsed %f second(s)" %  
 						(len(dischargeEpisodes),dischargeFraction, len(chargeEpisodes),chargeFraction, (time.clock() - tt)))
 		
-		return dischargeEpisodes + chargeEpisodes
+		return dischargeEpisodes , chargeEpisodes
 		
 	def saveZip(self,folder,fileName,data):
 		saveFile = os.path.join(folder,fileName)

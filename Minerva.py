@@ -25,32 +25,38 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = False
+	force = True
 	
 	ets = EpisodedTimeSeries(30,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
-	ets.buildLearnSet(force=force)
+	#
+	ets.buildChargeSet()
+	ets.buildDischargeSet()
+	#x_train, y_train, x_valid, y_valid, normalizer = ets.loadTrainset("D")
+	#ets.buildLearnSet(force=force)
 	
-	#ets.showEpisodes()
+	ets.showEpisodes("D")
 	
-	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
-		minerva = Minerva()
-		logger.info("Training")
-
-		x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
-		
-		logger.info(x_train.shape)
-		logger.info(x_valid.shape)
-		
-		minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
-	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
-		minerva = Minerva()
-		logger.info("Testing")
-		x_test, y_test, scaler = ets.loadTestset()	
-		logger.info(x_test.shape)
-		minerva.evaluateModel(x_test, y_test,True)
-	else:
-		logger.error("Invalid command line argument.")
+	ets.showEpisodes("C")
+	
+	#if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
+	#	minerva = Minerva()
+	#	logger.info("Training")
+    #
+	#	x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
+	#	
+	#	logger.info(x_train.shape)
+	#	logger.info(x_valid.shape)
+	#	
+	#	minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
+	#elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
+	#	minerva = Minerva()
+	#	logger.info("Testing")
+	#	x_test, y_test, scaler = ets.loadTestset()	
+	#	logger.info(x_test.shape)
+	#	minerva.evaluateModel(x_test, y_test,True)
+	#else:
+	#	logger.error("Invalid command line argument.")
 
 		
 class Minerva():
