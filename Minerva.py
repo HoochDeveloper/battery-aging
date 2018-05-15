@@ -25,43 +25,46 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = True
+	force = False
 	
 	ets = EpisodedTimeSeries(30,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 	#
 	ets.buildChargeSet()
 	ets.buildDischargeSet()
-	#x_train, y_train, x_valid, y_valid, normalizer = ets.loadTrainset("D")
+	
+	
+	
 	#ets.buildLearnSet(force=force)
 	
-	ets.showEpisodes("D")
+	#ets.showEpisodes("D")
 	
-	ets.showEpisodes("C")
+	#ets.showEpisodes("C")
 	
-	#if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
-	#	minerva = Minerva()
-	#	logger.info("Training")
-    #
-	#	x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
-	#	
-	#	logger.info(x_train.shape)
-	#	logger.info(x_valid.shape)
-	#	
-	#	minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
-	#elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
-	#	minerva = Minerva()
-	#	logger.info("Testing")
-	#	x_test, y_test, scaler = ets.loadTestset()	
-	#	logger.info(x_test.shape)
-	#	minerva.evaluateModel(x_test, y_test,True)
-	#else:
-	#	logger.error("Invalid command line argument.")
+	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
+		minerva = Minerva()
+		logger.info("Training")
+		x_train, y_train, x_valid, y_valid, normalizer = ets.loadTrainset("D")
+		#x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
+		
+		logger.info(x_train.shape)
+		logger.info(x_valid.shape)
+		
+		minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
+	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
+		minerva = Minerva()
+		logger.info("Testing")
+		x_test, y_test, scaler = ets.loadTestset("D")	
+		#x_test, y_test, scaler = ets.loadTestset()	
+		logger.info(x_test.shape)
+		minerva.evaluateModel(x_test, y_test,True)
+	else:
+		logger.error("Invalid command line argument.")
 
 		
 class Minerva():
 
-	modelName = "LSTM_DeepModel.h5"
+	modelName = "Discharge_LSTM_DeepModel.h5"
 	batchSize = 150
 	epochs = 25
 	imgPath = "./images"

@@ -443,7 +443,7 @@ class EpisodedTimeSeries():
 		chargeEpisodes = []
 		dischargeEpisodes = []
 		voltThreshold = 30 
-		maxZerosInEpisode = 25
+		maxZerosInEpisode = 10
 		# list of all eligible episodes index (time stamp)
 		# select all time steps with i = 0 and v >= threshold
 		startinTimeStep =  ( 
