@@ -10,12 +10,12 @@ Requires:
 	numpy	(http://www.numpy.org/)
 """
 #Imports
-import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt
+import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt, glob
 from datetime import datetime
 
 #Module logging
 logger = logging.getLogger("Demetra")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
 formatter = logging.Formatter('[%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
@@ -56,6 +56,10 @@ class EpisodedTimeSeries():
 	espisodeFolder = "episodes"
 	espisodePath = None
 	
+	normalizerFolder = "normalizer"
+	normalizerPath = None
+	normalizerFile = "norm.pkl"
+	
 	chargePrefix = "charge_"
 	dischargePrefix = "discharge_"
 	
@@ -76,6 +80,8 @@ class EpisodedTimeSeries():
 		self.normalize = normalize
 		self.timeSteps = timeSteps
 		
+		self.normalizerPath = os.path.join(self.rootResultFolder, self.normalizerFolder)
+		
 		self.trainsetFolder = os.path.join(self.rootResultFolder, "trainset")
 		self.testsetFolder = os.path.join(self.rootResultFolder, "testset")
 		
@@ -89,6 +95,8 @@ class EpisodedTimeSeries():
 			os.makedirs(self.trainsetFolder)
 		if not os.path.exists(self.testsetFolder):
 			os.makedirs(self.testsetFolder)
+		if not os.path.exists(self.normalizerPath):
+			os.makedirs(self.normalizerPath)
 		
 		self.timeIndex = self.dataHeader[0]
 		self.nameIndex = self.dataHeader[1]
@@ -106,7 +114,7 @@ class EpisodedTimeSeries():
 		
 	
 	# public methods
-	def showEpisodes(self,type=None):
+	def showEpisodes(self,type=None,normalizer = None):
 		total = 0
 		for f in os.listdir(self.espisodePath):
 			if(type == "D" and not str(f).startswith(self.dischargePrefix)):
@@ -116,9 +124,16 @@ class EpisodedTimeSeries():
 			episodes = self.loadZip(self.espisodePath,f)
 			total += len(episodes)
 			logger.info("There are %d episodes for %s" % (len(episodes),f))
-			#for e in range(min(4,len(episodes))):
-			#	self.plot(episodes[e])
+			for e in range(min(4,len(episodes))):
+				if(normalizer is not None):
+					print(normalizer.shape)
+					for i in range(1,normalizer.shape[0]):
+						col = i + 2
+						episodes[e].iloc[:,[col]] =  self.__normalization(episodes[e].iloc[:,[col]],normalizer[i,0],normalizer[i,1],-1,1)
+				self.plot(episodes[e])
 		logger.info("Total %d" % total)
+	
+	
 	
 	def loadTrainset(self,type=None):
 		
@@ -133,10 +148,7 @@ class EpisodedTimeSeries():
 		y_train = load[1]
 		x_valid = load[2]
 		y_valid = load[3]
-		normalizer = None
-		if(self.normalize):
-			normalizer = load[4]
-		return x_train, y_train, x_valid, y_valid, normalizer
+		return x_train, y_train, x_valid, y_valid
 		
 	def loadTestset(self,type=None):
 	
@@ -149,10 +161,7 @@ class EpisodedTimeSeries():
 		load = self.loadZip(self.testsetFolder,test2load)
 		x_test = load[0]
 		y_test = load[1]
-		normalizer = None
-		if(self.normalize):
-			normalizer = load[2]
-		return x_test, y_test, normalizer
+		return x_test, y_test
 	
 	def buildEpisodedDataset(self,dataFolder,force=False):
 		""" 
@@ -202,10 +211,10 @@ class EpisodedTimeSeries():
 			logger.warning("No episodes file found, nothing will be done.")
 			return
 		
-		x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer = self.__trainTestSplit(Xall,Yall,valid,test)
+		x_test,y_test,x_train, y_train, x_valid, y_valid = self.__trainTestSplit(Xall,Yall,valid,test)
 		
-		self.saveZip(self.testsetFolder,self.dischargePrefix+self.testsetFile,[x_test,y_test,normalizer])
-		self.saveZip(self.trainsetFolder,self.dischargePrefix+self.trainsetFile,[x_train, y_train, x_valid, y_valid,normalizer])
+		self.saveZip(self.testsetFolder,self.dischargePrefix+self.testsetFile,[x_test,y_test])
+		self.saveZip(self.trainsetFolder,self.dischargePrefix+self.trainsetFile,[x_train, y_train, x_valid, y_valid])
 		
 		logger.info("buildDischargeSet - end - Elapsed: %f" % (time.clock() - start))
 	
@@ -242,10 +251,10 @@ class EpisodedTimeSeries():
 			logger.warning("No episodes file found, nothing will be done.")
 			return
 		
-		x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer = self.__trainTestSplit(Xall,Yall,valid,test)
+		x_test,y_test,x_train, y_train, x_valid, y_valid = self.__trainTestSplit(Xall,Yall,valid,test)
 		
-		self.saveZip(self.testsetFolder,self.chargePrefix+self.testsetFile,[x_test,y_test,normalizer])
-		self.saveZip(self.trainsetFolder,self.chargePrefix+self.trainsetFile,[x_train, y_train, x_valid, y_valid,normalizer])
+		self.saveZip(self.testsetFolder,self.chargePrefix+self.testsetFile,[x_test,y_test])
+		self.saveZip(self.trainsetFolder,self.chargePrefix+self.trainsetFile,[x_train, y_train, x_valid, y_valid])
 		
 		logger.info("buildChargeSet - end - Elapsed: %f" % (time.clock() - start))
 		
@@ -281,10 +290,10 @@ class EpisodedTimeSeries():
 			return
 		
 		
-		x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer = self.__trainTestSplit(Xall,Yall,valid,test)
+		x_test,y_test,x_train, y_train, x_valid, y_valid = self.__trainTestSplit(Xall,Yall,valid,test)
 		
-		self.saveZip(self.testsetFolder,self.testsetFile,[x_test,y_test,normalizer])
-		self.saveZip(self.trainsetFolder,self.trainsetFile,[x_train, y_train, x_valid, y_valid,normalizer])
+		self.saveZip(self.testsetFolder,self.testsetFile,[x_test,y_test])
+		self.saveZip(self.trainsetFolder,self.trainsetFile,[x_train, y_train, x_valid, y_valid])
 		
 		logger.info("buildLearnSet - end - Elapsed: %f" % (time.clock() - start))
 	
@@ -297,12 +306,14 @@ class EpisodedTimeSeries():
 		for i in range(len(Xall)):
 			shuffledX[i] = Xall[shuffled[i]]
 			shuffledY[i] = Yall[shuffled[i]]
-		
-		normalizer = None
+
 		if(self.normalize == True):
 			logger.debug("Normalized data will be used")
-			shuffledX, normalizer = self.__normalize(shuffledX)
-			shuffledY, _ = self.__normalize(shuffledY)	
+			normalizer = self.loadNormalizer()
+			logger.debug(normalizer.shape)
+			shuffledX = self.__normalize(shuffledX,normalizer)
+			ynormalizer = normalizer[-2:,:] # y has only the last two columns, improve me
+			shuffledY = self.__normalize(shuffledY,ynormalizer)	
 		else:
 			logger.debug("Raw data will be used")
 		
@@ -326,7 +337,7 @@ class EpisodedTimeSeries():
 		logger.info("Valid set shape")
 		logger.info(x_valid.shape)
 		
-		return x_test,y_test,x_train, y_train, x_valid, y_valid,normalizer
+		return x_test,y_test,x_train, y_train, x_valid, y_valid
 	
 	
 	def plot(self,data,savePath=None):
@@ -368,15 +379,34 @@ class EpisodedTimeSeries():
 			plt.close()
 		
 	# private methods
-	def __normalize(self,data,minrange=-1,maxrange=1):
-		normalizer = np.zeros([data.shape[2],2])
+	def __normalize(self,data,normalizer,minrange=-1,maxrange=1):
 		for i in range(data.shape[2]):
-			maxvalue = data[:,:,i].max()
-			minvalue = data[:,:,i].min()
-			data[:,:,i] = 	((data[:,:,i] - minvalue) / (maxvalue - minvalue)) * (maxrange - minrange) + minrange
-			normalizer[i,0] = minvalue		
-			normalizer[i,1] = maxvalue		
-		return data, normalizer
+			minvalue = normalizer[i,0]
+			maxvalue = normalizer[i,1]
+			data[:,:,i] = self.__normalization(data[:,:,i],minvalue,maxvalue,minrange,maxrange)
+			#data[:,:,i] = ((data[:,:,i] - minvalue) / (maxvalue - minvalue)) * (maxrange - minrange) + minrange
+		return data
+	
+	def __normalization(self,data,minvalue,maxvalue,minrange,maxrange):
+		norm = ((data - minvalue) / (maxvalue - minvalue)) * (maxrange - minrange) + minrange
+		return norm
+	
+	def __getNormalizer(self,data):
+		tt = time.clock()
+		logger.debug("Computing normalizer")
+		normalizer = np.zeros([data.shape[1]-2,2])
+		for i in range(2,data.shape[1]):
+			normIdx = i - 2
+			logger.debug("Normalizing %s" % self.dataHeader[i])
+			normalizer[normIdx,0] = data[self.dataHeader[i]].min()	
+			normalizer[normIdx,1] = data[self.dataHeader[i]].max()	
+			logger.debug("Min %f Max %f" % (normalizer[normIdx,0],normalizer[normIdx,1]))
+		logger.debug("Computed normalizer. Elapsed %f" %  (time.clock() - tt))
+		return normalizer
+		
+	def loadNormalizer(self):
+		normalizer = self.loadZip(self.normalizerFolder,self.normalizerFile)
+		return normalizer
 	
 	def __buildEpisodedDataframesFromFolder(self,dataFolder,force=False):
 		""" 
@@ -392,7 +422,9 @@ class EpisodedTimeSeries():
 		if( not os.path.isdir(dataFolder)):
 			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
 			return None
-
+		
+		allEpisodes = [] #list of all episodes for normalizer
+		
 		for file in os.listdir(dataFolder):
 			if(os.path.isfile(os.path.join(dataFolder,file))):
 				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
@@ -400,17 +432,24 @@ class EpisodedTimeSeries():
 					batteryName = loaded[self.nameIndex].values[0]
 					logger.info("Checking episodes for battery %s" % batteryName)
 					savePath = os.path.join(self.espisodePath,batteryName)
-					if(force or (not os.path.exists(savePath))):
+					alreadyExistent = len(glob.glob(self.espisodePath + "/*" + batteryName))
+					logger.debug("Already existent episodes for %s are %d" % (batteryName,alreadyExistent))
+					if(force or alreadyExistent == 0 ):
 						dischargeEpisodes , chargeEpisodes = self.__fastEpisodeInDataframe(loaded,self.timeSteps)
 						if(len(chargeEpisodes) > 0):
 							self.saveZip(self.espisodePath,self.chargePrefix+batteryName,chargeEpisodes)
+							allEpisodes.append(pd.concat(chargeEpisodes))
 						if(len(dischargeEpisodes) > 0):
 							self.saveZip(self.espisodePath,self.dischargePrefix+batteryName,dischargeEpisodes)
-						
+							allEpisodes.append(pd.concat(dischargeEpisodes))
 						if(len(chargeEpisodes) == 0 and len(dischargeEpisodes) == 0):
 							logger.warning("No episodes in file")
 					else:
 						logger.info("Episodes for battery %s already exists" % batteryName)
+		if(self.normalize):
+			normalizer = self.__getNormalizer(pd.concat(allEpisodes))
+			self.saveZip(self.normalizerFolder,self.normalizerFile,normalizer)
+		
 		logger.info("Folder read complete. Elapsed %f" %  (time.clock() - tt))
 		
 	def __readFileAsDataframe(self,file):
