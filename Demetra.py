@@ -15,7 +15,7 @@ from datetime import datetime
 
 #Module logging
 logger = logging.getLogger("Demetra")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
 formatter = logging.Formatter('[%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
@@ -482,7 +482,8 @@ class EpisodedTimeSeries():
 		chargeEpisodes = []
 		dischargeEpisodes = []
 		voltThreshold = 30 
-		maxZerosInEpisode = 10
+		zeroThreshold = int(episodeLength * 0.1)
+		maxZerosInEpisode = episodeLength-zeroThreshold
 		# list of all eligible episodes index (time stamp)
 		# select all time steps with i = 0 and v >= threshold
 		startinTimeStep =  ( 
@@ -498,6 +499,8 @@ class EpisodedTimeSeries():
 		startinTimeStep = startinTimeStep[ (diff.second > 1.5 ) ]
 		allCandidates = len(startinTimeStep)
 		logger.info("Found %d candidates" % allCandidates)
+		zeroDiscarded = 0
+		notCompliant = 0
 		for ts in startinTimeStep:
 			startRow = dataframe.index.get_loc(ts)
 			episodeCandidate = dataframe.iloc[startRow:startRow+episodeLength,:]
@@ -506,6 +509,7 @@ class EpisodedTimeSeries():
 			
 			# if there are too many zeros, then the episode is discarded
 			if(zeroCurrentCount > maxZerosInEpisode):
+				zeroDiscarded +=1
 				continue
 			
 			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
@@ -518,9 +522,13 @@ class EpisodedTimeSeries():
 				if(chargeCount == (episodeLength-zeroCurrentCount)):
 					# this is a charge episodes
 					chargeEpisodes.append(episodeCandidate)
+				else:
+					notCompliant +=1
 
 		dischargeFraction = len(dischargeEpisodes) / allCandidates
 		chargeFraction = len(chargeEpisodes) / allCandidates
+		
+		logger.info("Zero discarded %d not compliant %d" % (zeroDiscarded,notCompliant))
 		
 		logger.info("Episodes created. Discharge: %s - %f - Charge: %s - %f. Elapsed %f second(s)" %  
 						(len(dischargeEpisodes),dischargeFraction, len(chargeEpisodes),chargeFraction, (time.clock() - tt)))

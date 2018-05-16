@@ -25,8 +25,8 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = False
-	ets = EpisodedTimeSeries(30,normalize=True)
+	force = True
+	ets = EpisodedTimeSeries(15,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 	ets.buildChargeSet(force=force)
 	ets.buildDischargeSet(force=force)
@@ -35,7 +35,7 @@ def main():
 	
 	#ets.showEpisodes("D")
 	
-	ets.showEpisodes("C")
+	ets.showEpisodes("D")
 	
 	#if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 	#	minerva = Minerva()
