@@ -25,44 +25,45 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = True
-	ets = EpisodedTimeSeries(15,normalize=True)
+	force = False
+	ets = EpisodedTimeSeries(5,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 	ets.buildChargeSet(force=force)
 	ets.buildDischargeSet(force=force)
-
-	norm = ets.loadNormalizer()
 	
+	type = "D"
+	normalizer = ets.loadNormalizer()
+	
+	#ets.showEpisodes(type)
 	#ets.showEpisodes("D")
 	
-	ets.showEpisodes("D")
-	
-	#if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
-	#	minerva = Minerva()
-	#	logger.info("Training")
-	#	x_train, y_train, x_valid, y_valid, normalizer = ets.loadTrainset("D")
-	#	#x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
-	#	
-	#	logger.info(x_train.shape)
-	#	logger.info(x_valid.shape)
-	#	
-	#	minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
-	#elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
-	#	minerva = Minerva()
-	#	logger.info("Testing")
-	#	x_test, y_test, scaler = ets.loadTestset("D")	
-	#	#x_test, y_test, scaler = ets.loadTestset()	
-	#	logger.info(x_test.shape)
-	#	minerva.evaluateModel(x_test, y_test,True)
-	#else:
-	#	logger.error("Invalid command line argument.")
+	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
+		minerva = Minerva()
+		logger.info("Training")
+		x_train, y_train, x_valid, y_valid = ets.loadTrainset(type)
+		#x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
+		
+		logger.info(x_train.shape)
+		logger.info(x_valid.shape)
+		
+		minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
+	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
+		minerva = Minerva()
+		logger.info("Testing")
+		x_test, y_test = ets.loadTestset(type)	
+		#x_test, y_test, scaler = ets.loadTestset()	
+		logger.info(x_test.shape)
+		minerva.evaluateModel(x_test, y_test,True)
+	else:
+		logger.error("Invalid command line argument.")
 
 		
 class Minerva():
 
-	modelName = "Discharge_LSTM_DeepModel.h5"
-	batchSize = 150
-	epochs = 25
+	#modelName = "Discharge_LSTM_DeepModel.h5"
+	modelName = "Charge_LSTM_DeepModel.h5"
+	batchSize = 250
+	epochs = 10
 	imgPath = "./images"
 	
 	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
@@ -91,7 +92,7 @@ class Minerva():
 		model = Sequential()
 		
 		model.add( LSTM(hiddenStateDim0,name='EN_0',return_sequences=True,activation='tanh',input_shape=(timesteps,inputFeatures)))
-		model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
+		#model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
 		model.add( LSTM(hiddenStateDim2,name='EN_2',dropout = drop,activation='tanh') )
 		
 		model.add( Dense(hiddenStateDim4,name='EN_3',activation='relu') )
@@ -102,10 +103,11 @@ class Minerva():
 		
 		model.add(Dense(hiddenStateDim2,name='DC_2',activation='relu') )
 		
-		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
+		#model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
+		model.add(RepeatVector(int(timesteps),name='DC_TS_1') )
 		model.add( LSTM(hiddenStateDim1,name='DC_1',return_sequences=True,activation='tanh') )
 		
-		model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
+		#model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
 		model.add( LSTM(hiddenStateDim0,name='DC_0',return_sequences=True,dropout = drop,activation='tanh') )
 		
 		model.add( LSTM(outputFeatures,name='decoded',return_sequences=True,activation='tanh') )
