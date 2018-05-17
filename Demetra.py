@@ -72,6 +72,12 @@ class EpisodedTimeSeries():
 	
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	
+	def removeMe(self):
+		loaded = self.__readFileAsDataframe(os.path.join("./dataset","data.gz"))
+		batteryName = loaded[self.nameIndex].values[0]
+		logger.info("Checking episodes for battery %s" % batteryName)
+		return loaded
+		
 	#Constructor
 	def __init__(self,timeSteps,normalize=True):
 		""" 
@@ -446,7 +452,7 @@ class EpisodedTimeSeries():
 							logger.warning("No episodes in file")
 					else:
 						logger.info("Episodes for battery %s already exists" % batteryName)
-		if(self.normalize):
+		if(self.normalize and len(allEpisodes) > 0 ):
 			normalizer = self.__getNormalizer(pd.concat(allEpisodes))
 			self.saveZip(self.normalizerFolder,self.normalizerFile,normalizer)
 		
@@ -477,57 +483,98 @@ class EpisodedTimeSeries():
 		return data
 		
 		
-	def __fastEpisodeInDataframe(self,dataframe,episodeLength):
+	def __fastEpisodeInDataframe(self,df,episodeLength):
 		tt = time.clock()
 		chargeEpisodes = []
 		dischargeEpisodes = []
 		voltThreshold = 30 
-		zeroThreshold = int(episodeLength * 0.1)
-		maxZerosInEpisode = episodeLength-zeroThreshold
-		# list of all eligible episodes index (time stamp)
-		# select all time steps with i = 0 and v >= threshold
-		startinTimeStep =  ( 
-			dataframe[(dataframe[self.currentIndex] == 0 ) 
-			& 
-			(dataframe[self.voltageIndex] >= voltThreshold)].index
-		)
-		# since a lot of indexes are consecutive (zone of constant voltage and 0 current ) all consecutive starting indexed are dropped
-		logger.debug("Dropping plateau")
-		# time gap between consecutive time step 
-		diff = startinTimeStep - np.roll(startinTimeStep,1)
-		# keep only start episodes with a gap greater than 1.5 seconds
-		startinTimeStep = startinTimeStep[ (diff.second > 1.5 ) ]
-		allCandidates = len(startinTimeStep)
-		logger.info("Found %d candidates" % allCandidates)
+		#zeroThreshold = int(episodeLength * 0.2)
+		maxZerosInEpisode = int(episodeLength / 2) #episodeLength-zeroThreshold
+		
+		logger.debug("Group by day start")
+		groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
+		logger.debug("Group by day complete")
+		allCandidates = 0
 		zeroDiscarded = 0
 		notCompliant = 0
-		for ts in startinTimeStep:
-			startRow = dataframe.index.get_loc(ts)
-			episodeCandidate = dataframe.iloc[startRow:startRow+episodeLength,:]
+		prevDiscarded = 0
+		prevGap = int(episodeLength / 3)
+		for dataframe in groups:
+			# list of all eligible episodes index (time stamp) in a day
+			# select all time steps with i = 0 and v >= threshold
+			startinTimeStep =  ( 
+				dataframe[(dataframe[self.currentIndex] == 0 ) 
+				& 
+				(dataframe[self.voltageIndex] >= voltThreshold)].index
+			)
 			
-			zeroCurrentCount = episodeCandidate[ episodeCandidate[self.currentIndex] == 0 ].shape[0]
+			# since a lot of indexes are consecutive (zone of constant voltage and 0 current ) all consecutive starting indexed are dropped
+			# time gap between consecutive time step 
+			#diff = startinTimeStep - np.roll(startinTimeStep,1)
+			if(startinTimeStep.shape[0] == 0):
+				continue;
 			
-			# if there are too many zeros, then the episode is discarded
-			if(zeroCurrentCount > maxZerosInEpisode):
-				zeroDiscarded +=1
-				continue
 			
-			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
+			future = np.roll(startinTimeStep,-1)
+			present = np.roll(startinTimeStep,0)
+			diff =  future - present
+			diff = (diff * 10**-9).astype(int) # convert nanosecond in second
 			
-			if(dischargeCount == (episodeLength-zeroCurrentCount)):
-				# this is a discharge episodes
-				dischargeEpisodes.append(episodeCandidate)
-			else:
-				chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] > 0 ].shape[0]
-				if(chargeCount == (episodeLength-zeroCurrentCount)):
-					# this is a charge episodes
-					chargeEpisodes.append(episodeCandidate)
-				else:
-					notCompliant +=1
+			
+			# keep only start episodes with a gap greater than 1.5 seconds
+			startinTimeStep = startinTimeStep[ (diff >  1 ) ]
+			
+		
+			allCandidates += len(startinTimeStep)
+			
+			for ts in startinTimeStep:
+				startRow = dataframe.index.get_loc(ts)
+				
+				disPrevZone = dataframe.iloc[startRow-prevGap:startRow,:]
+				prevDis = disPrevZone[ (disPrevZone[self.currentIndex] >= 0) & (disPrevZone[self.currentIndex] <= 1) ].shape[0]
+				
+				prevCharge = disPrevZone[ (disPrevZone[self.currentIndex] < 0)].shape[0]
+				
+				#not a discharge intro
+				if(prevDis != prevGap and prevCharge != prevGap):
+					prevDiscarded += 1
+					continue
+
+				#TODO include previous context on episode
+				startIndex = startRow-prevGap
+				endIndex = startIndex+episodeLength
+				episodeCandidate = dataframe.iloc[startIndex:endIndex,:]
+				
+				
+				
+				zeroCurrentCount = episodeCandidate[ episodeCandidate[self.currentIndex] == 0 ].shape[0]
+				
+				# if there are too many zeros, then the episode is discarded
+				if(zeroCurrentCount > maxZerosInEpisode):
+					zeroDiscarded +=1
+					continue
+				
+				
+					
+				if(prevDis == prevGap):
+					
+					dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
+					if(dischargeCount == (episodeLength-zeroCurrentCount)):
+						# this is a discharge episodes
+						dischargeEpisodes.append(episodeCandidate)
+					else:
+						notCompliant +=1
+				elif(prevCharge == prevGap):
+					chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] > 0 ].shape[0]
+					if(chargeCount == (episodeLength-zeroCurrentCount)):
+						# this is a charge episodes
+						chargeEpisodes.append(episodeCandidate)
+					else:
+						notCompliant +=1
 
 		dischargeFraction = len(dischargeEpisodes) / allCandidates
 		chargeFraction = len(chargeEpisodes) / allCandidates
-		
+		logger.info("prevDiscarded %d " % prevDiscarded)
 		logger.info("Zero discarded %d not compliant %d" % (zeroDiscarded,notCompliant))
 		
 		logger.info("Episodes created. Discharge: %s - %f - Charge: %s - %f. Elapsed %f second(s)" %  

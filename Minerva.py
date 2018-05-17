@@ -26,11 +26,11 @@ logger.addHandler(consoleHandler)
 
 def main():
 	force = False
-	ets = EpisodedTimeSeries(5,normalize=True)
+	ets = EpisodedTimeSeries(15,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
-	ets.buildChargeSet(force=force)
+	#ets.buildChargeSet(force=force)
 	ets.buildDischargeSet(force=force)
-	
+	#
 	type = "D"
 	normalizer = ets.loadNormalizer()
 	
@@ -62,8 +62,8 @@ class Minerva():
 
 	#modelName = "Discharge_LSTM_DeepModel.h5"
 	modelName = "Charge_LSTM_DeepModel.h5"
-	batchSize = 250
-	epochs = 10
+	batchSize = 75
+	epochs = 50
 	imgPath = "./images"
 	
 	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
