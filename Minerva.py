@@ -25,45 +25,45 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = False
+	force = True
 	ets = EpisodedTimeSeries(15,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
-	#ets.buildChargeSet(force=force)
-	ets.buildDischargeSet(force=force)
-	#
+	
 	type = "D"
+	#ets.showEpisodes(type)
+	
+	ets.buildChargeSet(force=force)
+	ets.buildDischargeSet(force=force)
 	normalizer = ets.loadNormalizer()
 	
-	#ets.showEpisodes(type)
-	#ets.showEpisodes("D")
-	
-	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
-		minerva = Minerva()
-		logger.info("Training")
-		x_train, y_train, x_valid, y_valid = ets.loadTrainset(type)
-		#x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
-		
-		logger.info(x_train.shape)
-		logger.info(x_valid.shape)
-		
-		minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
-	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
-		minerva = Minerva()
-		logger.info("Testing")
-		x_test, y_test = ets.loadTestset(type)	
-		#x_test, y_test, scaler = ets.loadTestset()	
-		logger.info(x_test.shape)
-		minerva.evaluateModel(x_test, y_test,True)
-	else:
-		logger.error("Invalid command line argument.")
+	if(False):
+		if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
+			minerva = Minerva()
+			logger.info("Training")
+			x_train, y_train, x_valid, y_valid = ets.loadTrainset(type)
+			#x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
+			
+			logger.info(x_train.shape)
+			logger.info(x_valid.shape)
+			
+			minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
+		elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
+			minerva = Minerva()
+			logger.info("Testing")
+			x_test, y_test = ets.loadTestset(type)	
+			#x_test, y_test, scaler = ets.loadTestset()	
+			logger.info(x_test.shape)
+			minerva.evaluateModel(x_test, y_test,True)
+		else:
+			logger.error("Invalid command line argument.")
 
 		
 class Minerva():
 
-	#modelName = "Discharge_LSTM_DeepModel.h5"
-	modelName = "Charge_LSTM_DeepModel.h5"
+	#modelName = "Charge_LSTM_DeepModel.h5"
+	modelName = "Discharge_LSTM_DeepModel.h5"
 	batchSize = 75
-	epochs = 50
+	epochs = 25
 	imgPath = "./images"
 	
 	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):

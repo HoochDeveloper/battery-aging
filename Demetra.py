@@ -120,7 +120,7 @@ class EpisodedTimeSeries():
 		
 	
 	# public methods
-	def showEpisodes(self,type=None,normalizer = None):
+	def showEpisodes(self,type=None,normalizer = None,limit=None):
 		total = 0
 		for f in os.listdir(self.espisodePath):
 			if(type == "D" and not str(f).startswith(self.dischargePrefix)):
@@ -130,9 +130,12 @@ class EpisodedTimeSeries():
 			episodes = self.loadZip(self.espisodePath,f)
 			total += len(episodes)
 			logger.info("There are %d episodes for %s" % (len(episodes),f))
-			for e in range(min(4,len(episodes))):
+			max2show = len(episodes)
+			if(limit is not None):
+				max2show = min(limit,len(episodes))
+			for e in range(max2show):
 				if(normalizer is not None):
-					print(normalizer.shape)
+					
 					for i in range(1,normalizer.shape[0]):
 						col = i + 2
 						episodes[e].iloc[:,[col]] =  self.__normalization(episodes[e].iloc[:,[col]],normalizer[i,0],normalizer[i,1],-1,1)
@@ -247,7 +250,8 @@ class EpisodedTimeSeries():
 				logger.debug("File %s discarded, not a charge episode." % f)
 				continue;
 			episodeList = self.loadZip(self.espisodePath,f)
-			for e in range(len(episodeList)):
+			
+			for e in range(len(episodeList)):	
 				x = episodeList[e].drop(columns=self.dropX)
 				y = episodeList[e][self.keepY]
 				Xall.append(x)
@@ -444,10 +448,10 @@ class EpisodedTimeSeries():
 						dischargeEpisodes , chargeEpisodes = self.__fastEpisodeInDataframe(loaded,self.timeSteps)
 						if(len(chargeEpisodes) > 0):
 							self.saveZip(self.espisodePath,self.chargePrefix+batteryName,chargeEpisodes)
-							allEpisodes.append(pd.concat(chargeEpisodes))
+							allEpisodes += chargeEpisodes
 						if(len(dischargeEpisodes) > 0):
 							self.saveZip(self.espisodePath,self.dischargePrefix+batteryName,dischargeEpisodes)
-							allEpisodes.append(pd.concat(dischargeEpisodes))
+							allEpisodes += dischargeEpisodes
 						if(len(chargeEpisodes) == 0 and len(dischargeEpisodes) == 0):
 							logger.warning("No episodes in file")
 					else:
@@ -484,104 +488,207 @@ class EpisodedTimeSeries():
 		
 		
 	def __fastEpisodeInDataframe(self,df,episodeLength):
+		logger.debug("__fastEpisodeInDataframe start.")
 		tt = time.clock()
-		chargeEpisodes = []
-		dischargeEpisodes = []
-		voltThreshold = 30 
-		#zeroThreshold = int(episodeLength * 0.2)
-		maxZerosInEpisode = int(episodeLength / 2) #episodeLength-zeroThreshold
+		discharges = []
+		charges = []
 		
-		logger.debug("Group by day start")
+		dischargeCount = 0
+		chargeCount = 0
+		
+		zerosCharge = 0
+		zerosDischarge = 0
+		
+		misscompliantCharge = 0
+		misscompliantDischarge = 0
+		
+		misscontextCharge = 0
+		misscontextDischarge = 0
+		
 		groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
-		logger.debug("Group by day complete")
-		allCandidates = 0
+		for dataframe in groups:
+			
+			dischargeEpisodes, zeroCurDiscard, compliantCurDiscard, contextCurDiscard = self.__seekDischargeEpisode(dataframe,episodeLength)
+			if(len(dischargeEpisodes) > 0):
+				dischargeCount += len(dischargeEpisodes)
+				discharges.extend(dischargeEpisodes)
+			zerosDischarge += zeroCurDiscard
+			misscompliantDischarge += compliantCurDiscard
+			misscontextDischarge += contextCurDiscard
+			
+			chargeEpisodes, zeroCurDiscard, compliantCurDiscard, contextCurDiscard = self.__seekChargeEpisode(dataframe,episodeLength)
+			if(len(chargeEpisodes) > 0):
+				chargeCount += len(chargeEpisodes)
+				charges.extend(chargeEpisodes)
+			
+			zerosCharge += zeroCurDiscard
+			misscompliantCharge += compliantCurDiscard
+			misscontextCharge += contextCurDiscard
+		
+		logger.info("Discharges: %d Zeros: %d Not Compliant: %d Context: %d" % (dischargeCount,zerosDischarge,misscompliantDischarge,misscontextDischarge))
+		
+		logger.info("Charges: %d Zeros: %d Not Compliant: %d Context: %d" % (chargeCount,zerosCharge,misscompliantCharge,misscontextCharge))
+		
+		logger.debug("__fastEpisodeInDataframe end. Elapsed %f" %  (time.clock() - tt))
+		return discharges , charges
+		
+	def __seekDischargeEpisode(self,dataframe,episodeLength):
+		
+		maxZerosInEpisode = int(episodeLength / 3) # must be greater than context len
+		contextLength = int(episodeLength / 4)
+		
+		dischargeEpisodes = []
 		zeroDiscarded = 0
 		notCompliant = 0
-		prevDiscarded = 0
-		prevGap = int(episodeLength / 3)
-		for dataframe in groups:
-			# list of all eligible episodes index (time stamp) in a day
-			# select all time steps with i = 0 and v >= threshold
-			startinTimeStep =  ( 
-				dataframe[(dataframe[self.currentIndex] == 0 ) 
-				& 
-				(dataframe[self.voltageIndex] >= voltThreshold)].index
-			)
-			
-			# since a lot of indexes are consecutive (zone of constant voltage and 0 current ) all consecutive starting indexed are dropped
-			# time gap between consecutive time step 
-			#diff = startinTimeStep - np.roll(startinTimeStep,1)
-			if(startinTimeStep.shape[0] == 0):
-				continue;
-			
-			
-			future = np.roll(startinTimeStep,-1)
-			present = np.roll(startinTimeStep,0)
-			diff =  future - present
-			diff = (diff * 10**-9).astype(int) # convert nanosecond in second
-			
-			
-			# keep only start episodes with a gap greater than 1.5 seconds
-			startinTimeStep = startinTimeStep[ (diff >  1 ) ]
-			
+		contextDiscarded = 0
 		
-			allCandidates += len(startinTimeStep)
-			
-			for ts in startinTimeStep:
-				startRow = dataframe.index.get_loc(ts)
-				
-				disPrevZone = dataframe.iloc[startRow-prevGap:startRow,:]
-				prevDis = disPrevZone[ (disPrevZone[self.currentIndex] >= 0) & (disPrevZone[self.currentIndex] <= 1) ].shape[0]
-				
-				prevCharge = disPrevZone[ (disPrevZone[self.currentIndex] < 0)].shape[0]
-				
-				#not a discharge intro
-				if(prevDis != prevGap and prevCharge != prevGap):
-					prevDiscarded += 1
-					continue
+		# select all time steps with -1 < i < 1 and v >= threshold
+		dischargeStart =  ( 
+			dataframe[
+			(dataframe[self.currentIndex] <= 1 ) 
+			& 
+			(dataframe[self.currentIndex] >= -1 ) 
+			&
+			(dataframe[self.voltageIndex] >= 30)
+			].index
+		)
+		
+		# since a lot of indexes are consecutive (zone of constant voltage and 0 current ) all consecutive starting indexed are dropped
+		# time gap between consecutive time step 
+		if(dischargeStart.shape[0] == 0):
+			return dischargeEpisodes, zeroDiscarded, notCompliant, contextDiscarded
+		
+		# handle discharge episodes
+		# with future - past the episoded starts from the last holding the condition
+		future = np.roll(dischargeStart,-1) # shift the episode one second ahead
+		present = np.roll(dischargeStart,0) # convert in numpy array
+		diff =  future - present # compute difference between starting episodes
+		diff = (diff * 10**-9).astype(int) # convert nanosecond in second
 
-				#TODO include previous context on episode
-				startIndex = startRow-prevGap
-				endIndex = startIndex+episodeLength
-				episodeCandidate = dataframe.iloc[startIndex:endIndex,:]
-				
-				
-				
-				zeroCurrentCount = episodeCandidate[ episodeCandidate[self.currentIndex] == 0 ].shape[0]
-				
-				# if there are too many zeros, then the episode is discarded
-				if(zeroCurrentCount > maxZerosInEpisode):
-					zeroDiscarded +=1
-					continue
-				
-				
-					
-				if(prevDis == prevGap):
-					
-					dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
-					if(dischargeCount == (episodeLength-zeroCurrentCount)):
-						# this is a discharge episodes
-						dischargeEpisodes.append(episodeCandidate)
-					else:
-						notCompliant +=1
-				elif(prevCharge == prevGap):
-					chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] > 0 ].shape[0]
-					if(chargeCount == (episodeLength-zeroCurrentCount)):
-						# this is a charge episodes
-						chargeEpisodes.append(episodeCandidate)
-					else:
-						notCompliant +=1
+		# keep only start episodes with a gap greater than 1 seconds in order to discard consecutive starting episodes
+		dischargeStart = dischargeStart[ (diff >  1 ) ]
+		
+		logger.debug("Discharge removed %d " % ( len(present) - len(dischargeStart)  ))
 
-		dischargeFraction = len(dischargeEpisodes) / allCandidates
-		chargeFraction = len(chargeEpisodes) / allCandidates
-		logger.info("prevDiscarded %d " % prevDiscarded)
-		logger.info("Zero discarded %d not compliant %d" % (zeroDiscarded,notCompliant))
+		for ts in dischargeStart:
+			#get integer indexing for time step index
+			startRow = dataframe.index.get_loc(ts)
+			
+			context = dataframe.iloc[startRow-contextLength:startRow,:]
+			checkDischargeContext = context[ (context[self.currentIndex] >= 0) & (context[self.currentIndex] <= 1) ].shape[0]
+								
+			#if discharge precondition are not meet then skip
+			if(checkDischargeContext != contextLength):
+				contextDiscarded += 1
+				continue
+
+			#include previous context on episode
+			startIndex = startRow-contextLength
+			endIndex = startIndex+episodeLength
+			episodeCandidate = dataframe.iloc[startIndex:endIndex,:]
 		
-		logger.info("Episodes created. Discharge: %s - %f - Charge: %s - %f. Elapsed %f second(s)" %  
-						(len(dischargeEpisodes),dischargeFraction, len(chargeEpisodes),chargeFraction, (time.clock() - tt)))
+			zeroCurrentCount = episodeCandidate[ episodeCandidate[self.currentIndex] == 0 ].shape[0]
 		
-		return dischargeEpisodes , chargeEpisodes
+			# if there are too many zeros, then the episode is discarded
+			if(zeroCurrentCount > maxZerosInEpisode):
+				zeroDiscarded +=1
+				continue
+
+			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
+			if(dischargeCount == (episodeLength-zeroCurrentCount)):
+				# this is a discharge episodes
+				if(episodeCandidate.shape[0] != episodeLength):
+					logger.error("Error episode length discharge")
+					logger.error(episodeCandidate.shape)
+					notCompliant +=1
+					continue
+				dischargeEpisodes.append(episodeCandidate)
+			else:
+				notCompliant +=1
 		
+		return dischargeEpisodes, zeroDiscarded, notCompliant, contextDiscarded
+		
+	###################################
+	
+	def __seekChargeEpisode(self,dataframe,episodeLength):
+		
+		maxZerosInEpisode = int(episodeLength / 3) # must be greater than context len
+		contextLength = int(episodeLength / 4)
+		
+		chargeEpisodes = []
+		zeroDiscarded = 0
+		notCompliant = 0
+		contextDiscarded = 0
+		
+		# select all time steps with -1 < i < 1 and v >= threshold
+		chargeStart =  ( 
+			dataframe[
+			(dataframe[self.currentIndex] > 0 ) 
+			#&
+			#(dataframe[self.voltageIndex] >= 30)
+			].index
+		)
+		
+		# since a lot of indexes are consecutive (zone of constant voltage and 0 current ) all consecutive starting indexed are dropped
+		# time gap between consecutive time step 
+		if(chargeStart.shape[0] == 0):
+			return chargeEpisodes, zeroDiscarded, notCompliant, contextDiscarded
+		
+		# handle discharge episodes
+		
+		# with present - past the episodes starts from the first ts holding the condition
+		
+		past = np.roll(chargeStart,1) # shift the episode one second ahead
+		present = np.roll(chargeStart,0) # convert in numpy array
+		diff =  present - past # compute difference between starting episodes
+		diff = (diff * 10**-9).astype(int) # convert nanosecond in second
+
+		# keep only start episodes with a gap greater than 1 seconds in order to discard consecutive starting episodes
+		chargeStart = chargeStart[ (diff >  1 ) ]
+		
+		logger.debug("Charge removed %d " % ( len(present) - len(chargeStart)  ))
+
+		for ts in chargeStart:
+			#get integer indexing for time step index
+			startRow = dataframe.index.get_loc(ts)
+			
+			context = dataframe.iloc[startRow-contextLength:startRow,:]
+			checkChargeContext = context[ (context[self.currentIndex] <= 0) ].shape[0]
+								
+			#if discharge precondition are not meet then skip
+			if(checkChargeContext != contextLength):
+				contextDiscarded += 1
+				continue
+
+			#include previous context on episode
+			startIndex = startRow-contextLength
+			endIndex = startIndex+episodeLength
+			episodeCandidate = dataframe.iloc[startIndex:endIndex,:]
+				
+			zeroCurrentCount = episodeCandidate[ episodeCandidate[self.currentIndex] == 0 ].shape[0]
+			
+			# if there are too many zeros, then the episode is discarded
+			if(zeroCurrentCount > maxZerosInEpisode):
+				zeroDiscarded +=1
+				continue
+			
+			chargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] > 0 ].shape[0]
+			if(chargeCount == (episodeLength-zeroCurrentCount-contextLength)):
+				# this is a discharge episodes
+				if(episodeCandidate.shape[0] != episodeLength):
+					logger.error("Error episode length charge")
+					logger.error(episodeCandidate.shape)
+					notCompliant +=1
+					continue
+				chargeEpisodes.append(episodeCandidate)
+			else:
+				notCompliant +=1
+		
+		return chargeEpisodes, zeroDiscarded, notCompliant, contextDiscarded
+	
+	
+	
+	###################################
 	def saveZip(self,folder,fileName,data):
 		saveFile = os.path.join(folder,fileName)
 		logger.debug("Saving %s" % saveFile)
