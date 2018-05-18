@@ -27,6 +27,9 @@ logger.addHandler(consoleHandler)
 def main():
 	force = True
 	ets = EpisodedTimeSeries(15,normalize=True)
+	
+	#ets.removeMe()
+	
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 	
 	type = "D"

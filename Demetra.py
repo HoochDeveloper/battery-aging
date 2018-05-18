@@ -35,12 +35,12 @@ class EpisodedTimeSeries():
 	"S_CORRBATT_FLG1","S_TENSBATT_FLG1" ])
 	
 	""" Dictonary for column data types """
-	dataTypes = ({ "TSTAMP" : str,"THING" : str,"CONF" : np.int16, "SPEED" : np.float32,
-	"S_IBATCB1_CB1" : np.int16,"S_IBATCB2_CB2" : np.int16, "S_IOUTBUR1_BUR1" : np.uint16,
-	"S_IOUTBUR2_BUR2" : np.uint16,"S_ITOTCB2_CB2" : np.uint16,"S_TBATCB1_CB1" : np.int16,
-	"S_ITOTCB1_CB1" : np.uint16,"S_TBATCB2_CB2" : np.int16,"S_VBATCB1_CB1" : np.uint16,
-	"S_VBATCB2_CB2" : np.uint16,"S_VINCB1_CB1" : np.uint16,"S_VINCB2_CB2" : np.uint16,
-	"S_CORRBATT_FLG1" : np.int16,"S_TENSBATT_FLG1" : np.float32 })
+	dataTypes = ({ "TSTAMP" : str,"THING" : str,"CONF" : np.float32, "SPEED" : np.float32,
+	"S_IBATCB1_CB1" : np.float32,"S_IBATCB2_CB2" : np.float32, "S_IOUTBUR1_BUR1" : np.float32,
+	"S_IOUTBUR2_BUR2" : np.float32,"S_ITOTCB2_CB2" : np.float32,"S_TBATCB1_CB1" : np.float32,
+	"S_ITOTCB1_CB1" : np.float32,"S_TBATCB2_CB2" : np.float32,"S_VBATCB1_CB1" : np.float32,
+	"S_VBATCB2_CB2" : np.float32,"S_VINCB1_CB1" : np.float32,"S_VINCB2_CB2" : np.float32,
+	"S_CORRBATT_FLG1" : np.float32,"S_TENSBATT_FLG1" : np.float32 })
 
 	dropX = [dataHeader[0],dataHeader[1]] # columns to drop for X
 	keepY = [dataHeader[16],dataHeader[17]] # columns to keep for Y
@@ -73,7 +73,7 @@ class EpisodedTimeSeries():
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	
 	def removeMe(self):
-		loaded = self.__readFileAsDataframe(os.path.join("./dataset","data.gz"))
+		loaded = self.__readFileAsDataframe(os.path.join("./dataset","data11.gz"))
 		batteryName = loaded[self.nameIndex].values[0]
 		logger.info("Checking episodes for battery %s" % batteryName)
 		return loaded
@@ -478,10 +478,17 @@ class EpisodedTimeSeries():
 				dtype=self.dataTypes,
 				parse_dates=[self.timeIndex],
 				date_parser = pd.core.tools.datetimes.to_datetime)
-			data.set_index(self.timeIndex,inplace=True,drop=False)
-			data.sort_index(inplace=True)
+			
 			logger.debug("Data read complete. Elapsed %f second(s)" %  (time.clock() - tt))
-		except:
+			logger.debug("Dropping NA")
+			data.dropna(inplace=True)
+			logger.debug("Indexing")
+			data.set_index(self.timeIndex,inplace=True,drop=False)
+			logger.debug("Sorting")
+			data.sort_index(inplace=True)
+			
+		except Exception as e:
+			print(e)
 			logger.error("Can't read file %s" % file)
 			data = None
 		return data
