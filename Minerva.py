@@ -25,56 +25,75 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = True
-	ets = EpisodedTimeSeries(15,normalize=True)
 	
-	#ets.removeMe()
-	
+	force = False
+	ets = EpisodedTimeSeries(20,normalize=True)
 	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 	
-	type = "D"
-	#ets.showEpisodes(type)
-	
-	ets.buildChargeSet(force=force)
-	ets.buildDischargeSet(force=force)
-	normalizer = ets.loadNormalizer()
-	
-	if(False):
-		if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
-			minerva = Minerva()
-			logger.info("Training")
-			x_train, y_train, x_valid, y_valid = ets.loadTrainset(type)
-			#x_train, y_train, x_valid, y_valid,normalizer = ets.loadTrainset()	
-			
-			logger.info(x_train.shape)
-			logger.info(x_valid.shape)
-			
-			minerva.trainSequentialModel(x_train, y_train, x_valid, y_valid)
-		elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
-			minerva = Minerva()
-			logger.info("Testing")
-			x_test, y_test = ets.loadTestset(type)	
-			#x_test, y_test, scaler = ets.loadTestset()	
-			logger.info(x_test.shape)
-			minerva.evaluateModel(x_test, y_test,True)
-		else:
-			logger.error("Invalid command line argument.")
-
+	minerva = Minerva(ets,Minerva.CHARGE)
+	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
+		logger.info("Training")
+		minerva.train()
+	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
+		logger.info("Testing")
+		minerva.evaluate()
+	else:
+		logger.error("Invalid command line argument.")
 		
 class Minerva():
 
-	#modelName = "Charge_LSTM_DeepModel.h5"
-	modelName = "Discharge_LSTM_DeepModel.h5"
-	batchSize = 75
-	epochs = 25
+	CHARGE = "C"
+	DISCHARGE = "D"
+
+	modelName = "LSTM_DeepModel.h5"
+	batchSize = 100
+	epochs = 50
 	imgPath = "./images"
+	ets = None
+	type = None
 	
-	def trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
+	def __init__(self,ets,type):
+		self.ets = ets
+		self.type = type
 		
-		x_train = self.batchCompatible(self.batchSize,x_train)
-		y_train = self.batchCompatible(self.batchSize,y_train)
-		x_valid = self.batchCompatible(self.batchSize,x_valid)
-		y_valid = self.batchCompatible(self.batchSize,y_valid)
+		
+	def train(self,force=False):
+		
+		if(self.type == self.DISCHARGE):
+			logger.info("Training discharge")
+			self.modelName = "Discharge_LSTM_DeepModel.h5"
+			self.ets.buildDischargeSet(force=force)
+		elif(self.type == self.CHARGE):
+			logger.info("Training charge")
+			self.modelName = "Charge_LSTM_DeepModel.h5"
+			self.ets.buildChargeSet(force=force)
+		else:
+			logger.info("Training mixed")
+			self.ets.buildLearnSet(force=force)
+			
+		x_train, y_train, x_valid, y_valid = self.ets.loadTrainset(self.type)
+		self.__trainSequentialModel(x_train, y_train, x_valid, y_valid)
+	
+	def evaluate(self,force=False):
+		if(self.type == self.DISCHARGE):
+			logger.info("Evaluating discharge")
+			self.modelName = "Discharge_LSTM_DeepModel.h5"
+		elif(self.type == self.CHARGE):
+			logger.info("Evaluating charge")
+			self.modelName = "Charge_LSTM_DeepModel.h5"
+		else:
+			logger.info("Evaluating mixed")
+		normalizer = self.ets.loadNormalizer()
+		x_test, y_test = self.ets.loadTestset(self.type)	
+		self.__evaluateModel(x_test, y_test,False,normalizer)
+		
+	
+	def __trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
+		
+		x_train = self.__batchCompatible(self.batchSize,x_train)
+		y_train = self.__batchCompatible(self.batchSize,y_train)
+		x_valid = self.__batchCompatible(self.batchSize,x_valid)
+		y_valid = self.__batchCompatible(self.batchSize,y_valid)
 		
 		tt = time.clock()
 		
@@ -95,24 +114,19 @@ class Minerva():
 		model = Sequential()
 		
 		model.add( LSTM(hiddenStateDim0,name='EN_0',return_sequences=True,activation='tanh',input_shape=(timesteps,inputFeatures)))
-		#model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
+		model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
 		model.add( LSTM(hiddenStateDim2,name='EN_2',dropout = drop,activation='tanh') )
-		
 		model.add( Dense(hiddenStateDim4,name='EN_3',activation='relu') )
+		
 		# rapp
 		model.add( Dense(stateDim,activation='relu',name='ENCODED') )
 		# end rapp
 		model.add(Dense(hiddenStateDim4,name='DC_3',activation='relu') )
-		
 		model.add(Dense(hiddenStateDim2,name='DC_2',activation='relu') )
-		
-		#model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
-		model.add(RepeatVector(int(timesteps),name='DC_TS_1') )
+		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
 		model.add( LSTM(hiddenStateDim1,name='DC_1',return_sequences=True,activation='tanh') )
-		
-		#model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
+		model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
 		model.add( LSTM(hiddenStateDim0,name='DC_0',return_sequences=True,dropout = drop,activation='tanh') )
-		
 		model.add( LSTM(outputFeatures,name='decoded',return_sequences=True,activation='tanh') )
 		
 		
@@ -131,19 +145,19 @@ class Minerva():
 		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		logger.info("Save model")
-		model.save(self.modelName) 
+		model.save(os.path.join( self.ets.rootResultFolder , self.modelName )) 
 		logger.info("Model saved")
 		return model
 				
 		
-	def evaluateModel(self,x_test,y_test,saveImgs = False):
+	def __evaluateModel(self,x_test,y_test,saveImgs = False,scaler = None):
 		
 		logger.info("Loading model...")
-		model = load_model(self.modelName)
+		model = load_model(os.path.join( self.ets.rootResultFolder , self.modelName ))
 		
 		logger.info("Preparing data...")
-		x_test = self.batchCompatible(self.batchSize,x_test)
-		y_test = self.batchCompatible(self.batchSize,y_test)
+		x_test = self.__batchCompatible(self.batchSize,x_test)
+		y_test = self.__batchCompatible(self.batchSize,y_test)
 		
 		logger.info("Evaluating")
 		tt = time.clock()
@@ -158,10 +172,20 @@ class Minerva():
 			plt.figure()
 			toPlot = np.random.randint(y_pred.shape[0])
 			i = 1
+			sid = 14
 			for col in range(y_pred.shape[2]):
 				plt.subplot(y_pred.shape[2], 1, i)
-				plt.plot(y_pred[toPlot][:, col],color="navy")
-				plt.plot(y_test[toPlot][:, col],color="orange")
+				if(scaler is not None):
+					minvalue = scaler[sid,0]		
+					maxvalue = scaler[sid,1] 
+					pred = self.__scaleBack(y_pred[toPlot][:, col],minvalue,maxvalue)
+					real = self.__scaleBack(y_test[toPlot][:, col],minvalue,maxvalue)
+					plt.plot(pred,color="navy")
+					plt.plot(real,color="orange")
+					sid +=1
+				else:
+					plt.plot(y_pred[toPlot][:, col],color="navy")
+					plt.plot(y_test[toPlot][:, col],color="orange")
 				i += 1
 			if(saveImgs):
 				plt.savefig(os.path.join(self.imgPath,str(uuid.uuid4())), bbox_inches='tight')
@@ -170,9 +194,11 @@ class Minerva():
 				plt.show()
 	
 	
-		
-		
-	def batchCompatible(self,batch_size,data):
+	def __scaleBack(self,data,minvalue,maxvalue,minrange=-1,maxrange=1):
+		d = ( (data - minrange) / (maxrange - minrange) ) * (maxvalue - minvalue) + minvalue
+		return d
+	
+	def __batchCompatible(self,batch_size,data):
 		exceed = data.shape[0] % batch_size
 		if(exceed > 0):
 			data = data[:-exceed]

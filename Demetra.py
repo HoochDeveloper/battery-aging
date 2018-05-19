@@ -52,7 +52,11 @@ class EpisodedTimeSeries():
 	currentIndex = None
 	voltageIndex = None
 	
-	rootResultFolder = "."
+	root = "."
+	rootResultFolder = os.path.join(root,"results")
+	episodeImageFolder =  os.path.join(rootResultFolder,"images")
+	
+	
 	espisodeFolder = "episodes"
 	espisodePath = None
 	
@@ -70,19 +74,17 @@ class EpisodedTimeSeries():
 	timeSteps = 30
 	normalize=True
 	
-	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	
-	def removeMe(self):
-		loaded = self.__readFileAsDataframe(os.path.join("./dataset","data11.gz"))
-		batteryName = loaded[self.nameIndex].values[0]
-		logger.info("Checking episodes for battery %s" % batteryName)
-		return loaded
 		
 	#Constructor
 	def __init__(self,timeSteps,normalize=True):
 		""" 
 		Create, if not exists, the result path for storing the episoded dataset
 		"""
+		
+		if not os.path.exists(self.rootResultFolder):
+			os.makedirs(self.rootResultFolder)
+		
 		self.normalize = normalize
 		self.timeSteps = timeSteps
 		
@@ -184,9 +186,22 @@ class EpisodedTimeSeries():
 		
 		if(not force and existingEpisodes > 0):
 			logger.info( "Datafolder has already %d episodes. Force[%s]" % (existingEpisodes,force) )
-			return
+		else:
+			self.__buildEpisodedDataframesFromFolder(dataFolder,force)
 		
-		self.__buildEpisodedDataframesFromFolder(dataFolder,force)
+		if(self.normalize):
+			normalizer = self.loadNormalizer()
+			if(normalizer is None):
+				logger.info("Building normalizer")
+				allEpisodes = []
+				for f in os.listdir(self.espisodePath):
+					episodeList = self.loadZip(self.espisodePath,f)
+					allEpisodes += episodeList
+				normalizer = self.__getNormalizer(pd.concat(allEpisodes))
+				self.saveZip(self.normalizerPath,self.normalizerFile,normalizer)
+			else:
+				logger.info("Normalizer already exists")
+		
 		logger.info("buildEpisodedDataset - end - Elapsed: %f" % (time.clock() - tt))
 	
 	def buildDischargeSet(self,valid=0.2,test=0.2,force=False):
@@ -415,7 +430,7 @@ class EpisodedTimeSeries():
 		return normalizer
 		
 	def loadNormalizer(self):
-		normalizer = self.loadZip(self.normalizerFolder,self.normalizerFile)
+		normalizer = self.loadZip(self.normalizerPath,self.normalizerFile)
 		return normalizer
 	
 	def __buildEpisodedDataframesFromFolder(self,dataFolder,force=False):
@@ -432,9 +447,7 @@ class EpisodedTimeSeries():
 		if( not os.path.isdir(dataFolder)):
 			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
 			return None
-		
-		allEpisodes = [] #list of all episodes for normalizer
-		
+
 		for file in os.listdir(dataFolder):
 			if(os.path.isfile(os.path.join(dataFolder,file))):
 				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
@@ -448,18 +461,12 @@ class EpisodedTimeSeries():
 						dischargeEpisodes , chargeEpisodes = self.__fastEpisodeInDataframe(loaded,self.timeSteps)
 						if(len(chargeEpisodes) > 0):
 							self.saveZip(self.espisodePath,self.chargePrefix+batteryName,chargeEpisodes)
-							allEpisodes += chargeEpisodes
 						if(len(dischargeEpisodes) > 0):
 							self.saveZip(self.espisodePath,self.dischargePrefix+batteryName,dischargeEpisodes)
-							allEpisodes += dischargeEpisodes
 						if(len(chargeEpisodes) == 0 and len(dischargeEpisodes) == 0):
 							logger.warning("No episodes in file")
 					else:
 						logger.info("Episodes for battery %s already exists" % batteryName)
-		if(self.normalize and len(allEpisodes) > 0 ):
-			normalizer = self.__getNormalizer(pd.concat(allEpisodes))
-			self.saveZip(self.normalizerFolder,self.normalizerFile,normalizer)
-		
 		logger.info("Folder read complete. Elapsed %f" %  (time.clock() - tt))
 		
 	def __readFileAsDataframe(self,file):
