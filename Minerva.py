@@ -7,7 +7,7 @@ from Demetra import EpisodedTimeSeries
 #KERAS
 from keras.models import Sequential, Model
 from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation
-from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D
+from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D,Reshape
 from keras.models import load_model
 from keras import optimizers
 #
@@ -25,15 +25,11 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	
 	force = False
-	ets = EpisodedTimeSeries(20,normalize=True)
-	ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
-	
-	minerva = Minerva(ets,Minerva.CHARGE)
+	minerva = Minerva(Minerva.CHARGE)
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 		logger.info("Training")
-		minerva.train()
+		minerva.train(force)
 	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
 		logger.info("Testing")
 		minerva.evaluate()
@@ -45,27 +41,27 @@ class Minerva():
 	CHARGE = "C"
 	DISCHARGE = "D"
 
-	modelName = "LSTM_DeepModel.h5"
+	#modelName = "LSTM_DeepModel.h5"
+	modelName = "Conv_DeepModel.h5"
 	batchSize = 100
 	epochs = 50
 	imgPath = "./images"
 	ets = None
 	type = None
 	
-	def __init__(self,ets,type):
-		self.ets = ets
+	def __init__(self,type):
+		self.ets = EpisodedTimeSeries(20,normalize=True)
 		self.type = type
 		
-		
 	def train(self,force=False):
-		
+		self.ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 		if(self.type == self.DISCHARGE):
 			logger.info("Training discharge")
-			self.modelName = "Discharge_LSTM_DeepModel.h5"
+			self.modelName = "Discharge_" + self.modelName
 			self.ets.buildDischargeSet(force=force)
 		elif(self.type == self.CHARGE):
 			logger.info("Training charge")
-			self.modelName = "Charge_LSTM_DeepModel.h5"
+			self.modelName = "Charge_" + self.modelName
 			self.ets.buildChargeSet(force=force)
 		else:
 			logger.info("Training mixed")
@@ -77,14 +73,18 @@ class Minerva():
 	def evaluate(self,force=False):
 		if(self.type == self.DISCHARGE):
 			logger.info("Evaluating discharge")
-			self.modelName = "Discharge_LSTM_DeepModel.h5"
+			self.modelName = "Discharge_" + self.modelName
 		elif(self.type == self.CHARGE):
 			logger.info("Evaluating charge")
-			self.modelName = "Charge_LSTM_DeepModel.h5"
+			self.modelName = "Charge_" + self.modelName
 		else:
 			logger.info("Evaluating mixed")
 		normalizer = self.ets.loadNormalizer()
 		x_test, y_test = self.ets.loadTestset(self.type)	
+		
+		if(True):
+			x_test = self.__conv2DCompatible(x_test)
+		
 		self.__evaluateModel(x_test, y_test,False,normalizer)
 		
 	
@@ -99,35 +99,16 @@ class Minerva():
 		
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
-		
-		hiddenStateDim0 = 256
-		hiddenStateDim1 = int(hiddenStateDim0 / 2) 
-		hiddenStateDim2 = int(hiddenStateDim1 / 2)
-		hiddenStateDim3 = int(hiddenStateDim2 / 2)
-		hiddenStateDim4 = int(hiddenStateDim3 / 2)
-		stateDim = 5
-		
-		timeCompression = 2
-		drop = 0.5
-		
 		timesteps =  x_train.shape[1]
-		model = Sequential()
 		
-		model.add( LSTM(hiddenStateDim0,name='EN_0',return_sequences=True,activation='tanh',input_shape=(timesteps,inputFeatures)))
-		model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
-		model.add( LSTM(hiddenStateDim2,name='EN_2',dropout = drop,activation='tanh') )
-		model.add( Dense(hiddenStateDim4,name='EN_3',activation='relu') )
+		#model = self.__lstmModel(inputFeatures,outputFeatures,timesteps)
+		#model = self.__newLSTM(inputFeatures,outputFeatures,timesteps)
+		if(True):
+			x_train = self.__conv2DCompatible(x_train)
+			x_valid = self.__conv2DCompatible(x_valid)
 		
-		# rapp
-		model.add( Dense(stateDim,activation='relu',name='ENCODED') )
-		# end rapp
-		model.add(Dense(hiddenStateDim4,name='DC_3',activation='relu') )
-		model.add(Dense(hiddenStateDim2,name='DC_2',activation='relu') )
-		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
-		model.add( LSTM(hiddenStateDim1,name='DC_1',return_sequences=True,activation='tanh') )
-		model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
-		model.add( LSTM(hiddenStateDim0,name='DC_0',return_sequences=True,dropout = drop,activation='tanh') )
-		model.add( LSTM(outputFeatures,name='decoded',return_sequences=True,activation='tanh') )
+		model = self.__convModel(inputFeatures,outputFeatures,timesteps)
+		
 		
 		
 		# end model
@@ -148,8 +129,79 @@ class Minerva():
 		model.save(os.path.join( self.ets.rootResultFolder , self.modelName )) 
 		logger.info("Model saved")
 		return model
-				
+
+	
+	def __lstmModel(self,inputFeatures,outputFeatures,timesteps):
+	
+		hiddenStateDim0 = 512
+		hiddenStateDim1 = int(hiddenStateDim0 / 2) 
+		hiddenStateDim2 = int(hiddenStateDim1 / 2)
+		hiddenStateDim3 = int(hiddenStateDim2 / 2)
+		hiddenStateDim4 = int(hiddenStateDim3 / 2)
+		stateDim = 5
 		
+		timeCompression = 2
+		drop = 0.5
+	
+		model = Sequential()
+		
+		model.add( LSTM(hiddenStateDim0,name='EN_0',return_sequences=True,activation='tanh',input_shape=(timesteps,inputFeatures)))
+		model.add(Dropout(0.5))
+		model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
+		model.add( LSTM(hiddenStateDim2,name='EN_2',dropout = drop,activation='tanh') )
+		model.add(Dropout(0.5))
+		model.add( Dense(hiddenStateDim4,name='EN_3',activation='relu') )
+		model.add(Dropout(0.5))
+		# rapp
+		model.add( Dense(stateDim,activation='relu',name='ENCODED') )
+		# end rapp
+		model.add(Dense(hiddenStateDim4,name='DC_3',activation='relu') )
+		model.add(Dropout(0.5))
+		model.add(Dense(hiddenStateDim2,name='DC_2',activation='relu') )
+		model.add(Dropout(0.5))
+		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
+		model.add( LSTM(hiddenStateDim1,name='DC_1',return_sequences=True,activation='tanh') )
+		model.add(Dropout(0.5))
+		model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
+		model.add( LSTM(hiddenStateDim0,name='DC_0',return_sequences=True,dropout = drop,activation='tanh') )
+		model.add(Dropout(0.5))
+		model.add( LSTM(outputFeatures,name='decoded',return_sequences=True,activation='tanh') )
+		
+		return model
+		
+	def __convModel(self,inputFeatures,outputFeatures,timesteps):
+		model = Sequential()
+		
+		mask = (2,2)
+		
+		start = 1024
+		
+		model.add(Conv2D(start,mask, activation='tanh', input_shape=(8,8,5))) #out 7x7x10
+		model.add(Dropout(0.25))
+		model.add(Conv2D(int(start/2),mask, activation='relu')) #out 6x6x10
+		model.add(Dropout(0.25))
+		model.add(Conv2D(int(start/4),mask, activation='tanh')) #out 5x5x10
+		model.add(Dropout(0.25))
+		model.add(Conv2D(10,mask, activation='relu')) #out 4x4x10
+		#model.add(Dropout(0.25))
+		model.add(MaxPooling2D(pool_size=mask))
+		#model.add(Conv2D(int(start/16),mask, activation='tanh')) #out 3x3x10
+		#model.add(Dropout(0.25))
+		#model.add(Conv2D(10,mask, activation='relu')) #out 2x2x10
+		#model.add(MaxPooling2D(pool_size=(3, 3)))
+		#
+		
+		#model.add(Dense(128,activation='relu') )
+		#model.add(Dense(128,activation='relu') )
+		#
+		#model.add(UpSampling2D((2,2)))
+		#model.add(Conv2D(5, (1,1), activation='relu'))
+		#model.add(Conv2D(2, (2,2), activation='relu'))
+		model.add(Reshape((20, 2), input_shape=(2,2,10)))
+		
+		#.reshape((int(timesteps/2), int(timesteps/2),inputFeatures))
+		return model
+	
 	def __evaluateModel(self,x_test,y_test,saveImgs = False,scaler = None):
 		
 		logger.info("Loading model...")
@@ -203,7 +255,11 @@ class Minerva():
 		if(exceed > 0):
 			data = data[:-exceed]
 		return data
-	
+		
+	def __conv2DCompatible(self,data):
+		data = data.reshape(data.shape[0],8, 8 ,5)
+		print(data.shape)
+		return data
 		
 main()
 
