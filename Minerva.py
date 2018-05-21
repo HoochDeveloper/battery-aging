@@ -10,6 +10,7 @@ from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVect
 from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D,Reshape
 from keras.models import load_model
 from keras import optimizers
+from keras.callbacks import EarlyStopping
 #
 #KERAS ENV GPU
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -118,10 +119,13 @@ class Minerva():
 		print(model.summary())
 		
 		
+		early = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10, verbose=0, mode='min')
+		
 		model.fit(x_train, y_train,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
-			validation_data=(x_valid,y_valid)
+			validation_data=(x_valid,y_valid),
+			callbacks=[early]
 		)
 		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
@@ -173,33 +177,30 @@ class Minerva():
 		model = Sequential()
 		
 		mask = (2,2)
+		#mask = 4
 		
-		start = 1024
+		start = 2048
 		
-		model.add(Conv2D(start,mask, activation='tanh', input_shape=(8,8,5))) #out 7x7x10
-		model.add(Dropout(0.25))
+		model.add(Conv2D(start,mask, activation='tanh', input_shape=(8, 8 ,5))) #out 7x7x10
 		model.add(Conv2D(int(start/2),mask, activation='relu')) #out 6x6x10
-		model.add(Dropout(0.25))
-		model.add(Conv2D(int(start/4),mask, activation='tanh')) #out 5x5x10
-		model.add(Dropout(0.25))
-		model.add(Conv2D(10,mask, activation='relu')) #out 4x4x10
-		#model.add(Dropout(0.25))
+		model.add(Dropout(0.5))
+		model.add(Conv2D(int(start/4),mask, activation='relu')) #out 5x5x10
+		model.add(Dropout(0.5))
+		model.add(Conv2D(10,mask, activation='tanh')) #out 4x4x10
 		model.add(MaxPooling2D(pool_size=mask))
 		#model.add(Conv2D(int(start/16),mask, activation='tanh')) #out 3x3x10
 		#model.add(Dropout(0.25))
 		#model.add(Conv2D(10,mask, activation='relu')) #out 2x2x10
 		#model.add(MaxPooling2D(pool_size=(3, 3)))
-		#
-		
-		#model.add(Dense(128,activation='relu') )
+		#model.add(Dense(10,activation='tanh') )
 		#model.add(Dense(128,activation='relu') )
 		#
 		#model.add(UpSampling2D((2,2)))
 		#model.add(Conv2D(5, (1,1), activation='relu'))
 		#model.add(Conv2D(2, (2,2), activation='relu'))
-		model.add(Reshape((20, 2), input_shape=(2,2,10)))
+		model.add(Reshape((20, 2)))
+		#model.add(Reshape((20, 2), input_shape=(2,2,10)))
 		
-		#.reshape((int(timesteps/2), int(timesteps/2),inputFeatures))
 		return model
 	
 	def __evaluateModel(self,x_test,y_test,saveImgs = False,scaler = None):
