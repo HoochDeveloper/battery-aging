@@ -26,7 +26,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = False
+	force = True
 	minerva = Minerva(Minerva.CHARGE)
 	#minerva = Minerva(Minerva.DISCHARGE)
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
@@ -46,7 +46,7 @@ class Minerva():
 	#modelName = "LSTM_DeepModel.h5"
 	modelName = "Conv_DeepModel.h5"
 	batchSize = 100
-	epochs = 50
+	epochs = 100
 	imgPath = "./images"
 	ets = None
 	type = None
@@ -121,7 +121,7 @@ class Minerva():
 		print(model.summary())
 		
 		
-		early = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=10, verbose=0, mode='min')
+		early = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=15, verbose=0, mode='min')
 		
 		model.fit(x_train, y_train,
 			batch_size=self.batchSize,
@@ -181,15 +181,15 @@ class Minerva():
 		mask = (2,2)
 		#mask = 4
 		
-		start = 2048
+		start = 32
 		model.add(Dense(start,activation='relu', input_shape=inShape))
 		model.add(Conv2D(start,mask, activation='relu'))
 		model.add(Conv2D(int(start/2),mask, activation='relu')) 
 		model.add(Conv2D(int(start/4),mask, activation='relu')) 
 		model.add(Conv2D(int(start/8),mask, activation='relu')) 
-		model.add(Conv2D(int(start/16),mask, activation='relu'))
-		model.add(Conv2D(int(start/32),mask, activation='relu'))
-		model.add(Conv2D(int(start/64),mask, activation='relu'))
+		#model.add(Conv2D(int(start/16),mask, activation='relu'))
+		#model.add(Conv2D(int(start/32),mask, activation='relu'))
+		#model.add(Conv2D(int(start/64),mask, activation='relu'))
 		model.add(MaxPooling2D(pool_size=mask))
 		model.add(Flatten())
 		# decoder

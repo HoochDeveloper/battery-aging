@@ -556,12 +556,13 @@ class EpisodedTimeSeries():
 		notCompliant = 0
 		contextDiscarded = 0
 		
-		# select all time steps with -5 < i < 5 and v >= threshold
+		# select all time steps with -1 < i < 1 and v >= threshold
+		tollerance = 1
 		dischargeStart =  ( 
 			dataframe[
-			(dataframe[self.currentIndex] <= 5 ) 
+			(dataframe[self.currentIndex] <= tollerance ) 
 			& 
-			(dataframe[self.currentIndex] >= -5 ) 
+			(dataframe[self.currentIndex] >= -tollerance ) 
 			&
 			(dataframe[self.voltageIndex] >= 30)
 			].index
@@ -589,7 +590,7 @@ class EpisodedTimeSeries():
 			startRow = dataframe.index.get_loc(ts)
 			
 			context = dataframe.iloc[startRow-contextLength:startRow,:]
-			checkDischargeContext = context[ (context[self.currentIndex] >= 0) & (context[self.currentIndex] <= 1) ].shape[0]
+			checkDischargeContext = context[ (context[self.currentIndex] >= -tollerance) & (context[self.currentIndex] <= tollerance) ].shape[0]
 								
 			#if discharge precondition are not meet then skip
 			if(checkDischargeContext != contextLength):
