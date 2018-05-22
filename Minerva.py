@@ -7,7 +7,7 @@ from Demetra import EpisodedTimeSeries
 #KERAS
 from keras.models import Sequential, Model
 from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation
-from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D,Reshape
+from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D,Reshape, Flatten
 from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping
@@ -28,6 +28,7 @@ logger.addHandler(consoleHandler)
 def main():
 	force = False
 	minerva = Minerva(Minerva.CHARGE)
+	#minerva = Minerva(Minerva.DISCHARGE)
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 		logger.info("Training")
 		minerva.train(force)
@@ -49,9 +50,10 @@ class Minerva():
 	imgPath = "./images"
 	ets = None
 	type = None
+	timesteps = 30
 	
 	def __init__(self,type):
-		self.ets = EpisodedTimeSeries(20,normalize=True)
+		self.ets = EpisodedTimeSeries(self.timesteps,normalize=True)
 		self.type = type
 		
 	def train(self,force=False):
@@ -108,18 +110,18 @@ class Minerva():
 			x_train = self.__conv2DCompatible(x_train)
 			x_valid = self.__conv2DCompatible(x_valid)
 		
-		model = self.__convModel(inputFeatures,outputFeatures,timesteps)
+		model = self.__convModel(inputFeatures,outputFeatures,timesteps,x_train.shape[1:])
 		
 		
 		
 		# end model
 		
-		adam = optimizers.Adam(lr=0.00001)		
+		adam = optimizers.Adam(lr=0.000005)		
 		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
 		print(model.summary())
 		
 		
-		early = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10, verbose=0, mode='min')
+		early = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=10, verbose=0, mode='min')
 		
 		model.fit(x_train, y_train,
 			batch_size=self.batchSize,
@@ -173,34 +175,30 @@ class Minerva():
 		
 		return model
 		
-	def __convModel(self,inputFeatures,outputFeatures,timesteps):
+	def __convModel(self,inputFeatures,outputFeatures,timesteps,inShape):
 		model = Sequential()
 		
 		mask = (2,2)
 		#mask = 4
 		
 		start = 2048
-		
-		model.add(Conv2D(start,mask, activation='tanh', input_shape=(8, 8 ,5))) #out 7x7x10
-		model.add(Conv2D(int(start/2),mask, activation='relu')) #out 6x6x10
-		model.add(Dropout(0.5))
-		model.add(Conv2D(int(start/4),mask, activation='relu')) #out 5x5x10
-		model.add(Dropout(0.5))
-		model.add(Conv2D(10,mask, activation='tanh')) #out 4x4x10
+		model.add(Dense(start,activation='relu', input_shape=inShape))
+		model.add(Conv2D(start,mask, activation='relu'))
+		model.add(Conv2D(int(start/2),mask, activation='relu')) 
+		model.add(Conv2D(int(start/4),mask, activation='relu')) 
+		model.add(Conv2D(int(start/8),mask, activation='relu')) 
+		model.add(Conv2D(int(start/16),mask, activation='relu'))
+		model.add(Conv2D(int(start/32),mask, activation='relu'))
+		model.add(Conv2D(int(start/64),mask, activation='relu'))
 		model.add(MaxPooling2D(pool_size=mask))
-		#model.add(Conv2D(int(start/16),mask, activation='tanh')) #out 3x3x10
-		#model.add(Dropout(0.25))
-		#model.add(Conv2D(10,mask, activation='relu')) #out 2x2x10
-		#model.add(MaxPooling2D(pool_size=(3, 3)))
-		#model.add(Dense(10,activation='tanh') )
-		#model.add(Dense(128,activation='relu') )
-		#
-		#model.add(UpSampling2D((2,2)))
-		#model.add(Conv2D(5, (1,1), activation='relu'))
-		#model.add(Conv2D(2, (2,2), activation='relu'))
-		model.add(Reshape((20, 2)))
-		#model.add(Reshape((20, 2), input_shape=(2,2,10)))
-		
+		model.add(Flatten())
+		# decoder
+		model.add(Dense(timesteps*outputFeatures*8, activation='relu'))
+		model.add(Dense(timesteps*outputFeatures*4, activation='relu'))
+		model.add(Dense(timesteps*outputFeatures*2, activation='relu'))		
+		model.add(Dense(timesteps*outputFeatures, activation='tanh'))
+		model.add(Reshape((timesteps, outputFeatures)))
+
 		return model
 	
 	def __evaluateModel(self,x_test,y_test,saveImgs = False,scaler = None):
@@ -258,7 +256,8 @@ class Minerva():
 		return data
 		
 	def __conv2DCompatible(self,data):
-		data = data.reshape(data.shape[0],8, 8 ,5)
+		
+		data = data.reshape(data.shape[0],12,10,4)
 		print(data.shape)
 		return data
 		

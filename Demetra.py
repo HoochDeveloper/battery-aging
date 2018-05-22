@@ -548,7 +548,7 @@ class EpisodedTimeSeries():
 		
 	def __seekDischargeEpisode(self,dataframe,episodeLength):
 		
-		maxZerosInEpisode = int(episodeLength / 3) # must be greater than context len
+		maxZerosInEpisode = int(episodeLength / 2) # must be greater than context len
 		contextLength = int(episodeLength / 4)
 		
 		dischargeEpisodes = []
@@ -556,12 +556,12 @@ class EpisodedTimeSeries():
 		notCompliant = 0
 		contextDiscarded = 0
 		
-		# select all time steps with -1 < i < 1 and v >= threshold
+		# select all time steps with -5 < i < 5 and v >= threshold
 		dischargeStart =  ( 
 			dataframe[
-			(dataframe[self.currentIndex] <= 1 ) 
+			(dataframe[self.currentIndex] <= 5 ) 
 			& 
-			(dataframe[self.currentIndex] >= -1 ) 
+			(dataframe[self.currentIndex] >= -5 ) 
 			&
 			(dataframe[self.voltageIndex] >= 30)
 			].index
