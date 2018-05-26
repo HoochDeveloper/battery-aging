@@ -549,20 +549,22 @@ class EpisodedTimeSeries():
 	def __seekDischargeEpisode(self,dataframe,episodeLength):
 		
 		maxZerosInEpisode = int(episodeLength / 2) # must be greater than context len
-		contextLength = int(episodeLength / 4)
+		contextLength = int(episodeLength / 8)
 		
 		dischargeEpisodes = []
 		zeroDiscarded = 0
 		notCompliant = 0
 		contextDiscarded = 0
 		
+		thr = -10
 		# select all time steps with -1 < i < 1 and v >= threshold
-		tollerance = 1
+		
 		dischargeStart =  ( 
 			dataframe[
-			(dataframe[self.currentIndex] <= tollerance ) 
-			& 
-			(dataframe[self.currentIndex] >= -tollerance ) 
+			(dataframe[self.currentIndex] <= thr)
+			#(dataframe[self.currentIndex] <= tollerance ) 
+			#& 
+			#(dataframe[self.currentIndex] >= -tollerance ) 
 			&
 			(dataframe[self.voltageIndex] >= 30)
 			].index
@@ -584,13 +586,13 @@ class EpisodedTimeSeries():
 		dischargeStart = dischargeStart[ (diff >  1 ) ]
 		
 		logger.debug("Discharge removed %d " % ( len(present) - len(dischargeStart)  ))
-
+		ctxTollerance = 1
 		for ts in dischargeStart:
 			#get integer indexing for time step index
 			startRow = dataframe.index.get_loc(ts)
 			
 			context = dataframe.iloc[startRow-contextLength:startRow,:]
-			checkDischargeContext = context[ (context[self.currentIndex] >= -tollerance) & (context[self.currentIndex] <= tollerance) ].shape[0]
+			checkDischargeContext = context[ (context[self.currentIndex] >= -ctxTollerance) & (context[self.currentIndex] <= ctxTollerance) ].shape[0]
 								
 			#if discharge precondition are not meet then skip
 			if(checkDischargeContext != contextLength):
@@ -609,7 +611,7 @@ class EpisodedTimeSeries():
 				zeroDiscarded +=1
 				continue
 
-			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] < 0 ].shape[0]
+			dischargeCount = episodeCandidate[ episodeCandidate[self.currentIndex] <= thr ].shape[0]
 			if(dischargeCount == (episodeLength-zeroCurrentCount)):
 				# this is a discharge episodes
 				if(episodeCandidate.shape[0] != episodeLength):

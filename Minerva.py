@@ -26,7 +26,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
-	force = True
+	force = False
 	minerva = Minerva(Minerva.CHARGE)
 	#minerva = Minerva(Minerva.DISCHARGE)
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
@@ -44,13 +44,13 @@ class Minerva():
 	DISCHARGE = "D"
 
 	#modelName = "LSTM_DeepModel.h5"
-	modelName = "Conv_DeepModel.h5"
+	modelName = "Functional_Conv_DeepModel.h5"
 	batchSize = 100
-	epochs = 100
+	epochs = 200
 	imgPath = "./images"
 	ets = None
 	type = None
-	timesteps = 30
+	timesteps = 45
 	
 	def __init__(self,type):
 		self.ets = EpisodedTimeSeries(self.timesteps,normalize=True)
@@ -85,7 +85,7 @@ class Minerva():
 		normalizer = self.ets.loadNormalizer()
 		x_test, y_test = self.ets.loadTestset(self.type)	
 		
-		if(True):
+		if(False):
 			x_test = self.__conv2DCompatible(x_test)
 		
 		self.__evaluateModel(x_test, y_test,False,normalizer)
@@ -106,12 +106,12 @@ class Minerva():
 		
 		#model = self.__lstmModel(inputFeatures,outputFeatures,timesteps)
 		#model = self.__newLSTM(inputFeatures,outputFeatures,timesteps)
-		if(True):
+		if(False):
 			x_train = self.__conv2DCompatible(x_train)
 			x_valid = self.__conv2DCompatible(x_valid)
 		
-		model = self.__convModel(inputFeatures,outputFeatures,timesteps,x_train.shape[1:])
-		
+		#model = self.__convModel(inputFeatures,outputFeatures,timesteps,x_train.shape[1:])
+		model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)
 		
 		
 		# end model
@@ -121,7 +121,7 @@ class Minerva():
 		print(model.summary())
 		
 		
-		early = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=15, verbose=0, mode='min')
+		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
 		
 		model.fit(x_train, y_train,
 			batch_size=self.batchSize,
@@ -181,7 +181,7 @@ class Minerva():
 		mask = (2,2)
 		#mask = 4
 		
-		start = 32
+		start = 512
 		model.add(Dense(start,activation='relu', input_shape=inShape))
 		model.add(Conv2D(start,mask, activation='relu'))
 		model.add(Conv2D(int(start/2),mask, activation='relu')) 
@@ -201,10 +201,46 @@ class Minerva():
 
 		return model
 	
+	def __functionalConvModel(self,inputFeatures,outputFeatures,data):
+	
+		timesteps = data.shape[1]
+		signals   = data.shape[2]
+		width  = 20
+		heigth = 20
+		deepth = timesteps * signals
+		
+		mask = (5,5)
+		mask2 = (3,3)
+		poolMask = (2,2)
+
+		inputs = Input(shape=(timesteps,signals))
+		
+		initParams = 4
+		outParams = 1024
+		
+		enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
+		reshape1 = Reshape((width, heigth,deepth))(enlarge)
+		conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
+		conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
+		maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
+		conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
+		maxpool2 = MaxPooling2D(pool_size=poolMask)(conv3)
+		encoded = Flatten()(maxpool2) 
+		
+		dec1 = Dense(outParams,activation='relu')(encoded)
+		decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec1)
+		out = Reshape((timesteps, outputFeatures))(decoded)
+		
+		model = Model(inputs=inputs, outputs=out)
+		return model
+	
+	
 	def __evaluateModel(self,x_test,y_test,saveImgs = False,scaler = None):
 		
 		logger.info("Loading model...")
 		model = load_model(os.path.join( self.ets.rootResultFolder , self.modelName ))
+		
+		print(model.summary())
 		
 		logger.info("Preparing data...")
 		x_test = self.__batchCompatible(self.batchSize,x_test)
@@ -262,4 +298,3 @@ class Minerva():
 		return data
 		
 main()
-
