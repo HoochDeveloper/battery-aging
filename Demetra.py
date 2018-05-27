@@ -14,10 +14,11 @@ import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, nu
 from datetime import datetime
 
 #Module logging
+logging.basicConfig(filename='./logs/Demetra.log',level=logging.DEBUG)
 logger = logging.getLogger("Demetra")
 logger.setLevel(logging.INFO)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
-formatter = logging.Formatter('[%(name)s][%(levelname)s] %(message)s')
+formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
@@ -187,7 +188,7 @@ class EpisodedTimeSeries():
 		if(not force and existingEpisodes > 0):
 			logger.info( "Datafolder has already %d episodes. Force[%s]" % (existingEpisodes,force) )
 		else:
-			self.__buildEpisodedDataframesFromFolder(dataFolder,force)
+			self.__buildEpisodedDataframesFromFolder(dataFolder,force,dsg=True,chg=True)
 		
 		if(self.normalize):
 			normalizer = self.loadNormalizer()
@@ -433,7 +434,7 @@ class EpisodedTimeSeries():
 		normalizer = self.loadZip(self.normalizerPath,self.normalizerFile)
 		return normalizer
 	
-	def __buildEpisodedDataframesFromFolder(self,dataFolder,force=False):
+	def __buildEpisodedDataframesFromFolder(self,dataFolder,force=False,dsg=True,chg=True):
 		""" 
 		Read all files in folder as episoded dataframe 
 		Every item in the return list is a different thing
@@ -447,8 +448,11 @@ class EpisodedTimeSeries():
 		if( not os.path.isdir(dataFolder)):
 			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
 			return None
-
+		totalFiles = len(os.listdir(dataFolder))
+		count = 0
 		for file in os.listdir(dataFolder):
+			count = count + 1
+			logger.info("File %d of %d" % (count,totalFiles))
 			if(os.path.isfile(os.path.join(dataFolder,file))):
 				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
 				if(loaded is not None and loaded.shape[0] > 0):
@@ -458,7 +462,7 @@ class EpisodedTimeSeries():
 					alreadyExistent = len(glob.glob(self.espisodePath + "/*" + batteryName))
 					logger.debug("Already existent episodes for %s are %d" % (batteryName,alreadyExistent))
 					if(force or alreadyExistent == 0 ):
-						dischargeEpisodes , chargeEpisodes = self.__fastEpisodeInDataframe(loaded,self.timeSteps)
+						dischargeEpisodes , chargeEpisodes = self.__fastEpisodeInDataframe(loaded,self.timeSteps,dsg=dsg,chg=chg)
 						if(len(chargeEpisodes) > 0):
 							self.saveZip(self.espisodePath,self.chargePrefix+batteryName,chargeEpisodes)
 						if(len(dischargeEpisodes) > 0):
@@ -501,7 +505,7 @@ class EpisodedTimeSeries():
 		return data
 		
 		
-	def __fastEpisodeInDataframe(self,df,episodeLength):
+	def __fastEpisodeInDataframe(self,df,episodeLength,dsg=True,chg=True):
 		logger.debug("__fastEpisodeInDataframe start.")
 		tt = time.clock()
 		discharges = []
@@ -522,25 +526,27 @@ class EpisodedTimeSeries():
 		groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
 		for dataframe in groups:
 			
-			dischargeEpisodes, zeroCurDiscard, compliantCurDiscard, contextCurDiscard = self.__seekDischargeEpisode(dataframe,episodeLength)
-			if(len(dischargeEpisodes) > 0):
-				dischargeCount += len(dischargeEpisodes)
-				discharges.extend(dischargeEpisodes)
-			zerosDischarge += zeroCurDiscard
-			misscompliantDischarge += compliantCurDiscard
-			misscontextDischarge += contextCurDiscard
+			if(dsg):
+				dischargeEpisodes, zeroCurDiscard, compliantCurDiscard, contextCurDiscard = self.__seekDischargeEpisode(dataframe,episodeLength)
+				if(len(dischargeEpisodes) > 0):
+					dischargeCount += len(dischargeEpisodes)
+					discharges.extend(dischargeEpisodes)
+				zerosDischarge += zeroCurDiscard
+				misscompliantDischarge += compliantCurDiscard
+				misscontextDischarge += contextCurDiscard
 			
-			chargeEpisodes, zeroCurDiscard, compliantCurDiscard, contextCurDiscard = self.__seekChargeEpisode(dataframe,episodeLength)
-			if(len(chargeEpisodes) > 0):
-				chargeCount += len(chargeEpisodes)
-				charges.extend(chargeEpisodes)
-			
-			zerosCharge += zeroCurDiscard
-			misscompliantCharge += compliantCurDiscard
-			misscontextCharge += contextCurDiscard
+			if(chg):
+				chargeEpisodes, zeroCurDiscard, compliantCurDiscard, contextCurDiscard = self.__seekChargeEpisode(dataframe,episodeLength)
+				if(len(chargeEpisodes) > 0):
+					chargeCount += len(chargeEpisodes)
+					charges.extend(chargeEpisodes)
+				
+				zerosCharge += zeroCurDiscard
+				misscompliantCharge += compliantCurDiscard
+				misscontextCharge += contextCurDiscard
+		
 		
 		logger.info("Discharges: %d Zeros: %d Not Compliant: %d Context: %d" % (dischargeCount,zerosDischarge,misscompliantDischarge,misscontextDischarge))
-		
 		logger.info("Charges: %d Zeros: %d Not Compliant: %d Context: %d" % (chargeCount,zerosCharge,misscompliantCharge,misscontextCharge))
 		
 		logger.debug("__fastEpisodeInDataframe end. Elapsed %f" %  (time.clock() - tt))
@@ -548,25 +554,22 @@ class EpisodedTimeSeries():
 		
 	def __seekDischargeEpisode(self,dataframe,episodeLength):
 		
-		maxZerosInEpisode = int(episodeLength / 2) # must be greater than context len
-		contextLength = int(episodeLength / 8)
+		maxZerosInEpisode = int(episodeLength * 0.75) # must be greater than context len
+		contextLength = int(episodeLength / 4)
 		
 		dischargeEpisodes = []
 		zeroDiscarded = 0
 		notCompliant = 0
 		contextDiscarded = 0
 		
-		thr = -10
+		thr = -5
 		# select all time steps with -1 < i < 1 and v >= threshold
 		
 		dischargeStart =  ( 
 			dataframe[
 			(dataframe[self.currentIndex] <= thr)
-			#(dataframe[self.currentIndex] <= tollerance ) 
-			#& 
-			#(dataframe[self.currentIndex] >= -tollerance ) 
 			&
-			(dataframe[self.voltageIndex] >= 30)
+			(dataframe[self.voltageIndex] >= 20)
 			].index
 		)
 		
@@ -577,23 +580,31 @@ class EpisodedTimeSeries():
 		
 		# handle discharge episodes
 		# with future - past the episoded starts from the last holding the condition
-		future = np.roll(dischargeStart,-1) # shift the episode one second ahead
+		
+		
+		past = np.roll(dischargeStart,1) # shift the episode one second ahead
 		present = np.roll(dischargeStart,0) # convert in numpy array
-		diff =  future - present # compute difference between starting episodes
+		diff =  present - past # compute difference between starting episodes
+		
+		################
+		##future = np.roll(dischargeStart,-1) # shift the episode one second ahead
+		##present = np.roll(dischargeStart,0) # convert in numpy array
+		##diff =  future - present # compute difference between starting episodes
+		###############
+		
 		diff = (diff * 10**-9).astype(int) # convert nanosecond in second
-
 		# keep only start episodes with a gap greater than 1 seconds in order to discard consecutive starting episodes
 		dischargeStart = dischargeStart[ (diff >  1 ) ]
 		
 		logger.debug("Discharge removed %d " % ( len(present) - len(dischargeStart)  ))
-		ctxTollerance = 1
+		ctxTollerance = thr*2
 		for ts in dischargeStart:
 			#get integer indexing for time step index
 			startRow = dataframe.index.get_loc(ts)
 			
 			context = dataframe.iloc[startRow-contextLength:startRow,:]
-			checkDischargeContext = context[ (context[self.currentIndex] >= -ctxTollerance) & (context[self.currentIndex] <= ctxTollerance) ].shape[0]
-								
+			#checkDischargeContext = context[ (context[self.currentIndex] >= -ctxTollerance) & (context[self.currentIndex] <= ctxTollerance) ].shape[0]
+			checkDischargeContext = context[ (context[self.currentIndex] >= ctxTollerance)].shape[0]		
 			#if discharge precondition are not meet then skip
 			if(checkDischargeContext != contextLength):
 				contextDiscarded += 1

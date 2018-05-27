@@ -20,15 +20,15 @@ os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit
 #Module logging
 logger = logging.getLogger("Minerva")
 logger.setLevel(logging.INFO)
-formatter = logging.Formatter('[%(name)s][%(levelname)s] %(message)s')
+formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 def main():
 	force = False
-	minerva = Minerva(Minerva.CHARGE)
-	#minerva = Minerva(Minerva.DISCHARGE)
+	#minerva = Minerva(Minerva.CHARGE)
+	minerva = Minerva(Minerva.DISCHARGE)
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 		logger.info("Training")
 		minerva.train(force)
