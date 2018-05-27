@@ -27,8 +27,8 @@ logger.addHandler(consoleHandler)
 
 def main():
 	force = False
-	minerva = Minerva(Minerva.CHARGE)
-	#minerva = Minerva(Minerva.DISCHARGE)
+	#minerva = Minerva(Minerva.CHARGE)
+	minerva = Minerva(Minerva.DISCHARGE)
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 		logger.info("Training")
 		minerva.train(force)
@@ -88,7 +88,7 @@ class Minerva():
 		if(False):
 			x_test = self.__conv2DCompatible(x_test)
 		
-		self.__evaluateModel(x_test, y_test,False,normalizer)
+		self.__evaluateModel(x_test, y_test,True,normalizer)
 		
 	
 	def __trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
@@ -267,12 +267,14 @@ class Minerva():
 					maxvalue = scaler[sid,1] 
 					pred = self.__scaleBack(y_pred[toPlot][:, col],minvalue,maxvalue)
 					real = self.__scaleBack(y_test[toPlot][:, col],minvalue,maxvalue)
-					plt.plot(pred,color="navy")
-					plt.plot(real,color="orange")
+					p = plt.plot(pred,color="navy",label="Prediction")
+					r = plt.plot(real,color="orange",label="Real")
+					plt.legend()
 					sid +=1
 				else:
-					plt.plot(y_pred[toPlot][:, col],color="navy")
-					plt.plot(y_test[toPlot][:, col],color="orange")
+					p = plt.plot(y_pred[toPlot][:, col],color="navy",label="Prediction")
+					r = plt.plot(y_test[toPlot][:, col],color="orange",label="Real")
+					plt.legend()
 				i += 1
 			if(saveImgs):
 				plt.savefig(os.path.join(self.imgPath,str(uuid.uuid4())), bbox_inches='tight')
