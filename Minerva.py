@@ -27,8 +27,8 @@ logger.addHandler(consoleHandler)
 
 def main():
 	force = False
-	#minerva = Minerva(Minerva.CHARGE)
-	minerva = Minerva(Minerva.DISCHARGE)
+	minerva = Minerva(Minerva.CHARGE)
+	#minerva = Minerva(Minerva.DISCHARGE)
 	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
 		logger.info("Training")
 		minerva.train(force)
@@ -50,7 +50,7 @@ class Minerva():
 	imgPath = "./images"
 	ets = None
 	type = None
-	timesteps = 45
+	timesteps = 60
 	
 	def __init__(self,type):
 		self.ets = EpisodedTimeSeries(self.timesteps,normalize=True)
