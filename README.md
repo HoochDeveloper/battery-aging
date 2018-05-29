@@ -1,2 +1,2 @@
-# battery-lstm
-LSTM encoder decoder for anomaly detection on battery data
+# battery-aging
+Auto Encoder for anomaly detection on batteries
