@@ -14,7 +14,7 @@ import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, nu
 from datetime import datetime
 
 #Module logging
-logging.basicConfig(filename='./logs/Demetra.log',level=logging.DEBUG)
+logging.basicConfig(filename='./logs/Demetra.log',level=logging.INFO)
 logger = logging.getLogger("Demetra")
 logger.setLevel(logging.INFO)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
