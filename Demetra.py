@@ -13,8 +13,10 @@ Requires:
 import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt, glob
 from datetime import datetime
 
+from logging import handlers as loghds
+
 #Module logging
-logging.basicConfig(filename='./logs/Demetra.log',level=logging.INFO)
+#logging.basicConfig(filename='./logs/Demetra.log',level=logging.INFO)
 logger = logging.getLogger("Demetra")
 logger.setLevel(logging.INFO)
 #formatter = logging.Formatter('[%(asctime)s %(name)s %(funcName)s %(levelname)s] %(message)s')
@@ -82,6 +84,20 @@ class EpisodedTimeSeries():
 		""" 
 		Create, if not exists, the result path for storing the episoded dataset
 		"""
+		logFolder = "./logs"
+		# creates log folder
+		if not os.path.exists(logFolder):
+			os.makedirs(logFolder)
+		logPath = logFolder + "/Demetra.log"
+		hdlr = loghds.TimedRotatingFileHandler(logPath,
+                                       when="H",
+                                       interval=1,
+                                       backupCount=5)
+		
+		
+		hdlr.setFormatter(formatter)
+		logger.addHandler(hdlr)
+		
 		
 		if not os.path.exists(self.rootResultFolder):
 			os.makedirs(self.rootResultFolder)
@@ -717,6 +733,269 @@ class EpisodedTimeSeries():
 	
 	
 	###################################
+	
+	def loadBlowDataSet(self):
+		blows = []
+		for f in os.listdir(self.espisodePath):
+			episodes = self.loadZip(self.espisodePath,f)
+			blows += self.seekEpisodesBlow(episodes)
+		logger.info("All blows %d" % len(blows))
+		return blows
+		
+	def loadUniformedDataSet(self):
+		episodes = self.loadZip(self.espisodePath,"swab_E464004")
+		return episodes
+		
+	def buildUniformedDataSet(self,dataFolder,force=False):
+		""" 
+		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
+		force: if True entire results will be created even if already exists
+		"""
+		tt = time.clock()
+		logger.info("buildUniformedDataSet - start")
+		
+		existingEpisodes = len(os.listdir(self.espisodePath))
+		
+		if(not force and existingEpisodes > 0):
+			logger.info( "Datafolder has already %d episodes." % (existingEpisodes) )
+		else:
+			logger.info("Building episodes. Force: %s" , force)
+			self.__buildUniformedDataSetFromFolder(dataFolder,force)
+		
+		if(self.normalize):
+			normalizer = self.loadNormalizer()
+			if(normalizer is None):
+				logger.info("Building normalizer")
+				allEpisodes = []
+				for f in os.listdir(self.espisodePath):
+					episodeList = self.loadZip(self.espisodePath,f)
+					allEpisodes += episodeList
+				normalizer = self.__getNormalizer(pd.concat(allEpisodes))
+				self.saveZip(self.normalizerPath,self.normalizerFile,normalizer)
+			else:
+				logger.info("Normalizer already exists")
+		
+		logger.info("buildUniformedDataSet - end - Elapsed: %f" % (time.clock() - tt))
+	
+	
+	def __buildUniformedDataSetFromFolder(self,dataFolder,force=False):
+		""" 
+		Read all files in folder as episoded dataframe 
+		Every item in the return list is a different thing
+		Every inner item is a list of episode for the current thing
+		
+		result[thing][episode] = dataframe for episode in thing
+		"""
+		tt = time.clock()
+		logger.debug("__buildUniformedDataSetFromFolder - begin")
+		logger.info("Reading data from folder %s" %  dataFolder)
+		if( not os.path.isdir(dataFolder)):
+			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
+			return None
+		totalFiles = len(os.listdir(dataFolder))
+		count = 0
+		for file in os.listdir(dataFolder):
+			count = count + 1
+			logger.info("File %d of %d" % (count,totalFiles))
+			if(os.path.isfile(os.path.join(dataFolder,file))):
+				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
+				if(loaded is not None and loaded.shape[0] > 0):
+					batteryName = loaded[self.nameIndex].values[0]
+					logger.info("Checking episodes for battery %s" % batteryName)
+					savePath = os.path.join(self.espisodePath,batteryName)
+					alreadyExistent = len(glob.glob(self.espisodePath + "/*" + batteryName))
+					logger.debug("Already existent episodes for %s are %d" % (batteryName,alreadyExistent))
+					if(force or alreadyExistent == 0 ):
+						#here call fast episodes updated
+						episodes = self.__seekSwabEpisodes(loaded)
+						logger.info("Battery %s has %d episodes" % (batteryName,len(episodes)))
+						self.saveZip(self.espisodePath,"swab_"+batteryName,episodes)
+					else:
+						logger.info("Episodes for battery %s already exists" % batteryName)
+				else:
+					logger.warning("File %s is invalid as dataframe" % file)
+			else:
+				logger.debug("Not a file: %s " % file)
+		logger.debug("__buildUniformedDataSetFromFolder - end")
+		logger.info("Folder read complete. Elapsed %f" %  (time.clock() - tt))
+	
+	
+	def seekEpisodesBlow(self,episodes):
+		"""
+		episodes: list of dataframe
+		"""
+		logger.debug("__seekEpisodesBlow - start")
+		tt = time.clock()
+		dischargeThreshold = -10
+		chargeThreshold = 10
+		blowInterval = 2
+		blows = []
+		for episode in episodes:
+			firstBlow = None
+			lastBlow = None
+			
+			# select all time-step where the battery is in discharge
+			dischargeIndex =  ( 
+				episode[
+				(episode[self.currentIndex] <= dischargeThreshold)
+				].index
+			)
+			if(dischargeIndex.shape[0] == 0):
+				logger.warning("Something wrong. No Discharge")
+				continue
+			# select all time-step where the battery is in charge
+			chargeIndex =  ( 
+				episode[
+				(episode[self.currentIndex] >= chargeThreshold)
+				].index
+			)
+			if(chargeIndex.shape[0] == 0):
+				logger.warning("Something wrong. No charge")
+				continue
+			
+			
+			#get the first index in charge
+			firstBlow = dischargeIndex[0]
+			
+			
+			#get the first index in charge
+			lastBlow = chargeIndex[0]
+			
+		
+			logger.debug("First blow: %s - Last blow: %s" % (firstBlow,lastBlow))
+			#self.plot(episode)
+			
+			dischargeBlowIdx = episode.index.get_loc(firstBlow)
+			dischargeBlowCtx = episode.iloc[dischargeBlowIdx-blowInterval:dischargeBlowIdx+blowInterval,:]
+			
+			#self.plot(dischargeBlowCtx)
+			
+			chargeBlowIdx = episode.index.get_loc(lastBlow)
+			chargeBlowCtx = episode.iloc[chargeBlowIdx-blowInterval:chargeBlowIdx+blowInterval,:]
+	
+			#self.plot(chargeBlowCtx)
+			
+			chargeMean = chargeBlowCtx.mean()
+			dischargeMean = dischargeBlowCtx.mean()
+			
+			blows.append([dischargeMean,chargeMean])
+	
+		logger.info("Current blows %d" % len(blows))
+		logger.debug("__seekEpisodesBlow - end. Elapsed %f" %  (time.clock() - tt))
+		return blows
+	
+	def __seekSwabEpisodes(self,df):
+		"""
+		df is a full dataframe of a battery
+		"""
+	
+		logger.debug("__seekSwabEpisodes - start")
+		tt = time.clock()
+		
+		episodes = []
+		contextDiscarded = 0
+		debugMax = 0
+		# first of all group by day
+		groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
+		for dataframe in groups:
+			# for every day seek episodes thtat starts and ends with the Swab condition
+			
+			minimumDischargeDuration = 10
+			dischargeThreshold = -10
+			swabThreshold = 5
+			swabLength = 5
+			
+			
+			# select all timestemps where the battery is in discharge
+			dischargeIndex =  ( 
+				dataframe[
+				(dataframe[self.currentIndex] <= dischargeThreshold)
+				].index
+			)
+			
+			
+			if(dischargeIndex.shape[0] == 0):
+				return episodes
+			
+			
+			
+			past = np.roll(dischargeIndex,1) # shift the episode one second behind
+			present = np.roll(dischargeIndex,0) # convert in numpy array
+			diff = present - past # compute difference indexes
+			diff = (diff * 10**-9).astype(int) # convert nanosecond in second
+
+			# keep only index with a gap greater than 1 seconds in order to keep only the first index for discharge
+			dischargeStart = dischargeIndex[ (diff >  1 ) ]
+			
+			logger.debug("Removed consecutive %d " % ( len(present) - len(dischargeStart)  ))
+
+			for ts in dischargeStart:
+				#get integer indexing for time step index
+				startRow = dataframe.index.get_loc(ts)
+				context = dataframe.iloc[startRow-swabLength:startRow,:]
+				
+				swabContext = context[ 
+					(context[self.currentIndex] >= -swabThreshold ) 
+					&
+					(context[self.currentIndex] <= swabThreshold)
+
+				].shape[0]
+									
+				#if swab is lesser than swabLength, then discard
+				if(swabContext != swabLength):
+					contextDiscarded += 1
+					continue
+				
+				# avoid noise
+				dischargeContext =  dataframe.iloc[startRow:startRow+minimumDischargeDuration,:]
+				dischargeCount = dischargeContext[ 
+					(dischargeContext[self.currentIndex] <= dischargeThreshold)
+
+				].shape[0]
+				if(dischargeCount != minimumDischargeDuration):
+					continue
+				# end noise avoidance
+				
+				#include previous context on episode
+				startIndex = startRow-swabLength
+				#seek next swab
+				seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
+				endIndex = -1
+				swabFound = False
+				stepCount = 0 # counter in seek
+				maxSearch = 3600 #maximun step between one swab and an other
+				while not swabFound and stepCount < maxSearch:
+					stepCount = stepCount + 1
+					startInterval = seekStartIndex + stepCount
+					endIntetval = startInterval + swabLength
+					interval = dataframe.iloc[startInterval:endIntetval,:]
+					swabCount = interval[
+						(interval[self.currentIndex] >= -swabThreshold ) 
+						&
+						(interval[self.currentIndex] <= swabThreshold)
+					].shape[0]
+					if(swabCount == swabLength):
+						swabFound = True
+						endIndex = endIntetval
+				
+				logger.debug("Swabfound: %s count: %d" % (swabFound ,stepCount ))
+				
+				if(endIndex != -1):
+					if (endIndex - startIndex ) > debugMax:
+						debugMax = (endIndex - startIndex )
+					episode = dataframe.iloc[startIndex:endIndex,:]
+					episodes.append(episode)
+					#self.plot(episode)
+				
+		logger.info("Max valid length is %d " % debugMax )	
+		logger.debug("__seekSwabEpisodes - end. Elapsed %f" %  (time.clock() - tt))
+		return episodes # TODO return something!
+	
+	
+	
+	
+	
+	#######################################
 	def saveZip(self,folder,fileName,data):
 		saveFile = os.path.join(folder,fileName)
 		logger.debug("Saving %s" % saveFile)

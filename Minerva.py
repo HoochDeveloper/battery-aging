@@ -1,6 +1,8 @@
 #Standard Imports
 import uuid,time,os,logging, numpy as np, sys, pandas as pd , matplotlib.pyplot as plt
 
+from logging import handlers as loghds
+
 #Project module import
 from Demetra import EpisodedTimeSeries
 
@@ -13,9 +15,9 @@ from keras import optimizers
 from keras.callbacks import EarlyStopping
 #
 #KERAS ENV GPU
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
-os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
+#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+#os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
+#os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
 
 #Module logging
 logger = logging.getLogger("Minerva")
@@ -23,20 +25,23 @@ logger.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
-logger.addHandler(consoleHandler)
+logger.addHandler(consoleHandler) 
 
 def main():
 	force = False
 	#minerva = Minerva(Minerva.CHARGE)
 	minerva = Minerva(Minerva.DISCHARGE)
-	if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
-		logger.info("Training")
-		minerva.train(force)
-	elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
-		logger.info("Testing")
-		minerva.evaluate()
-	else:
-		logger.error("Invalid command line argument.")
+	
+	minerva.removeme()
+	
+	#if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
+	#	logger.info("Training")
+	#	minerva.train(force)
+	#elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
+	#	logger.info("Testing")
+	#	minerva.evaluate()
+	#else:
+	#	logger.error("Invalid command line argument.")
 		
 class Minerva():
 
@@ -53,9 +58,28 @@ class Minerva():
 	timesteps = 60
 	
 	def __init__(self,type):
+		logFolder = "./logs"
+		# creates log folder
+		if not os.path.exists(logFolder):
+			os.makedirs(logFolder)
+		
+		logPath = logFolder + "/Minerva.log"
+		hdlr = loghds.TimedRotatingFileHandler(logPath,
+                                       when="H",
+                                       interval=1,
+                                       backupCount=5)
+		hdlr.setFormatter(formatter)
+		logger.addHandler(hdlr)
+		
 		self.ets = EpisodedTimeSeries(self.timesteps,normalize=True)
 		self.type = type
 		
+	def removeme(self):
+		#self.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=True)
+		#episodes = self.ets.loadUniformedDataSet()
+		#self.ets.seekEpisodesBlow(episodes)
+		self.ets.loadBlowDataSet()
+	
 	def train(self,force=False):
 		self.ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
 		if(self.type == self.DISCHARGE):
