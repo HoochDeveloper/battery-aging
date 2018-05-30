@@ -71,7 +71,7 @@ class Minerva():
 		hdlr.setFormatter(formatter)
 		logger.addHandler(hdlr)
 		
-		self.ets = EpisodedTimeSeries(self.timesteps,normalize=True)
+		self.ets = EpisodedTimeSeries(normalize=True)
 		self.type = type
 		
 	def removeme(self):
