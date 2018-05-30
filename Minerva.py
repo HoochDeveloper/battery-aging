@@ -75,10 +75,10 @@ class Minerva():
 		self.type = type
 		
 	def removeme(self):
-		#self.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=True)
+		self.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=True)
 		#episodes = self.ets.loadUniformedDataSet()
 		#self.ets.seekEpisodesBlow(episodes)
-		self.ets.loadBlowDataSet()
+		#self.ets.loadBlowDataSet()
 	
 	def train(self,force=False):
 		self.ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)

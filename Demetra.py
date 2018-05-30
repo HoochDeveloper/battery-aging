@@ -981,13 +981,15 @@ class EpisodedTimeSeries():
 				logger.debug("Swabfound: %s count: %d" % (swabFound ,stepCount ))
 				
 				if(endIndex != -1):
-					if (endIndex - startIndex ) > debugMax:
-						debugMax = (endIndex - startIndex )
-					episode = dataframe.iloc[startIndex:endIndex,:]
-					episodes.append(episode)
-					#self.plot(episode)
+					s = dataframe.index.values[startIndex]
+					e = dataframe.index.values[endIndex]
+					diff = ((e-s) * 10**-9).astype(int)
+					if(diff > maxSearch):
+						logger.warning("Inconsistent episode %s - %s" % (s,e))
+					else:
+						episode = dataframe.iloc[startIndex:endIndex,:]
+						episodes.append(episode)
 				
-		logger.info("Max valid length is %d " % debugMax )	
 		logger.debug("__seekSwabEpisodes - end. Elapsed %f" %  (time.clock() - tt))
 		return episodes # TODO return something!
 	
