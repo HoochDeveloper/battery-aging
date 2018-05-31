@@ -13,6 +13,9 @@ from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, Up
 from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping
+
+
+from sklearn import preprocessing
 #
 #KERAS ENV GPU
 #os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -29,8 +32,8 @@ logger.addHandler(consoleHandler)
 
 def main():
 	force = False
-	#minerva = Minerva(Minerva.CHARGE)
-	minerva = Minerva(Minerva.DISCHARGE)
+	
+	minerva = Minerva()
 	
 	minerva.removeme()
 	
@@ -45,19 +48,12 @@ def main():
 		
 class Minerva():
 
-	CHARGE = "C"
-	DISCHARGE = "D"
-
-	#modelName = "LSTM_DeepModel.h5"
 	modelName = "Functional_Conv_DeepModel.h5"
 	batchSize = 100
-	epochs = 200
-	imgPath = "./images"
+	epochs = 10
 	ets = None
-	type = None
-	timesteps = 60
 	
-	def __init__(self,type):
+	def __init__(self):
 		logFolder = "./logs"
 		# creates log folder
 		if not os.path.exists(logFolder):
@@ -72,13 +68,107 @@ class Minerva():
 		logger.addHandler(hdlr)
 		
 		self.ets = EpisodedTimeSeries(normalize=True)
-		self.type = type
+		
 		
 	def removeme(self):
-		self.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=True)
+		#self.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=False)
+		logger.info("Blow load")
+		blows  = self.ets.loadBlowEpisodes()
+		logger.info("End load blow")
+		x,y = self.concatBlowsXY(blows)
+		logger.info("End blow concat")
+		
+		from sklearn.model_selection import train_test_split
+		
+		X_train, X_test, y_train, y_test = train_test_split( x, y, test_size=0.2, random_state=42)
+		logger.info("End test split")
+		X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.2, random_state=42)
+		logger.info("End valid split")
+		
+		print("Train")
+		print(len(X_train))
+		print(len(y_train))
+		print("Test")
+		print(len(X_test))
+		print(len(y_test))
+		print("Valid")
+		print(len(X_valid))
+		print(len(y_valid))
+		
+		
+		
+		
+		xvalid = np.zeros([len(X_valid),X_valid[0].shape[0],X_valid[0].shape[1]])
+		yvalid = np.zeros([len(y_valid),y_valid[0].shape[0],y_valid[0].shape[1]])
+		xtrain = np.zeros([len(X_train),X_train[0].shape[0],X_train[0].shape[1]])
+		ytrain = np.zeros([len(y_train),y_train[0].shape[0],y_train[0].shape[1]])
+		
+		for i in range(0,len(X_train)):
+			xtrain[i] = X_train[i]
+			ytrain[i] = y_train[i] 
+		
+		for i in range(0,len(X_valid)):
+			xvalid[i] = X_valid[i]
+			yvalid[i] = y_valid[i] 
+		
+		
+		xscaler = self.__getSkScaler(xtrain)
+		yscaler = self.__getSkScaler(ytrain)
+		
+		
+		xvalid = self.__skNormalize(xvalid,xscaler)
+		yvalid = self.__skNormalize(yvalid,yscaler)
+		xtrain = self.__skNormalize(xtrain,xscaler)
+		ytrain = self.__skNormalize(ytrain,yscaler)
+		
+		#for f in range(xvalid.shape[2]):
+		#	print("Feature %d" % f)
+		#	print( xtrain[:,:,f].min() )
+		#	print( xtrain[:,:,f].max() )
+		
+		
+		
+		
+		self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid)
+		
+		
+		#self.ets.buildBlowDataset()
 		#episodes = self.ets.loadUniformedDataSet()
 		#self.ets.seekEpisodesBlow(episodes)
 		#self.ets.loadBlowDataSet()
+	
+	
+	def __getSkScaler(self,data):
+		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+		#scaler = preprocessing.RobustScaler( quantile_range=(0.0, 100.0))
+		s = data.shape[0]
+		t = data.shape[1]
+		f = data.shape[2]
+		xnorm = data.reshape(s*t,f)
+		scaler.fit(xnorm)
+		return scaler
+	
+	def __skNormalize(self,data,scaler):
+		s = data.shape[0]
+		t = data.shape[1]
+		f = data.shape[2]
+		xnorm = data.reshape(s*t,f)
+		xnorm = scaler.transform(xnorm)
+		return xnorm.reshape(s,t,f)
+		
+		
+	def concatBlowsXY(self,blows):
+		xout = []
+		yout = []
+		for b in blows:
+			df = pd.concat(b)
+			x = df.drop(columns=self.ets.dropX)
+			y = df[self.ets.keepY]
+			xout.append( x )
+			yout.append( y )
+		return xout,yout
+	
+	
 	
 	def train(self,force=False):
 		self.ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
@@ -300,10 +390,8 @@ class Minerva():
 					r = plt.plot(y_test[toPlot][:, col],color="orange",label="Real")
 					plt.legend()
 				i += 1
-			if(saveImgs):
-				plt.savefig(os.path.join(self.imgPath,str(uuid.uuid4())), bbox_inches='tight')
-				plt.close()
-			else:
+
+			
 				plt.show()
 	
 	
