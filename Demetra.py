@@ -60,7 +60,7 @@ class EpisodedTimeSeries():
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	espisodeFolder = "episodes"
 	espisodePath = None
-	
+	episodeBlowPath = None
 	normalize = False
 	normalizerFolder = "normalizer"
 	normalizerPath = None
@@ -90,12 +90,16 @@ class EpisodedTimeSeries():
 			
 		self.espisodePath = os.path.join(self.rootResultFolder,self.espisodeFolder)
 		
+		self.episodeBlowPath = os.path.join(self.rootResultFolder,self.espisodeFolder+"_blow")
+		
 		if not os.path.exists(self.espisodePath):
 			os.makedirs(self.espisodePath)
 		if not os.path.exists(self.normalizerPath):
 			os.makedirs(self.normalizerPath)
 		if not os.path.exists(self.episodeImageFolder):
 			os.makedirs(self.episodeImageFolder)
+		if not os.path.exists(self.episodeBlowPath):
+			os.makedirs(self.episodeBlowPath)
 		
 		self.timeIndex = self.dataHeader[0]
 		self.nameIndex = self.dataHeader[1]
@@ -118,9 +122,22 @@ class EpisodedTimeSeries():
 		for f in os.listdir(self.espisodePath):
 			batteryEpisodes = self.__loadZip(self.espisodePath,f)
 			episodes += batteryEpisodes
-			#blows += self.seekEpisodesBlow(episodes)
 		logger.debug("Loaded %d episodes" % len(episodes))
 		logger.debug("loadEpisodes - end - %f" % (time.clock() - tt) )
+		return episodes
+		
+	def loadBlowEpisodes(self):
+		"""
+		Load from files previously created episodes
+		"""
+		tt = time.clock()
+		logger.debug("loadBlowEpisodes - start")
+		episodes = []
+		for f in os.listdir(self.episodeBlowPath):
+			batteryBlowEpisodes = self.__loadZip(self.episodeBlowPath,f)
+			episodes += batteryBlowEpisodes
+		logger.debug("Loaded %d episodes blow" % len(episodes))
+		logger.debug("loadBlowEpisodes - end - %f" % (time.clock() - tt) )
 		return episodes
 	
 	
@@ -192,6 +209,8 @@ class EpisodedTimeSeries():
 		else:
 			if(name is None):
 				name = batteryName +"_"+str(uuid.uuid4())
+			else:
+				name = batteryName +"_"+name 
 			plt.savefig(os.path.join(self.episodeImageFolder,name), bbox_inches='tight')
 			plt.close()
 			
@@ -223,7 +242,18 @@ class EpisodedTimeSeries():
 		#		logger.info("Normalizer already exists")
 		
 		logger.debug("buildUniformedDataSet - end - %f" % (time.clock() - tt))
-		
+	
+	def buildBlowDataset(self):
+		tt = time.clock()
+		logger.debug("buildBlowDataset - start")
+		for f in os.listdir(self.espisodePath):
+			batteryEpisodes = self.__loadZip(self.espisodePath,f)
+			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes)
+			if(len(batteryBlows) > 0):
+				batteryName = str(f)
+				self.__saveZip(self.episodeBlowPath,batteryName,batteryBlows)
+		logger.debug("buildBlowDataset - end - %f" % (time.clock() - tt))
+	
 	# private methods
 	def __normalize(self,data,normalizer,minrange=-1,maxrange=1):
 		"""
@@ -460,17 +490,22 @@ class EpisodedTimeSeries():
 		return episodes 
 	
 	
-	def __seekEpisodesBlow(self,episodes):
+	def __seekEpisodesBlow(self,episodes,blowInterval = 3):
 		"""
 		episodes: list of dataframe
+		return a list of tuples of dataframe.
+		The first element in the tuple is the discharge blow dataframe
+		The secondo element in the tuple is the charge blow dataframe
 		"""
 		logger.debug("__seekEpisodesBlow - start")
 		tt = time.clock()
 		dischargeThreshold = -10
 		chargeThreshold = 10
-		blowInterval = 5
-		blows = []
+		
+		blowsEpisodes = []
+		count = 0
 		for episode in episodes:
+			count +=1
 			firstBlow = None
 			lastBlow = None
 			
@@ -508,21 +543,20 @@ class EpisodedTimeSeries():
 			dischargeBlowIdx = episode.index.get_loc(firstBlow)
 			dischargeBlowCtx = episode.iloc[dischargeBlowIdx-blowInterval:dischargeBlowIdx+blowInterval,:]
 			
-			#self.plot(dischargeBlowCtx)
+			
 			
 			chargeBlowIdx = episode.index.get_loc(lastBlow)
 			chargeBlowCtx = episode.iloc[chargeBlowIdx-blowInterval:chargeBlowIdx+blowInterval,:]
-	
-			#self.plot(chargeBlowCtx)
 			
-			chargeMean = chargeBlowCtx.mean()
-			dischargeMean = dischargeBlowCtx.mean()
-			
-			blows.append([dischargeMean,chargeMean])
+			if(chargeBlowCtx.shape[0] > 0 and dischargeBlowCtx.shape[0] > 0):
+				#self.plot(dischargeBlowCtx,name="D"+str(count))
+				#self.plot(chargeBlowCtx,name="C"+str(count))
+				blowsEpisodes.append([dischargeBlowCtx,chargeBlowCtx])
+		
 	
-		logger.info("Current blows %d" % len(blows))
+		logger.info("Found %d blows" % len(blowsEpisodes))
 		logger.debug("__seekEpisodesBlow - end - %f" %  (time.clock() - tt))
-		return blows
+		return blowsEpisodes
 	
 	
 	def __saveZip(self,folder,fileName,data):
