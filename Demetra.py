@@ -61,14 +61,11 @@ class EpisodedTimeSeries():
 	espisodeFolder = "episodes"
 	espisodePath = None
 	episodeBlowPath = None
-	normalize = False
-	normalizerFolder = "normalizer"
-	normalizerPath = None
-	normalizerFile = "norm.pkl"
+	
 	
 		
 	#Constructor
-	def __init__(self,normalize=True):
+	def __init__(self):
 		""" 
 		Create, if not exists, the result path for storing the episoded dataset
 		"""
@@ -84,8 +81,7 @@ class EpisodedTimeSeries():
 		
 		if not os.path.exists(self.rootResultFolder):
 			os.makedirs(self.rootResultFolder)
-		self.normalize = normalize
-		self.normalizerPath = os.path.join(self.rootResultFolder, self.normalizerFolder)
+	
 		
 			
 		self.espisodePath = os.path.join(self.rootResultFolder,self.espisodeFolder)
@@ -94,8 +90,7 @@ class EpisodedTimeSeries():
 		
 		if not os.path.exists(self.espisodePath):
 			os.makedirs(self.espisodePath)
-		if not os.path.exists(self.normalizerPath):
-			os.makedirs(self.normalizerPath)
+		
 		if not os.path.exists(self.episodeImageFolder):
 			os.makedirs(self.episodeImageFolder)
 		if not os.path.exists(self.episodeBlowPath):
@@ -112,69 +107,120 @@ class EpisodedTimeSeries():
 		
 	
 	# public methods
+	
+	
+	def buildUniformedDataSet(self,dataFolder,force=False):
+		""" 
+		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
+		force: if True entire results will be created even if already exists
+		"""
+		tt = time.clock()
+		logger.debug("buildUniformedDataSet - start")
+		existingEpisodes = len(os.listdir(self.espisodePath))
+		if(not force and existingEpisodes > 0):
+			logger.info( "Datafolder has already %d episodes." % (existingEpisodes) )
+		else:
+			logger.info("Building episodes. Force: %s" , force)
+			self.__buildUniformedDataSetFromFolder(dataFolder,force)
+		
+		
+		
+		logger.debug("buildUniformedDataSet - end - %f" % (time.clock() - tt))
+
 	def loadEpisodes(self):
 		"""
-		Load from files previously created episodes
+		Load from files the episodes created with the operation buildUniformedDataSet
+		return: list of dataframes for all the batteries
 		"""
 		tt = time.clock()
 		logger.debug("loadEpisodes - start")
 		episodes = []
-		for f in os.listdir(self.espisodePath):
-			batteryEpisodes = self.__loadZip(self.espisodePath,f)
-			episodes += batteryEpisodes
-		logger.debug("Loaded %d episodes" % len(episodes))
+		if(len(os.listdir(self.espisodePath)) == 0):
+			logger.warning("No episodes found, call buildUniformedDataSet first!")
+		else:
+			for f in os.listdir(self.espisodePath):
+				batteryEpisodes = self.__loadZip(self.espisodePath,f)	
+				episodes += batteryEpisodes
+			logger.debug("Loaded %d episodes" % len(episodes))
 		logger.debug("loadEpisodes - end - %f" % (time.clock() - tt) )
 		return episodes
-		
+	
+	def buildBlowDataset(self):
+		tt = time.clock()
+		logger.debug("buildBlowDataset - start")
+		for f in os.listdir(self.espisodePath):
+			batteryEpisodes = self.__loadZip(self.espisodePath,f)
+			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes)
+			if(len(batteryBlows) > 0):
+				batteryName = str(f)
+				self.__saveZip(self.episodeBlowPath,batteryName,batteryBlows)
+		logger.debug("buildBlowDataset - end - %f" % (time.clock() - tt))
+	
+	
 	def loadBlowEpisodes(self):
 		"""
-		Load from files previously created episodes
+		Load from files the episodes created with the operation buildBlowDataset
+		return: list of dataframes for all the batteries
 		"""
 		tt = time.clock()
 		logger.debug("loadBlowEpisodes - start")
 		episodes = []
-		for f in os.listdir(self.episodeBlowPath):
-			batteryBlowEpisodes = self.__loadZip(self.episodeBlowPath,f)
-			episodes += batteryBlowEpisodes
-		logger.debug("Loaded %d episodes blow" % len(episodes))
+		if(len(os.listdir(self.episodeBlowPath)) == 0):
+			logger.warning("No episodes found, call buildBlowDataset first!")
+		else:
+			for f in os.listdir(self.episodeBlowPath):
+				batteryBlowEpisodes = self.__loadZip(self.episodeBlowPath,f)
+				episodes += batteryBlowEpisodes
+			logger.debug("Loaded %d episodes blow" % len(episodes))
 		logger.debug("loadBlowEpisodes - end - %f" % (time.clock() - tt) )
 		return episodes
 	
+	def getXYDataSet(self,episodes):
+		"""
+		For every episode in episodes creates the X feature dataframe and Y feature dataframe
+		Return:
+			xout = list of dataframe with input feature
+			yout = list of dataframe with output features
+		"""
+		xout = []
+		yout = []
+		for e in episodes:
+			df = pd.concat(e)
+			x = df.drop(columns=self.dropX)
+			y = df[self.keepY]
+			xout.append( x )
+			yout.append( y )
+		return xout,yout
 	
-	def showEpisodes(self,normalizer = None,limit=2,mode="server"):
+	def showEpisodes(self,limit=2,mode="server",type="swab"):
 		"""
 		Show previously created episodes
-		normalizer: if provided scale up the data
 		limit: max image to show, may be set to None
 		mode: if server image will be saved on disk, show otherwise
 		"""
+		if(type=="swab"):
+			folder = self.espisodePath
+		else:
+			fodler = self.episodeBlowPath
+		
 		total = 0
-		for f in os.listdir(self.espisodePath):
-			episodes = self.__loadZip(self.espisodePath,f)
+		for f in os.listdir(folder):
+			episodes = self.__loadZip(folder,f)
 			total += len(episodes)
 			logger.info("There are %d episodes for %s" % (len(episodes),f))
 			max2show = len(episodes)
 			if(limit is not None):
 				max2show = min(limit,len(episodes))
 			for e in range(max2show):
-				if(normalizer is not None):
-					for i in range(1,normalizer.shape[0]):
-						col = i + 2
-						episodes[e].iloc[:,[col]] =  self.__normalization(episodes[e].iloc[:,[col]],normalizer[i,0],normalizer[i,1],-1,1)
 				self.plot(episodes[e],mode=mode)
 		logger.info("Total %d" % total)
 
-	def loadNormalizer(self):
-		"""
-		load a previosly created normalizer
-		"""
-		normalizer = self.__loadZip(self.normalizerPath,self.normalizerFile)
-		return normalizer
+	
 	
 	def plot(self,data,mode="server",name=None):
 		"""
 		Plot data as is
-		mode: if server image will be saved on disk, show otherwise
+		mode: in server mode, images will be saved on disk, shown otherwise
 		name: in server mode if specified save the image with the provided name
 		"""
 		#column index of the sequence time index
@@ -214,80 +260,10 @@ class EpisodedTimeSeries():
 			plt.savefig(os.path.join(self.episodeImageFolder,name), bbox_inches='tight')
 			plt.close()
 			
-	def buildUniformedDataSet(self,dataFolder,force=False):
-		""" 
-		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
-		force: if True entire results will be created even if already exists
-		"""
-		tt = time.clock()
-		logger.debug("buildUniformedDataSet - start")
-		existingEpisodes = len(os.listdir(self.espisodePath))
-		if(not force and existingEpisodes > 0):
-			logger.info( "Datafolder has already %d episodes." % (existingEpisodes) )
-		else:
-			logger.info("Building episodes. Force: %s" , force)
-			self.__buildUniformedDataSetFromFolder(dataFolder,force)
-		
-		#if(self.normalize):
-		#	normalizer = self.loadNormalizer()
-		#	if(normalizer is None):
-		#		logger.debug("Building normalizer")
-		#		allEpisodes = []
-		#		for f in os.listdir(self.espisodePath):
-		#			episodeList = self.__loadZip(self.espisodePath,f)
-		#			allEpisodes += episodeList
-		#		normalizer = self.__getNormalizer(pd.concat(allEpisodes))
-		#		self.__saveZip(self.normalizerPath,self.normalizerFile,normalizer)
-		#	else:
-		#		logger.info("Normalizer already exists")
-		
-		logger.debug("buildUniformedDataSet - end - %f" % (time.clock() - tt))
 	
-	def buildBlowDataset(self):
-		tt = time.clock()
-		logger.debug("buildBlowDataset - start")
-		for f in os.listdir(self.espisodePath):
-			batteryEpisodes = self.__loadZip(self.espisodePath,f)
-			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes)
-			if(len(batteryBlows) > 0):
-				batteryName = str(f)
-				self.__saveZip(self.episodeBlowPath,batteryName,batteryBlows)
-		logger.debug("buildBlowDataset - end - %f" % (time.clock() - tt))
 	
 	# private methods
-	def __normalize(self,data,normalizer,minrange=-1,maxrange=1):
-		"""
-		normalize data in -1,1 with the provided normalizer
-		normalizer: list of tupler, first element in the min value for that column; second is the max
-		"""
-		for i in range(data.shape[2]):
-			minvalue = normalizer[i,0]
-			maxvalue = normalizer[i,1]
-			data[:,:,i] = self.__normalization(data[:,:,i],minvalue,maxvalue,minrange,maxrange)
-		return data
 	
-	def __normalization(self,data,minvalue,maxvalue,minrange,maxrange):
-		"""
-		apply normalization on given value
-		"""
-		norm = ((data - minvalue) / (maxvalue - minvalue)) * (maxrange - minrange) + minrange
-		return norm
-	
-	def __getNormalizer(self,data):
-		"""
-		Compute a normalizer for the data
-		"""
-		tt = time.clock()
-		logger.debug("Computing normalizer")
-		normalizer = np.zeros([data.shape[1]-2,2])
-		for i in range(2,data.shape[1]):
-			normIdx = i - 2
-			logger.debug("Normalizing %s" % self.dataHeader[i])
-			normalizer[normIdx,0] = data[self.dataHeader[i]].min()	
-			normalizer[normIdx,1] = data[self.dataHeader[i]].max()	
-			logger.debug("Min %f Max %f" % (normalizer[normIdx,0],normalizer[normIdx,1]))
-		logger.debug("Computed normalizer. Elapsed %f" %  (time.clock() - tt))
-		return normalizer
 				
 	def __readFileAsDataframe(self,file):
 		""" 
@@ -325,9 +301,9 @@ class EpisodedTimeSeries():
 
 	def __buildUniformedDataSetFromFolder(self,dataFolder,force=False):
 		""" 
-		Read all files in folder as episoded dataframe 
-		Every item in the return list is a different thing
-		Every inner item is a list of episode for the current thing
+		Read all files in folder and save as episode dataframe 
+		Return: None
+		For every battery creates a file containing a list of dataframes
 		"""
 		tt = time.clock()
 		logger.debug("__buildUniformedDataSetFromFolder - begin")
@@ -362,6 +338,7 @@ class EpisodedTimeSeries():
 		"""
 		Build list of espisodes starting and ending in swab status
 		df: Dataframe of a battery
+		Return: list of dataframe, every dataframe is an episode starting in swab and ending in swab. Episodes may have different time length
 		"""
 		logger.debug("__seekSwabEpisodes - start")
 		tt = time.clock()
@@ -495,7 +472,7 @@ class EpisodedTimeSeries():
 		episodes: list of dataframe
 		return a list of tuples of dataframe.
 		The first element in the tuple is the discharge blow dataframe
-		The secondo element in the tuple is the charge blow dataframe
+		The second element in the tuple is the charge blow dataframe
 		"""
 		logger.debug("__seekEpisodesBlow - start")
 		tt = time.clock()

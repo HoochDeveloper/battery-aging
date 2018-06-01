@@ -12,10 +12,12 @@ from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVect
 from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D,Reshape, Flatten
 from keras.models import load_model
 from keras import optimizers
-from keras.callbacks import EarlyStopping
+from keras.callbacks import EarlyStopping, CSVLogger
 
-
+#sklearn
+from sklearn.model_selection import train_test_split
 from sklearn import preprocessing
+from sklearn.model_selection import KFold
 #
 #KERAS ENV GPU
 #os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -31,26 +33,15 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 def main():
-	force = False
-	
+
 	minerva = Minerva()
-	
-	minerva.removeme()
-	
-	#if(len(sys.argv) == 2 and sys.argv[1].lower() == 'train'):
-	#	logger.info("Training")
-	#	minerva.train(force)
-	#elif(len(sys.argv) == 2 and sys.argv[1].lower() == 'test'):
-	#	logger.info("Testing")
-	#	minerva.evaluate()
-	#else:
-	#	logger.error("Invalid command line argument.")
+	minerva.crossTrain()
 		
 class Minerva():
 
 	modelName = "Functional_Conv_DeepModel.h5"
-	batchSize = 100
-	epochs = 10
+	batchSize = 250
+	epochs = 5
 	ets = None
 	
 	def __init__(self):
@@ -66,146 +57,51 @@ class Minerva():
                                        backupCount=5)
 		hdlr.setFormatter(formatter)
 		logger.addHandler(hdlr)
+		self.ets = EpisodedTimeSeries()
 		
-		self.ets = EpisodedTimeSeries(normalize=True)
 		
+	def crossTrain(self):
 		
-	def removeme(self):
-		#self.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=False)
 		logger.info("Blow load")
 		blows  = self.ets.loadBlowEpisodes()
 		logger.info("End load blow")
-		x,y = self.concatBlowsXY(blows)
+		x,y = self.ets.getXYDataSet(blows)
 		logger.info("End blow concat")
 		
-		from sklearn.model_selection import train_test_split
+		x = self.__listToNpArray(x)
+		y = self.__listToNpArray(y)
 		
-		X_train, X_test, y_train, y_test = train_test_split( x, y, test_size=0.2, random_state=42)
-		logger.info("End test split")
-		X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.2, random_state=42)
-		logger.info("End valid split")
+		xscaler = self.__getSkScaler(x)
+		yscaler = self.__getSkScaler(y)
 		
-		print("Train")
-		print(len(X_train))
-		print(len(y_train))
-		print("Test")
-		print(len(X_test))
-		print(len(y_test))
-		print("Valid")
-		print(len(X_valid))
-		print(len(y_valid))
-		
-		
-		
-		
-		xvalid = np.zeros([len(X_valid),X_valid[0].shape[0],X_valid[0].shape[1]])
-		yvalid = np.zeros([len(y_valid),y_valid[0].shape[0],y_valid[0].shape[1]])
-		xtrain = np.zeros([len(X_train),X_train[0].shape[0],X_train[0].shape[1]])
-		ytrain = np.zeros([len(y_train),y_train[0].shape[0],y_train[0].shape[1]])
-		
-		for i in range(0,len(X_train)):
-			xtrain[i] = X_train[i]
-			ytrain[i] = y_train[i] 
-		
-		for i in range(0,len(X_valid)):
-			xvalid[i] = X_valid[i]
-			yvalid[i] = y_valid[i] 
-		
-		
-		xscaler = self.__getSkScaler(xtrain)
-		yscaler = self.__getSkScaler(ytrain)
-		
-		
-		xvalid = self.__skNormalize(xvalid,xscaler)
-		yvalid = self.__skNormalize(yvalid,yscaler)
-		xtrain = self.__skNormalize(xtrain,xscaler)
-		ytrain = self.__skNormalize(ytrain,yscaler)
-		
-		#for f in range(xvalid.shape[2]):
-		#	print("Feature %d" % f)
-		#	print( xtrain[:,:,f].min() )
-		#	print( xtrain[:,:,f].max() )
-		
-		
-		
-		
-		self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid)
-		
-		
-		#self.ets.buildBlowDataset()
-		#episodes = self.ets.loadUniformedDataSet()
-		#self.ets.seekEpisodesBlow(episodes)
-		#self.ets.loadBlowDataSet()
-	
-	
-	def __getSkScaler(self,data):
-		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
-		#scaler = preprocessing.RobustScaler( quantile_range=(0.0, 100.0))
-		s = data.shape[0]
-		t = data.shape[1]
-		f = data.shape[2]
-		xnorm = data.reshape(s*t,f)
-		scaler.fit(xnorm)
-		return scaler
-	
-	def __skNormalize(self,data,scaler):
-		s = data.shape[0]
-		t = data.shape[1]
-		f = data.shape[2]
-		xnorm = data.reshape(s*t,f)
-		xnorm = scaler.transform(xnorm)
-		return xnorm.reshape(s,t,f)
-		
-		
-	def concatBlowsXY(self,blows):
-		xout = []
-		yout = []
-		for b in blows:
-			df = pd.concat(b)
-			x = df.drop(columns=self.ets.dropX)
-			y = df[self.ets.keepY]
-			xout.append( x )
-			yout.append( y )
-		return xout,yout
-	
-	
-	
-	def train(self,force=False):
-		self.ets.buildEpisodedDataset(os.path.join(".","dataset"),force=force)
-		if(self.type == self.DISCHARGE):
-			logger.info("Training discharge")
-			self.modelName = "Discharge_" + self.modelName
-			self.ets.buildDischargeSet(force=force)
-		elif(self.type == self.CHARGE):
-			logger.info("Training charge")
-			self.modelName = "Charge_" + self.modelName
-			self.ets.buildChargeSet(force=force)
-		else:
-			logger.info("Training mixed")
-			self.ets.buildLearnSet(force=force)
+		fold = 0
+		kf = KFold(n_splits=4, random_state=42, shuffle=True)
+		for train_index, test_index in kf.split(x):
 			
-		x_train, y_train, x_valid, y_valid = self.ets.loadTrainset(self.type)
-		self.__trainSequentialModel(x_train, y_train, x_valid, y_valid)
-	
-	def evaluate(self,force=False):
-		if(self.type == self.DISCHARGE):
-			logger.info("Evaluating discharge")
-			self.modelName = "Discharge_" + self.modelName
-		elif(self.type == self.CHARGE):
-			logger.info("Evaluating charge")
-			self.modelName = "Charge_" + self.modelName
-		else:
-			logger.info("Evaluating mixed")
-		normalizer = self.ets.loadNormalizer()
-		x_test, y_test = self.ets.loadTestset(self.type)	
+			fold += 1
+			X_train, X_test = x[train_index], x[test_index]
+			y_train, y_test = y[train_index], y[test_index]
+			
+			X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.2, random_state=42)
+			
+			xvalid = self.__skScale(X_valid,xscaler)
+			yvalid = self.__skScale(y_valid,yscaler)
+			xtrain = self.__skScale(X_train,xscaler)
+			ytrain = self.__skScale(y_train,yscaler)
 		
-		if(False):
-			x_test = self.__conv2DCompatible(x_test)
+			
+			self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid,fold)
+			xtest  = self.__skScale(X_test,xscaler)
+			ytest  = self.__skScale(y_test,yscaler)
+			
+			self.__evaluateModel(xtest, ytest,fold,False,None)
 		
-		self.__evaluateModel(x_test, y_test,True,normalizer)
-		
-	
-	def __trainSequentialModel(self,x_train, y_train, x_valid, y_valid):
+		# sample to check scaler behavior
+		#self.__showNumpyArray(xtrain)
+		#xtrain = self.__skScaleBack(xtrain,xscaler)
+		#self.__showNumpyArray(xtrain)
+
+	def __trainSequentialModel(self,x_train, y_train, x_valid, y_valid,fold):
 		
 		x_train = self.__batchCompatible(self.batchSize,x_train)
 		y_train = self.__batchCompatible(self.batchSize,y_train)
@@ -217,102 +113,27 @@ class Minerva():
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
-		
-		#model = self.__lstmModel(inputFeatures,outputFeatures,timesteps)
-		#model = self.__newLSTM(inputFeatures,outputFeatures,timesteps)
-		if(False):
-			x_train = self.__conv2DCompatible(x_train)
-			x_valid = self.__conv2DCompatible(x_valid)
-		
-		#model = self.__convModel(inputFeatures,outputFeatures,timesteps,x_train.shape[1:])
-		model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)
-		
-		
-		# end model
-		
+
+		model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)	
 		adam = optimizers.Adam(lr=0.000005)		
 		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
 		print(model.summary())
 		
-		
 		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
+		
+		csv_logger = CSVLogger(str(fold)+'training.log')
 		
 		model.fit(x_train, y_train,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,y_valid),
-			callbacks=[early]
+			callbacks=[early,csv_logger]
 		)
 		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		logger.info("Save model")
-		model.save(os.path.join( self.ets.rootResultFolder , self.modelName )) 
+		model.save(os.path.join( self.ets.rootResultFolder , str(fold)+self.modelName )) 
 		logger.info("Model saved")
-		return model
-
-	
-	def __lstmModel(self,inputFeatures,outputFeatures,timesteps):
-	
-		hiddenStateDim0 = 512
-		hiddenStateDim1 = int(hiddenStateDim0 / 2) 
-		hiddenStateDim2 = int(hiddenStateDim1 / 2)
-		hiddenStateDim3 = int(hiddenStateDim2 / 2)
-		hiddenStateDim4 = int(hiddenStateDim3 / 2)
-		stateDim = 5
-		
-		timeCompression = 2
-		drop = 0.5
-	
-		model = Sequential()
-		
-		model.add( LSTM(hiddenStateDim0,name='EN_0',return_sequences=True,activation='tanh',input_shape=(timesteps,inputFeatures)))
-		model.add(Dropout(0.5))
-		model.add( Conv1D(hiddenStateDim1,name='EN_1',kernel_size=timeCompression, strides=2, padding='same',activation='relu'))
-		model.add( LSTM(hiddenStateDim2,name='EN_2',dropout = drop,activation='tanh') )
-		model.add(Dropout(0.5))
-		model.add( Dense(hiddenStateDim4,name='EN_3',activation='relu') )
-		model.add(Dropout(0.5))
-		# rapp
-		model.add( Dense(stateDim,activation='relu',name='ENCODED') )
-		# end rapp
-		model.add(Dense(hiddenStateDim4,name='DC_3',activation='relu') )
-		model.add(Dropout(0.5))
-		model.add(Dense(hiddenStateDim2,name='DC_2',activation='relu') )
-		model.add(Dropout(0.5))
-		model.add(RepeatVector(int(timesteps/timeCompression),name='DC_TS_1') )
-		model.add( LSTM(hiddenStateDim1,name='DC_1',return_sequences=True,activation='tanh') )
-		model.add(Dropout(0.5))
-		model.add(UpSampling1D(timeCompression,name='DC_TS_0') )
-		model.add( LSTM(hiddenStateDim0,name='DC_0',return_sequences=True,dropout = drop,activation='tanh') )
-		model.add(Dropout(0.5))
-		model.add( LSTM(outputFeatures,name='decoded',return_sequences=True,activation='tanh') )
-		
-		return model
-		
-	def __convModel(self,inputFeatures,outputFeatures,timesteps,inShape):
-		model = Sequential()
-		
-		mask = (2,2)
-		#mask = 4
-		
-		start = 512
-		model.add(Dense(start,activation='relu', input_shape=inShape))
-		model.add(Conv2D(start,mask, activation='relu'))
-		model.add(Conv2D(int(start/2),mask, activation='relu')) 
-		model.add(Conv2D(int(start/4),mask, activation='relu')) 
-		model.add(Conv2D(int(start/8),mask, activation='relu')) 
-		#model.add(Conv2D(int(start/16),mask, activation='relu'))
-		#model.add(Conv2D(int(start/32),mask, activation='relu'))
-		#model.add(Conv2D(int(start/64),mask, activation='relu'))
-		model.add(MaxPooling2D(pool_size=mask))
-		model.add(Flatten())
-		# decoder
-		model.add(Dense(timesteps*outputFeatures*8, activation='relu'))
-		model.add(Dense(timesteps*outputFeatures*4, activation='relu'))
-		model.add(Dense(timesteps*outputFeatures*2, activation='relu'))		
-		model.add(Dense(timesteps*outputFeatures, activation='tanh'))
-		model.add(Reshape((timesteps, outputFeatures)))
-
 		return model
 	
 	def __functionalConvModel(self,inputFeatures,outputFeatures,data):
@@ -349,10 +170,10 @@ class Minerva():
 		return model
 	
 	
-	def __evaluateModel(self,x_test,y_test,saveImgs = False,scaler = None):
+	def __evaluateModel(self,x_test,y_test,fold,saveImgs = False,scaler = None):
 		
 		logger.info("Loading model...")
-		model = load_model(os.path.join( self.ets.rootResultFolder , self.modelName ))
+		model = load_model(os.path.join( self.ets.rootResultFolder ,str(fold)+self.modelName ))
 		
 		print(model.summary())
 		
@@ -369,35 +190,31 @@ class Minerva():
 		tt = time.clock()
 		y_pred = model.predict(x_test,  batch_size=self.batchSize)
 		logger.info("Elapsed %f" % (time.clock() - tt))
-		for r in range(25):
-			plt.figure()
-			toPlot = np.random.randint(y_pred.shape[0])
-			i = 1
-			sid = 14
-			for col in range(y_pred.shape[2]):
-				plt.subplot(y_pred.shape[2], 1, i)
-				if(scaler is not None):
-					minvalue = scaler[sid,0]		
-					maxvalue = scaler[sid,1] 
-					pred = self.__scaleBack(y_pred[toPlot][:, col],minvalue,maxvalue)
-					real = self.__scaleBack(y_test[toPlot][:, col],minvalue,maxvalue)
-					p = plt.plot(pred,color="navy",label="Prediction")
-					r = plt.plot(real,color="orange",label="Real")
+		if(False):
+			for r in range(25):
+				plt.figure()
+				toPlot = np.random.randint(y_pred.shape[0])
+				i = 1
+				sid = 14
+				for col in range(y_pred.shape[2]):
+					plt.subplot(y_pred.shape[2], 1, i)
+					plt.plot(y_pred[toPlot][:, col],color="navy",label="Prediction")
+					plt.plot(y_test[toPlot][:, col],color="orange",label="Real")
 					plt.legend()
-					sid +=1
-				else:
-					p = plt.plot(y_pred[toPlot][:, col],color="navy",label="Prediction")
-					r = plt.plot(y_test[toPlot][:, col],color="orange",label="Real")
-					plt.legend()
-				i += 1
-
-			
-				plt.show()
+					i += 1
+					plt.show()
 	
-	
-	def __scaleBack(self,data,minvalue,maxvalue,minrange=-1,maxrange=1):
-		d = ( (data - minrange) / (maxrange - minrange) ) * (maxvalue - minvalue) + minvalue
-		return d
+	def __showNumpyArray(self,data):
+		plt.figure()
+		#toPlot = np.random.randint(data.shape[0])
+		toPlot = 0
+		i = 1
+		for col in range(data.shape[2]):
+			plt.subplot(data.shape[2], 1, i)
+			r = plt.plot(data[toPlot][:, col],color="orange",label="Real")
+			plt.legend()
+			i += 1
+		plt.show()
 	
 	def __batchCompatible(self,batch_size,data):
 		exceed = data.shape[0] % batch_size
@@ -405,10 +222,65 @@ class Minerva():
 			data = data[:-exceed]
 		return data
 		
-	def __conv2DCompatible(self,data):
+	def __listToNpArray(self,list):
+		"""
+		Convert a list of dataframe [time-steps,features] in np 3d array [samples,time-steps,features]
+		"""
+		out = None
+		if(len(list) > 0):
+			out = np.zeros([len(list),list[0].shape[0],list[0].shape[1]])
+			for i in range(0,len(list)):
+				out[i] = list[i]
+		else:
+			logger.warning("Empty list, None will be returned")
+		return out
 		
-		data = data.reshape(data.shape[0],12,10,4)
-		print(data.shape)
-		return data
+	def __getSkScaler(self,data):
+		"""
+		Build a SKL scaler for the data
+		data: 3d array [samples,time-steps,features]
+		return: scaled 3d array
+		"""
+		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+		#scaler = preprocessing.RobustScaler( quantile_range=(0.0, 100.0))
+		samples = data.shape[0]
+		timesteps = data.shape[1]
+		features = data.shape[2]
+		# the scaler need a 2d array. [<samples>,<features>]
+		# so we reshape the data aggregating samples and time-steps leaving features alone
+		xnorm = data.reshape(samples*timesteps,features)
+		scaler.fit(xnorm)
+		return scaler
+	
+	def __skScale(self,data,scaler):
+		"""
+		Apply the SKL scaler to the data
+		data: 3d array [samples,time-steps,features]
+		return: scaled 3d array
+		"""
+		samples = data.shape[0]
+		timesteps = data.shape[1]
+		features = data.shape[2]
+		# the scaler need a 2d array. [<samples>,<features>]
+		# so we reshape the data aggregating samples and time-steps leaving features alone
+		xnorm = data.reshape(samples*timesteps,features)
+		xnorm = scaler.transform(xnorm)
+		return xnorm.reshape(samples,timesteps,features)
 		
-main()
+	def __skScaleBack(self,data,scaler):
+		"""
+		Apply the SKL scale back to the data
+		data: 3d array [samples,time-steps,features]
+		return: scaled 3d array
+		"""
+		samples = data.shape[0]
+		timesteps = data.shape[1]
+		features = data.shape[2]
+		# the scaler need a 2d array. [<samples>,<features>]
+		# so we reshape the data aggregating samples and time-steps leaving features alone
+		xnorm = data.reshape(samples*timesteps,features)
+		xnorm = scaler.inverse_transform(xnorm)
+		return xnorm.reshape(samples,timesteps,features)
+
+
+main()		
