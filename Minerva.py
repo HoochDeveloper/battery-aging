@@ -36,15 +36,31 @@ def main():
 
 	minerva = Minerva()
 	
-	#minerva.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=False)
-	#minerva.ets.buildBlowDataset()
+	period="M"
+	
+	minerva.trainMonth()
+	#blows  = minerva.ets.loadBlowEpisodes("M",index=0)
+	#print(len(blows))
+	#
+	#blows  = minerva.ets.loadBlowEpisodes("M",index=1)
+	#print(len(blows))
+	#
+	#blows  = minerva.ets.loadBlowEpisodes("M",index=2)
+	#print(len(blows))
+	#
+	#blows  = minerva.ets.loadBlowEpisodes("M",index=3)
+	#print(len(blows))
+	
+	#minerva.ets.buildUniformedDataSet(os.path.join(".","dataset"),period,force=False)
+	#minerva.ets.buildBlowDataset(period)
 	
 	
 	#minerva.ets.splitDataSetByMonth()
 	
 	#minerva.crossTrain()
 	#minerva.crossEvaluate()
-	minerva.train()
+	#minerva.train()
+	
 	
 class Minerva():
 
@@ -69,6 +85,38 @@ class Minerva():
 		self.ets = EpisodedTimeSeries()
 	
 
+	def trainMonth(self):
+		
+		blows = self.ets.loadBlowEpisodes("M",index=0)
+		x,y = self.ets.getXYDataSet(blows)
+		x = self.__listToNpArray(x)
+		y = self.__listToNpArray(y)
+				
+		
+		xscaler = self.__getSkScaler(x)
+		yscaler = self.__getSkScaler(y)
+		
+		X_train, X_valid, y_train, y_valid =train_test_split( x, y, test_size=0.1, random_state=42)
+		
+		
+		xvalid = self.__skScale(X_valid,xscaler)
+		yvalid = self.__skScale(y_valid,yscaler)
+		xtrain = self.__skScale(X_train,xscaler)
+		ytrain = self.__skScale(y_train,yscaler)
+		
+		fold = "Mont"
+		if False:
+			self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid,fold)
+		else:
+			blows = self.ets.loadBlowEpisodes("M",index=3)
+			xtest,ytest = self.ets.getXYDataSet(blows)
+			xtest = self.__listToNpArray(xtest)
+			ytest = self.__listToNpArray(ytest)
+			xtest = self.__skScale(xtest,xscaler)
+			ytest = self.__skScale(ytest,yscaler)
+			self.__evaluateModel(xtest, ytest,fold,None)
+		
+	
 	def crossEvaluate(self):
 		logger.info("Blow load")
 		blows  = self.ets.loadBlowEpisodes()
@@ -97,7 +145,7 @@ class Minerva():
 			xtest  = self.__skScale(xtest,xscaler)
 			ytest  = self.__skScale(ytest,yscaler)
 			
-			self.__evaluateModel(xtest, ytest,fold,False,None)
+			self.__evaluateModel(xtest, ytest,fold,None)
 			return
 		
 	def crossTrain(self):

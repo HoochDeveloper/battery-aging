@@ -61,6 +61,7 @@ class EpisodedTimeSeries():
 	espisodeFolder = "episodes"
 	espisodePath = None
 	episodeBlowPath = None
+	episodeMonthlyPath = None
 	
 	
 		
@@ -88,9 +89,12 @@ class EpisodedTimeSeries():
 		
 		self.episodeBlowPath = os.path.join(self.rootResultFolder,self.espisodeFolder+"_blow")
 		
+		self.episodeMonthlyPath = os.path.join(self.rootResultFolder,self.espisodeFolder+"_monthly")
+		
 		if not os.path.exists(self.espisodePath):
 			os.makedirs(self.espisodePath)
-		
+		if not os.path.exists(self.episodeMonthlyPath):
+			os.makedirs(self.episodeMonthlyPath)
 		if not os.path.exists(self.episodeImageFolder):
 			os.makedirs(self.episodeImageFolder)
 		if not os.path.exists(self.episodeBlowPath):
@@ -109,7 +113,7 @@ class EpisodedTimeSeries():
 	# public methods
 	
 	
-	def buildUniformedDataSet(self,dataFolder,force=False):
+	def buildUniformedDataSet(self,dataFolder,period,force=False):
 		""" 
 		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
 		force: if True entire results will be created even if already exists
@@ -117,7 +121,7 @@ class EpisodedTimeSeries():
 		tt = time.clock()
 		logger.debug("buildUniformedDataSet - start")
 		logger.info("Building episodes. Force: %s" , force)
-		self.__buildUniformedDataSetFromFolder(dataFolder,force)
+		self.__buildUniformedDataSetFromFolder(dataFolder,period,force)
 		logger.debug("buildUniformedDataSet - end - %f" % (time.clock() - tt))
 
 	def loadEpisodes(self):
@@ -138,15 +142,21 @@ class EpisodedTimeSeries():
 		logger.debug("loadEpisodes - end - %f" % (time.clock() - tt) )
 		return episodes
 	
-	def buildBlowDataset(self,force=False):
+	def buildBlowDataset(self,period,force=False):
 		tt = time.clock()
 		logger.debug("buildBlowDataset - start")
 		
-		for f in os.listdir(self.espisodePath):
+		loadPath = None
+		if(period == "D"):
+			loadPath = self.espisodePath
+		else:
+			loadPath = self.episodeMonthlyPath
+			
+		for f in os.listdir(loadPath):
 			savePath = os.path.join(self.episodeBlowPath,f)
 			if force or  not os.path.isfile(savePath):
-				batteryEpisodes = self.__loadZip(self.espisodePath,f)
-				batteryBlows = self.__seekEpisodesBlow(batteryEpisodes)
+				batteryEpisodes = self.__loadZip(loadPath,f)
+				batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,period)
 				if(len(batteryBlows) > 0):
 					self.__saveZip(self.episodeBlowPath,f,batteryBlows)
 			else:
@@ -156,7 +166,7 @@ class EpisodedTimeSeries():
 		logger.debug("buildBlowDataset - end - %f" % (time.clock() - tt))
 	
 	
-	def loadBlowEpisodes(self):
+	def loadBlowEpisodes(self,period,index=0):
 		"""
 		Load from files the episodes created with the operation buildBlowDataset
 		return: list of dataframes for all the batteries
@@ -169,7 +179,10 @@ class EpisodedTimeSeries():
 		else:
 			for f in os.listdir(self.episodeBlowPath):
 				batteryBlowEpisodes = self.__loadZip(self.episodeBlowPath,f)
-				episodes += batteryBlowEpisodes
+				if(period == "D"):
+					episodes += batteryBlowEpisodes
+				else:
+					episodes += batteryBlowEpisodes[index]
 			logger.debug("Loaded %d episodes blow" % len(episodes))
 		logger.debug("loadBlowEpisodes - end - %f" % (time.clock() - tt) )
 		return episodes
@@ -296,7 +309,7 @@ class EpisodedTimeSeries():
 		logger.debug("__readFileAsDataframe - end - %f" % (time.clock() - tt))
 		return data
 
-	def __buildUniformedDataSetFromFolder(self,dataFolder,force):
+	def __buildUniformedDataSetFromFolder(self,dataFolder,period,force):
 		""" 
 		Read all files in folder and save as episode dataframe 
 		Return: None
@@ -315,12 +328,17 @@ class EpisodedTimeSeries():
 			logger.info("File %d of %d" % (count,totalFiles))
 			if(os.path.isfile(os.path.join(dataFolder,file))):
 				fileName = str(file)
-				savePath = os.path.join(self.espisodePath,fileName)
+				
+				savePath = None
+				if(period == "D"):
+					savePath = os.path.join(self.espisodePath,fileName)
+				else:
+					savePath = os.path.join(self.episodeMonthlyPath,fileName)
+				
 				if(force or not os.path.isfile(savePath)):
 					loaded = self.__readFileAsDataframe(os.path.join(dataFolder,fileName))
 					if(loaded is not None and loaded.shape[0] > 0):
-						episodes = self.__seekSwabEpisodes(loaded)
-						self.__saveZip(self.espisodePath,fileName,episodes)
+						self.__seekSwabEpisodes(loaded,fileName,period)
 					else:
 						logger.warning("File %s is invalid as dataframe" % fileName)
 				else:
@@ -329,7 +347,7 @@ class EpisodedTimeSeries():
 				logger.debug("Not a file: %s " % file)
 		logger.debug("__buildUniformedDataSetFromFolder - end - %f" %  (time.clock() - tt))
 	
-	def __seekSwabEpisodes(self,df):
+	def __seekSwabEpisodes(self,df,fileName,period="D"):
 		"""
 		Build list of espisodes starting and ending in swab status
 		df: Dataframe of a battery
@@ -337,131 +355,167 @@ class EpisodedTimeSeries():
 		"""
 		logger.debug("__seekSwabEpisodes - start")
 		tt = time.clock()
+		episodes = []
+		valid = 0
+		contextDiscarded = 0
+		noiseDiscarded = 0
+		inconsistent = 0
+		incomplete = 0
+		groups = None
+		if(period == "D"):
+			# first of all group by day
+			groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
+			logger.info("Daily period %d" % len(groups))
+		else:
+			# first of all group by month
+			groups = [g[1] for g in df.groupby([df.index.year, df.index.month])]
+			logger.info("Mothly period %d" % len(groups))
+		
+		for grp in groups:
+			month = grp.index.month[0]
+			grpEpisodes,grpcontextDiscarded,grpnoiseDiscarded,grpinconsistent,grpincomplete = self.__seekSwabInGroups(grp)
+			logger.info("Found %d episodes in month %d" % (len(grpEpisodes),month))
+			
+			if(period == "D"):
+				episodes += grpEpisodes
+			else:
+				episodes.append(grpEpisodes)
+			
+			valid            += len(grpEpisodes)
+			contextDiscarded += grpcontextDiscarded
+			noiseDiscarded   += grpnoiseDiscarded
+			inconsistent     += grpinconsistent
+			incomplete       += grpincomplete
+		
+		logger.info("--------------------------")
+		logger.info("Valid:        %d" 	% valid)
+		logger.info("Inconsistent: %d" 	% inconsistent)
+		logger.info("Incomplete    %d" 	% incomplete)
+		logger.info("Noisy:        %d" 	% noiseDiscarded)
+		logger.info("Context:      %d" 	% contextDiscarded)
+		logger.info("--------------------------")
+
+		if(period == "D"):
+			self.__saveZip(self.espisodePath,fileName,episodes)
+		else:
+			self.__saveZip(self.episodeMonthlyPath,fileName,episodes)
+		
+		logger.debug("__seekSwabEpisodes - end - %f" %  (time.clock() - tt))
+	
+	def __seekSwabInGroups(self,dataframe):
+	
 		# parameter - start
 		minimumDischargeDuration = 5 # minimun seconds of discharge after swab, lesser will be discarded as noisy episode
 		dischargeThreshold = -10 # current must be lower of this to consider the battery in discharge
 		swabThreshold = 5 # current between -th and +th will be valid swab
 		swabLength = 5  # timesteps of swab to be considered a valid begin and end of a swab episode
 		# parameter - end
-		
-		episodes = []
+	
+	
 		contextDiscarded = 0
 		noiseDiscarded = 0
 		inconsistent = 0
 		incomplete = 0
-		# first of all group by day
-		groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
-		for dataframe in groups:
+		groupEpisodes = []
+		
+		# for every day seek episodes thtat starts and ends with the Swab condition
+		
+		# select all timestemps where the battery is in discharge
+		dischargeIndex =  ( 
+			dataframe[
+			(dataframe[self.currentIndex] <= dischargeThreshold)
+			].index
+		)
+		if(dischargeIndex.shape[0] == 0):
+			return groupEpisodes,contextDiscarded,noiseDiscarded,inconsistent,incomplete
+		
+		past = np.roll(dischargeIndex,1) # shift the episode one second behind
+		present = np.roll(dischargeIndex,0) # convert in numpy array
+		diff = present - past # compute difference indexes
+		diff = (diff * 10**-9).astype(int) # convert nanosecond in second
+
+		# keep only index with a gap greater than 1 seconds in order to keep only the first index for discharge
+		dischargeStart = dischargeIndex[ (diff >  1 ) ]
+		logger.debug("Removed consecutive %d " % ( len(present) - len(dischargeStart)  ))
+
+		for i in range(1,len(dischargeStart)):
+			#get integer indexing for time step index
 			
+			nextTs = dischargeStart[i]
+			ts = dischargeStart[i-1]
+			startRow = dataframe.index.get_loc(ts)
+			nextRow = dataframe.index.get_loc(nextTs) # if during search we hit this index the episode should be discarde?
 			
-			# for every day seek episodes thtat starts and ends with the Swab condition
+			rowsInEpisode = nextRow - startRow # this is the maximun number of row in episode
 			
-			# select all timestemps where the battery is in discharge
-			dischargeIndex =  ( 
-				dataframe[
-				(dataframe[self.currentIndex] <= dischargeThreshold)
-				].index
-			)
-			if(dischargeIndex.shape[0] == 0):
+			context = dataframe.iloc[startRow-swabLength:startRow,:]
+			
+			swabContext = context[ 
+				(context[self.currentIndex] >= -swabThreshold ) 
+				&
+				(context[self.currentIndex] <= swabThreshold)
+
+			].shape[0]
+								
+			#if swab is lesser than swabLength, then discard
+			if(swabContext != swabLength):
+				contextDiscarded += 1
 				continue
 			
-			past = np.roll(dischargeIndex,1) # shift the episode one second behind
-			present = np.roll(dischargeIndex,0) # convert in numpy array
-			diff = present - past # compute difference indexes
-			diff = (diff * 10**-9).astype(int) # convert nanosecond in second
+			# avoid noise
+			dischargeContext =  dataframe.iloc[startRow:startRow+minimumDischargeDuration,:]
+			dischargeCount = dischargeContext[ 
+				(dischargeContext[self.currentIndex] <= dischargeThreshold)
 
-			# keep only index with a gap greater than 1 seconds in order to keep only the first index for discharge
-			dischargeStart = dischargeIndex[ (diff >  1 ) ]
-			logger.debug("Removed consecutive %d " % ( len(present) - len(dischargeStart)  ))
-
-			for i in range(1,len(dischargeStart)):
-				#get integer indexing for time step index
+			].shape[0]
+			if(dischargeCount != minimumDischargeDuration):
+				noiseDiscarded += 1
+				continue
+			# end noise avoidance
+			
+			#include previous context on episode
+			startIndex = startRow-swabLength
+			#seek next swab
+			seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
+			endIndex = -1
+			terminate = False
+			stepCount = 0 # counter in seek
+			
+			while not terminate and (seekStartIndex + stepCount) < nextRow:
+				stepCount = stepCount + 1
+				startInterval = seekStartIndex + stepCount
+				endIntetval = startInterval + swabLength
 				
-				nextTs = dischargeStart[i]
-				ts = dischargeStart[i-1]
-				startRow = dataframe.index.get_loc(ts)
-				nextRow = dataframe.index.get_loc(nextTs) # if during search we hit this index the episode should be discarde?
-				
-				rowsInEpisode = nextRow - startRow # this is the maximun number of row in episode
-				
-				context = dataframe.iloc[startRow-swabLength:startRow,:]
-				
-				swabContext = context[ 
-					(context[self.currentIndex] >= -swabThreshold ) 
+				interval = dataframe.iloc[startInterval:endIntetval,:]
+				swabCount = interval[
+					(interval[self.currentIndex] >= -swabThreshold ) 
 					&
-					(context[self.currentIndex] <= swabThreshold)
-
+					(interval[self.currentIndex] <= swabThreshold)
 				].shape[0]
-									
-				#if swab is lesser than swabLength, then discard
-				if(swabContext != swabLength):
-					contextDiscarded += 1
-					continue
-				
-				# avoid noise
-				dischargeContext =  dataframe.iloc[startRow:startRow+minimumDischargeDuration,:]
-				dischargeCount = dischargeContext[ 
-					(dischargeContext[self.currentIndex] <= dischargeThreshold)
-
-				].shape[0]
-				if(dischargeCount != minimumDischargeDuration):
-					noiseDiscarded += 1
-					continue
-				# end noise avoidance
-				
-				#include previous context on episode
-				startIndex = startRow-swabLength
-				#seek next swab
-				seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
-				endIndex = -1
-				terminate = False
-				stepCount = 0 # counter in seek
-				
-				while not terminate and (seekStartIndex + stepCount) < nextRow:
-					stepCount = stepCount + 1
-					startInterval = seekStartIndex + stepCount
-					endIntetval = startInterval + swabLength
-					
-					interval = dataframe.iloc[startInterval:endIntetval,:]
-					swabCount = interval[
-						(interval[self.currentIndex] >= -swabThreshold ) 
-						&
-						(interval[self.currentIndex] <= swabThreshold)
-					].shape[0]
-					if(swabCount == swabLength):
-						terminate = True
-						endIndex = endIntetval
-				logger.debug("Swabfound: %s count: %d" % (terminate ,stepCount ))
-				
-				if(endIndex != -1):
-					s = dataframe.index.values[startIndex]
-					e = dataframe.index.values[endIndex]
-					diff = ((e-s) * 10**-9).astype(int)
-					# this is necessary because the are missing intervale between the data
-					# e.g. t_0 = 7 o'clock t_1 = 8 o'clock
-					# so the episoder is not consistent
-					if(diff > rowsInEpisode):
-						logger.debug("Inconsistent episode %s - %s" % (s,e))
-						inconsistent += 1
-					else:
-						episode = dataframe.iloc[startIndex:endIndex,:]
-						episodes.append(episode)
+				if(swabCount == swabLength):
+					terminate = True
+					endIndex = endIntetval
+			logger.debug("Swabfound: %s count: %d" % (terminate ,stepCount ))
+			
+			if(endIndex != -1):
+				s = dataframe.index.values[startIndex]
+				e = dataframe.index.values[endIndex]
+				diff = ((e-s) * 10**-9).astype(int)
+				# this is necessary because the are missing intervale between the data
+				# e.g. t_0 = 7 o'clock t_1 = 8 o'clock
+				# so the episoder is not consistent
+				if(diff > rowsInEpisode):
+					logger.debug("Inconsistent episode %s - %s" % (s,e))
+					inconsistent += 1
 				else:
-					incomplete += 1
-					
-					
-		logger.info("--------------------------")
-		logger.info("Valid:        %d" 	% len(episodes))
-		logger.info("Inconsistent: %d" 	% inconsistent)
-		logger.info("Incomplete    %d" 	% incomplete)
-		logger.info("Noisy:        %d" 	% noiseDiscarded)
-		logger.info("Context:      %d" 	% contextDiscarded)
-		logger.info("--------------------------")
-		logger.debug("__seekSwabEpisodes - end - %f" %  (time.clock() - tt))
-		return episodes 
+					episode = dataframe.iloc[startIndex:endIndex,:]
+					groupEpisodes.append(episode)
+			else:
+				incomplete += 1
+		
+		return groupEpisodes,contextDiscarded,noiseDiscarded,inconsistent,incomplete
 	
-	
-	def __seekEpisodesBlow(self,episodes,blowInterval = 5):
+	def __seekEpisodesBlow(self,episodes,period,blowInterval = 5):
 		"""
 		episodes: list of dataframe
 		return a list of tuples of dataframe.
@@ -470,65 +524,77 @@ class EpisodedTimeSeries():
 		"""
 		logger.debug("__seekEpisodesBlow - start")
 		tt = time.clock()
-		dischargeThreshold = -10
-		chargeThreshold = 10
-		
 		blowsEpisodes = []
-		count = 0
-		for episode in episodes:
-			count +=1
-			firstBlow = None
-			lastBlow = None
-			
-			# select all time-step where the battery is in discharge
-			dischargeIndex =  ( 
-				episode[
-				(episode[self.currentIndex] <= dischargeThreshold)
-				].index
-			)
-			if(dischargeIndex.shape[0] == 0):
-				logger.warning("Something wrong. No Discharge")
-				continue
-			# select all time-step where the battery is in charge
-			chargeIndex =  ( 
-				episode[
-				(episode[self.currentIndex] >= chargeThreshold)
-				].index
-			)
-			if(chargeIndex.shape[0] == 0):
-				logger.warning("Something wrong. No charge")
-				continue
-			
-			
-			#get the first index in charge
-			firstBlow = dischargeIndex[0]
-			
-			
-			#get the first index in charge
-			lastBlow = chargeIndex[0]
-			
-		
-			logger.debug("First blow: %s - Last blow: %s" % (firstBlow,lastBlow))
-			#self.plot(episode)
-			
-			dischargeBlowIdx = episode.index.get_loc(firstBlow)
-			dischargeBlowCtx = episode.iloc[dischargeBlowIdx-blowInterval:dischargeBlowIdx+blowInterval,:]
-			
-			
-			
-			chargeBlowIdx = episode.index.get_loc(lastBlow)
-			chargeBlowCtx = episode.iloc[chargeBlowIdx-blowInterval:chargeBlowIdx+blowInterval,:]
-			
-			if(chargeBlowCtx.shape[0] > 0 and dischargeBlowCtx.shape[0] > 0):
-				#self.plot(dischargeBlowCtx,name="D"+str(count))
-				#self.plot(chargeBlowCtx,name="C"+str(count))
-				blowsEpisodes.append([dischargeBlowCtx,chargeBlowCtx])
-		
-	
-		logger.info("Found %d blows" % len(blowsEpisodes))
+		if(period == "D"):
+			for episode in episodes:
+				b = self.__getBlow(episode,blowInterval)
+				if(b is not None):
+					blowsEpisodes.append(b)
+			logger.info("Found %d blows" % len(blowsEpisodes))
+		else:
+			for month in episodes:
+				monthlyBlow = []
+				for episode in month:
+					b = self.__getBlow(episode,blowInterval)
+					if(b is not None):
+						monthlyBlow.append(b)
+				blowsEpisodes.append(monthlyBlow)
 		logger.debug("__seekEpisodesBlow - end - %f" %  (time.clock() - tt))
 		return blowsEpisodes
 	
+	
+	def __getBlow(self,episode,blowInterval):
+		
+		dischargeThreshold = -10
+		chargeThreshold = 10
+	
+		firstBlow = None
+		lastBlow = None
+		
+		# select all time-step where the battery is in discharge
+		dischargeIndex =  ( 
+			episode[
+			(episode[self.currentIndex] <= dischargeThreshold)
+			].index
+		)
+		if(dischargeIndex.shape[0] == 0):
+			logger.warning("Something wrong. No Discharge")
+			return None
+		# select all time-step where the battery is in charge
+		chargeIndex =  ( 
+			episode[
+			(episode[self.currentIndex] >= chargeThreshold)
+			].index
+		)
+		if(chargeIndex.shape[0] == 0):
+			logger.warning("Something wrong. No charge")
+			return None
+		
+		
+		#get the first index in charge
+		firstBlow = dischargeIndex[0]
+		
+		
+		#get the first index in charge
+		lastBlow = chargeIndex[0]
+		
+	
+		logger.debug("First blow: %s - Last blow: %s" % (firstBlow,lastBlow))
+		#self.plot(episode)
+		
+		dischargeBlowIdx = episode.index.get_loc(firstBlow)
+		dischargeBlowCtx = episode.iloc[dischargeBlowIdx-blowInterval:dischargeBlowIdx+blowInterval,:]
+		
+		
+		
+		chargeBlowIdx = episode.index.get_loc(lastBlow)
+		chargeBlowCtx = episode.iloc[chargeBlowIdx-blowInterval:chargeBlowIdx+blowInterval,:]
+		
+		if(chargeBlowCtx.shape[0] > 0 and dischargeBlowCtx.shape[0] > 0):
+			return [dischargeBlowCtx,chargeBlowCtx]
+		else:
+			return None
+		
 	
 	def __saveZip(self,folder,fileName,data):
 		saveFile = os.path.join(folder,fileName)
