@@ -20,9 +20,9 @@ from sklearn import preprocessing
 from sklearn.model_selection import KFold
 #
 #KERAS ENV GPU
-#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-#os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
-#os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
+os.environ['NUMBAPRO_LIBDEVICE']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\libdevice'
 
 #Module logging
 logger = logging.getLogger("Minerva")
@@ -35,13 +35,22 @@ logger.addHandler(consoleHandler)
 def main():
 
 	minerva = Minerva()
-	minerva.crossTrain()
-		
+	
+	#minerva.ets.buildUniformedDataSet(os.path.join(".","dataset"),force=False)
+	#minerva.ets.buildBlowDataset()
+	
+	
+	#minerva.ets.splitDataSetByMonth()
+	
+	#minerva.crossTrain()
+	#minerva.crossEvaluate()
+	minerva.train()
+	
 class Minerva():
 
 	modelName = "Functional_Conv_DeepModel.h5"
-	batchSize = 250
-	epochs = 5
+	batchSize = 100
+	epochs = 200
 	ets = None
 	
 	def __init__(self):
@@ -58,7 +67,38 @@ class Minerva():
 		hdlr.setFormatter(formatter)
 		logger.addHandler(hdlr)
 		self.ets = EpisodedTimeSeries()
+	
+
+	def crossEvaluate(self):
+		logger.info("Blow load")
+		blows  = self.ets.loadBlowEpisodes()
+		logger.info("End load blow")
+		x,y = self.ets.getXYDataSet(blows)
+		logger.info("End blow concat")
 		
+		x = self.__listToNpArray(x)
+		y = self.__listToNpArray(y)
+				
+		
+		xscaler = self.__getSkScaler(x)
+		yscaler = self.__getSkScaler(y)
+		
+		count = 0
+		fold = 4
+		kf = KFold(n_splits=4, random_state=42, shuffle=True)
+		for train_index, test_index in kf.split(x):
+			count += 1
+			if(count != fold):
+				continue
+			
+			xtest = x[test_index]
+			ytest = y[test_index]
+			
+			xtest  = self.__skScale(xtest,xscaler)
+			ytest  = self.__skScale(ytest,yscaler)
+			
+			self.__evaluateModel(xtest, ytest,fold,False,None)
+			return
 		
 	def crossTrain(self):
 		
@@ -82,7 +122,7 @@ class Minerva():
 			X_train, X_test = x[train_index], x[test_index]
 			y_train, y_test = y[train_index], y[test_index]
 			
-			X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.2, random_state=42)
+			X_train, X_valid, y_train, y_valid = train_test_split( X_train, y_train, test_size=0.2, random_state=42)
 			
 			xvalid = self.__skScale(X_valid,xscaler)
 			yvalid = self.__skScale(y_valid,yscaler)
@@ -101,6 +141,41 @@ class Minerva():
 		#xtrain = self.__skScaleBack(xtrain,xscaler)
 		#self.__showNumpyArray(xtrain)
 
+	def train(self):
+		xtrain,ytrain, xvalid,yvalid, xtest,ytest,xscaler,yscaler = self.__splitDataset()
+		fold = "A_"
+		if(False):
+			self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid,fold)
+		self.__evaluateModel(xtest, ytest,fold,yscaler)
+		
+	def __splitDataset(self):
+		logger.info("Blow load")
+		blows  = self.ets.loadBlowEpisodes()
+		logger.info("End load blow")
+		x,y = self.ets.getXYDataSet(blows)
+		logger.info("End blow concat")
+		
+		x = self.__listToNpArray(x)
+		y = self.__listToNpArray(y)
+		
+		xscaler = self.__getSkScaler(x)
+		yscaler = self.__getSkScaler(y)
+		
+		X_train, X_test,  y_train, y_test =train_test_split( x, y, test_size=0.2, random_state=42)
+		X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.2, random_state=42)
+		
+		
+		xvalid = self.__skScale(X_valid,xscaler)
+		yvalid = self.__skScale(y_valid,yscaler)
+		xtrain = self.__skScale(X_train,xscaler)
+		ytrain = self.__skScale(y_train,yscaler)
+		
+		xtest  = self.__skScale(X_test,xscaler)
+		ytest  = self.__skScale(y_test,yscaler)
+		
+		return xtrain,ytrain, xvalid,yvalid, xtest,ytest, xscaler,yscaler
+		
+		
 	def __trainSequentialModel(self,x_train, y_train, x_valid, y_valid,fold):
 		
 		x_train = self.__batchCompatible(self.batchSize,x_train)
@@ -170,7 +245,7 @@ class Minerva():
 		return model
 	
 	
-	def __evaluateModel(self,x_test,y_test,fold,saveImgs = False,scaler = None):
+	def __evaluateModel(self,x_test,y_test,fold,scaler = None):
 		
 		logger.info("Loading model...")
 		model = load_model(os.path.join( self.ets.rootResultFolder ,str(fold)+self.modelName ))
@@ -190,7 +265,12 @@ class Minerva():
 		tt = time.clock()
 		y_pred = model.predict(x_test,  batch_size=self.batchSize)
 		logger.info("Elapsed %f" % (time.clock() - tt))
-		if(False):
+		
+		if(scaler is not None):
+			y_pred = self.__skScaleBack(y_pred,scaler)
+			y_test = self.__skScaleBack(y_test,scaler)
+		
+		if(True):
 			for r in range(25):
 				plt.figure()
 				toPlot = np.random.randint(y_pred.shape[0])
@@ -202,7 +282,8 @@ class Minerva():
 					plt.plot(y_test[toPlot][:, col],color="orange",label="Real")
 					plt.legend()
 					i += 1
-					plt.show()
+				
+				plt.show()
 	
 	def __showNumpyArray(self,data):
 		plt.figure()
@@ -211,9 +292,10 @@ class Minerva():
 		i = 1
 		for col in range(data.shape[2]):
 			plt.subplot(data.shape[2], 1, i)
-			r = plt.plot(data[toPlot][:, col],color="orange",label="Real")
+			plt.plot(data[toPlot][:, col],color="orange",label="Real")
 			plt.legend()
 			i += 1
+		
 		plt.show()
 	
 	def __batchCompatible(self,batch_size,data):

@@ -116,15 +116,8 @@ class EpisodedTimeSeries():
 		"""
 		tt = time.clock()
 		logger.debug("buildUniformedDataSet - start")
-		existingEpisodes = len(os.listdir(self.espisodePath))
-		if(not force and existingEpisodes > 0):
-			logger.info( "Datafolder has already %d episodes." % (existingEpisodes) )
-		else:
-			logger.info("Building episodes. Force: %s" , force)
-			self.__buildUniformedDataSetFromFolder(dataFolder,force)
-		
-		
-		
+		logger.info("Building episodes. Force: %s" , force)
+		self.__buildUniformedDataSetFromFolder(dataFolder,force)
 		logger.debug("buildUniformedDataSet - end - %f" % (time.clock() - tt))
 
 	def loadEpisodes(self):
@@ -145,15 +138,21 @@ class EpisodedTimeSeries():
 		logger.debug("loadEpisodes - end - %f" % (time.clock() - tt) )
 		return episodes
 	
-	def buildBlowDataset(self):
+	def buildBlowDataset(self,force=False):
 		tt = time.clock()
 		logger.debug("buildBlowDataset - start")
+		
 		for f in os.listdir(self.espisodePath):
-			batteryEpisodes = self.__loadZip(self.espisodePath,f)
-			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes)
-			if(len(batteryBlows) > 0):
-				batteryName = str(f)
-				self.__saveZip(self.episodeBlowPath,batteryName,batteryBlows)
+			savePath = os.path.join(self.episodeBlowPath,f)
+			if force or  not os.path.isfile(savePath):
+				batteryEpisodes = self.__loadZip(self.espisodePath,f)
+				batteryBlows = self.__seekEpisodesBlow(batteryEpisodes)
+				if(len(batteryBlows) > 0):
+					self.__saveZip(self.episodeBlowPath,f,batteryBlows)
+			else:
+				logger.debug("Blow episodes already exists for battery %s" % f)
+		else:
+			logger.debug("Nothing to do, blow already exists")
 		logger.debug("buildBlowDataset - end - %f" % (time.clock() - tt))
 	
 	
@@ -263,8 +262,6 @@ class EpisodedTimeSeries():
 	
 	
 	# private methods
-	
-				
 	def __readFileAsDataframe(self,file):
 		""" 
 		Load data with pandas from the specified csv file
@@ -299,7 +296,7 @@ class EpisodedTimeSeries():
 		logger.debug("__readFileAsDataframe - end - %f" % (time.clock() - tt))
 		return data
 
-	def __buildUniformedDataSetFromFolder(self,dataFolder,force=False):
+	def __buildUniformedDataSetFromFolder(self,dataFolder,force):
 		""" 
 		Read all files in folder and save as episode dataframe 
 		Return: None
@@ -317,19 +314,17 @@ class EpisodedTimeSeries():
 			count = count + 1
 			logger.info("File %d of %d" % (count,totalFiles))
 			if(os.path.isfile(os.path.join(dataFolder,file))):
-				loaded = self.__readFileAsDataframe(os.path.join(dataFolder,file))
-				if(loaded is not None and loaded.shape[0] > 0):
-					batteryName = loaded[self.nameIndex].values[0]
-					savePath = os.path.join(self.espisodePath,batteryName)
-					alreadyExistent = len(glob.glob(self.espisodePath + "/*" + batteryName))
-					logger.debug("Already existent episodes for %s are %d" % (batteryName,alreadyExistent))
-					if(force or alreadyExistent == 0 ):
+				fileName = str(file)
+				savePath = os.path.join(self.espisodePath,fileName)
+				if(force or not os.path.isfile(savePath)):
+					loaded = self.__readFileAsDataframe(os.path.join(dataFolder,fileName))
+					if(loaded is not None and loaded.shape[0] > 0):
 						episodes = self.__seekSwabEpisodes(loaded)
-						self.__saveZip(self.espisodePath,batteryName,episodes)
+						self.__saveZip(self.espisodePath,fileName,episodes)
 					else:
-						logger.info("Episodes for battery %s already exists" % batteryName)
+						logger.warning("File %s is invalid as dataframe" % fileName)
 				else:
-					logger.warning("File %s is invalid as dataframe" % file)
+					logger.info("Episodes for battery %s already exists" % fileName)
 			else:
 				logger.debug("Not a file: %s " % file)
 		logger.debug("__buildUniformedDataSetFromFolder - end - %f" %  (time.clock() - tt))
@@ -343,23 +338,22 @@ class EpisodedTimeSeries():
 		logger.debug("__seekSwabEpisodes - start")
 		tt = time.clock()
 		# parameter - start
-		maxSearch = 7200 #maximun step between one swab and an other
-		minimumDischargeDuration = 10 # minimun seconds of discharge after swab, lesser will be discarde as noisy episode
+		minimumDischargeDuration = 5 # minimun seconds of discharge after swab, lesser will be discarded as noisy episode
 		dischargeThreshold = -10 # current must be lower of this to consider the battery in discharge
 		swabThreshold = 5 # current between -th and +th will be valid swab
-		swabLength = 3  # timesteps of swab to be considered a valid begin and end of a swab episode
+		swabLength = 5  # timesteps of swab to be considered a valid begin and end of a swab episode
 		# parameter - end
 		
 		episodes = []
 		contextDiscarded = 0
 		noiseDiscarded = 0
-		maxSearchDiscarded = 0
 		inconsistent = 0
+		incomplete = 0
 		# first of all group by day
 		groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
 		for dataframe in groups:
 			
-			maxIdx = dataframe.shape[0]
+			
 			# for every day seek episodes thtat starts and ends with the Swab condition
 			
 			# select all timestemps where the battery is in discharge
@@ -380,9 +374,16 @@ class EpisodedTimeSeries():
 			dischargeStart = dischargeIndex[ (diff >  1 ) ]
 			logger.debug("Removed consecutive %d " % ( len(present) - len(dischargeStart)  ))
 
-			for ts in dischargeStart:
+			for i in range(1,len(dischargeStart)):
 				#get integer indexing for time step index
+				
+				nextTs = dischargeStart[i]
+				ts = dischargeStart[i-1]
 				startRow = dataframe.index.get_loc(ts)
+				nextRow = dataframe.index.get_loc(nextTs) # if during search we hit this index the episode should be discarde?
+				
+				rowsInEpisode = nextRow - startRow # this is the maximun number of row in episode
+				
 				context = dataframe.iloc[startRow-swabLength:startRow,:]
 				
 				swabContext = context[ 
@@ -416,12 +417,11 @@ class EpisodedTimeSeries():
 				terminate = False
 				stepCount = 0 # counter in seek
 				
-				while not terminate and stepCount < maxSearch:
+				while not terminate and (seekStartIndex + stepCount) < nextRow:
 					stepCount = stepCount + 1
 					startInterval = seekStartIndex + stepCount
 					endIntetval = startInterval + swabLength
-					#if(endIntetval > maxIdx or startInterval > maxIdx):
-					#	terminate = True
+					
 					interval = dataframe.iloc[startInterval:endIntetval,:]
 					swabCount = interval[
 						(interval[self.currentIndex] >= -swabThreshold ) 
@@ -440,34 +440,28 @@ class EpisodedTimeSeries():
 					# this is necessary because the are missing intervale between the data
 					# e.g. t_0 = 7 o'clock t_1 = 8 o'clock
 					# so the episoder is not consistent
-					if(diff > maxSearch):
+					if(diff > rowsInEpisode):
 						logger.debug("Inconsistent episode %s - %s" % (s,e))
 						inconsistent += 1
 					else:
 						episode = dataframe.iloc[startIndex:endIndex,:]
 						episodes.append(episode)
 				else:
-					s = dataframe.index.values[startIndex]
-					idxe = min(maxIdx-1,startIndex+maxSearch)
-					e = dataframe.index.values[idxe]
-					diff = ((e-s) * 10**-9).astype(int)
-					if(diff > maxSearch):
-						inconsistent += 1
-					else:
-						maxSearchDiscarded += 1
+					incomplete += 1
 					
-		logger.info("------------------------------------------------------")
-		logger.info("Valid episodes: %d" % len(episodes))
-		logger.info("Maxsearch discard: %d" % maxSearchDiscarded)
-		logger.info("Inconsistent discard: %d" % inconsistent)
-		logger.info("Noisy discard: %d" % noiseDiscarded)
-		logger.info("Context discard %d" % contextDiscarded)
-		logger.info("------------------------------------------------------")
+					
+		logger.info("--------------------------")
+		logger.info("Valid:        %d" 	% len(episodes))
+		logger.info("Inconsistent: %d" 	% inconsistent)
+		logger.info("Incomplete    %d" 	% incomplete)
+		logger.info("Noisy:        %d" 	% noiseDiscarded)
+		logger.info("Context:      %d" 	% contextDiscarded)
+		logger.info("--------------------------")
 		logger.debug("__seekSwabEpisodes - end - %f" %  (time.clock() - tt))
 		return episodes 
 	
 	
-	def __seekEpisodesBlow(self,episodes,blowInterval = 3):
+	def __seekEpisodesBlow(self,episodes,blowInterval = 5):
 		"""
 		episodes: list of dataframe
 		return a list of tuples of dataframe.
