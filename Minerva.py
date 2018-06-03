@@ -35,38 +35,24 @@ logger.addHandler(consoleHandler)
 def main():
 
 	minerva = Minerva()
-	
-	period="M"
-	
-	minerva.trainMonth()
-	#blows  = minerva.ets.loadBlowEpisodes("M",index=0)
-	#print(len(blows))
-	#
-	#blows  = minerva.ets.loadBlowEpisodes("M",index=1)
-	#print(len(blows))
-	#
-	#blows  = minerva.ets.loadBlowEpisodes("M",index=2)
-	#print(len(blows))
-	#
-	#blows  = minerva.ets.loadBlowEpisodes("M",index=3)
-	#print(len(blows))
-	
-	#minerva.ets.buildUniformedDataSet(os.path.join(".","dataset"),period,force=False)
-	#minerva.ets.buildBlowDataset(period)
-	
-	
-	#minerva.ets.splitDataSetByMonth()
-	
-	#minerva.crossTrain()
-	#minerva.crossEvaluate()
-	#minerva.train()
+	minerva.ets.buildDataSet(os.path.join(".","dataset"),force=False)
+	#e = minerva.ets.loadDataSet()
+	#e = minerva.ets.buildBlowDataSet(monthIndex=3)
+	#print(len(e)) # batteries
+	#print(len(e[0])) #months
+	#print(len(e[0][0])) #episode in month 0
+	#print(e[0][0][0][0].shape) #discharge blow
+	#print(e[0][0][0][1].shape) #charge blow
+	#minerva.ets.plot(e[0][0][0][0],mode="GUI",name=None)
+	#minerva.ets.plot(e[0][0][0][1],mode="GUI",name=None)
+	#minerva.ets.showEpisodes(monthIndex=2,mode="GUI")
 	
 	
 class Minerva():
 
 	modelName = "Functional_Conv_DeepModel.h5"
-	batchSize = 100
-	epochs = 200
+	batchSize = 50
+	epochs = 500
 	ets = None
 	
 	def __init__(self):
@@ -237,7 +223,9 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 
-		model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)	
+		#model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)	
+		
+		model = self.__functionalLSTMModel(inputFeatures,outputFeatures,x_train)	
 		adam = optimizers.Adam(lr=0.000005)		
 		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
 		print(model.summary())
@@ -259,6 +247,34 @@ class Minerva():
 		logger.info("Model saved")
 		return model
 	
+	
+	def __functionalLSTMModel(self,inputFeatures,outputFeatures,data):
+	
+		timesteps = data.shape[1]
+		signals   = data.shape[2]
+	
+		inputs = Input(shape=(timesteps,signals))
+		
+		mask = 4
+		
+		s = 512
+		a = Conv1D(s,mask, activation='relu')(inputs)
+		b = Conv1D(int(s/2),mask, activation='relu')(a)
+		c = Conv1D(int(s/4),mask, activation='relu')(b)
+		c1 = Conv1D(int(s/8),mask, activation='relu')(c)
+		d = Flatten()(c1)
+		
+		e = Dense(s,activation='relu')(d)
+		f = Dense(timesteps*outputFeatures, activation='tanh')(e)
+		
+		out = Reshape((timesteps, outputFeatures))(f)
+		
+		model = Model(inputs=inputs, outputs=out)
+		return model
+	
+	
+	
+	
 	def __functionalConvModel(self,inputFeatures,outputFeatures,data):
 	
 		timesteps = data.shape[1]
@@ -273,8 +289,8 @@ class Minerva():
 
 		inputs = Input(shape=(timesteps,signals))
 		
-		initParams = 4
-		outParams = 1024
+		initParams = 2
+		outParams = 512
 		
 		enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
 		reshape1 = Reshape((width, heigth,deepth))(enlarge)

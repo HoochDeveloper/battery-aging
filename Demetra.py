@@ -50,7 +50,6 @@ class EpisodedTimeSeries():
 	# Attributes
 	timeIndex = None
 	nameIndex = None 
-	
 	currentIndex = None
 	voltageIndex = None
 	
@@ -58,134 +57,100 @@ class EpisodedTimeSeries():
 	logFolder = os.path.join(root,"logs")
 	rootResultFolder = os.path.join(root,"results")
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
-	espisodeFolder = "episodes"
-	espisodePath = None
-	episodeBlowPath = None
-	episodeMonthlyPath = None
-	
-	
+	espisodePath = os.path.join(rootResultFolder,"episodes")
 		
 	#Constructor
 	def __init__(self):
 		""" 
 		Create, if not exists, the result path for storing the episoded dataset
 		"""
-		
 		# creates log folder
 		if not os.path.exists(self.logFolder):
 			os.makedirs(self.logFolder)
-		logPath = self.logFolder + "/Demetra.log"
+		if not os.path.exists(self.rootResultFolder):
+			os.makedirs(self.rootResultFolder)
+		if not os.path.exists(self.espisodePath):
+			os.makedirs(self.espisodePath)
+		
+		logPath = os.path.join(self.logFolder,"Demetra.log")
 		rotateHandelr = loghds.TimedRotatingFileHandler(logPath,when="H",interval=6,backupCount=5)
 		rotateHandelr.setFormatter(formatter)
 		rotateHandelr.setLevel(logging.DEBUG)
 		logger.addHandler(rotateHandelr)
-		
-		if not os.path.exists(self.rootResultFolder):
-			os.makedirs(self.rootResultFolder)
-	
-		
-			
-		self.espisodePath = os.path.join(self.rootResultFolder,self.espisodeFolder)
-		
-		self.episodeBlowPath = os.path.join(self.rootResultFolder,self.espisodeFolder+"_blow")
-		
-		self.episodeMonthlyPath = os.path.join(self.rootResultFolder,self.espisodeFolder+"_monthly")
-		
-		if not os.path.exists(self.espisodePath):
-			os.makedirs(self.espisodePath)
-		if not os.path.exists(self.episodeMonthlyPath):
-			os.makedirs(self.episodeMonthlyPath)
-		if not os.path.exists(self.episodeImageFolder):
-			os.makedirs(self.episodeImageFolder)
-		if not os.path.exists(self.episodeBlowPath):
-			os.makedirs(self.episodeBlowPath)
 		
 		self.timeIndex = self.dataHeader[0]
 		self.nameIndex = self.dataHeader[1]
 		# used for determining when an episode start in charge or discharge
 		self.currentIndex = self.dataHeader[16]
 		self.voltageIndex = self.dataHeader[17]
-
-		
 		logger.debug("Indexes: Current %s Volt %s " % (self.currentIndex,self.voltageIndex))
 		
 	
 	# public methods
-	
-	
-	def buildUniformedDataSet(self,dataFolder,period,force=False):
+	def buildDataSet(self,dataFolder,force=False):
 		""" 
 		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
 		force: if True entire results will be created even if already exists
+		return None, the dataset will be saved in one file per battery, every file contains a list with the following structure
+		[monthIndex][episodeInMonthIndex] = dataframe
 		"""
 		tt = time.clock()
-		logger.debug("buildUniformedDataSet - start")
-		logger.info("Building episodes. Force: %s" , force)
-		self.__buildUniformedDataSetFromFolder(dataFolder,period,force)
-		logger.debug("buildUniformedDataSet - end - %f" % (time.clock() - tt))
+		logger.debug("buildDataSet - start")
+		self.__buildDataSetFromFolder(dataFolder,force)
+		logger.debug("buildDataSet - end - %f" % (time.clock() - tt))
 
-	def loadEpisodes(self):
+	def loadDataSet(self):
 		"""
-		Load from files the episodes created with the operation buildUniformedDataSet
-		return: list of dataframes for all the batteries
+		Load from the files created with buildDataSet
+		return: list of dataframes for all the batteries with the following structure
+		[batteryIndex][monthIndex][episodeInMonthIndex] = dataframe
+		
+		Example:
+		batteriesEpisodes = self.loadDataSet()
+		batteriesEpisodes[0][1][3] #access the dataframe for the first battery, second month, fourth episode
+		
 		"""
 		tt = time.clock()
-		logger.debug("loadEpisodes - start")
+		logger.debug("loadDataSet - start")
 		episodes = []
 		if(len(os.listdir(self.espisodePath)) == 0):
 			logger.warning("No episodes found, call buildUniformedDataSet first!")
 		else:
 			for f in os.listdir(self.espisodePath):
 				batteryEpisodes = self.__loadZip(self.espisodePath,f)	
-				episodes += batteryEpisodes
+				episodes.append(batteryEpisodes)
 			logger.debug("Loaded %d episodes" % len(episodes))
-		logger.debug("loadEpisodes - end - %f" % (time.clock() - tt) )
+		logger.debug("loadDataSet - end - %f" % (time.clock() - tt) )
 		return episodes
 	
-	def buildBlowDataset(self,period,force=False):
-		tt = time.clock()
-		logger.debug("buildBlowDataset - start")
+	def buildBlowDataSet(self,monthIndex=-1):
+		"""
+		Load data from the files created with buildDataSet.
+		For every episode in battery seek the blow and create a dataframe with discharge blow and charge blow
+		monthIndex: if specified build blows dataset only for the specified month
+		return: list of dataframes for all the batteries with the following structure
+		[batteryIndex][monthIndex][episodeInMonthIndex] = [dischargeBlowDataframe,chargeBlowDataframe]
 		
-		loadPath = None
-		if(period == "D"):
-			loadPath = self.espisodePath
-		else:
-			loadPath = self.episodeMonthlyPath
-			
-		for f in os.listdir(loadPath):
-			savePath = os.path.join(self.episodeBlowPath,f)
-			if force or  not os.path.isfile(savePath):
-				batteryEpisodes = self.__loadZip(loadPath,f)
-				batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,period)
-				if(len(batteryBlows) > 0):
-					self.__saveZip(self.episodeBlowPath,f,batteryBlows)
-			else:
-				logger.debug("Blow episodes already exists for battery %s" % f)
-		else:
-			logger.debug("Nothing to do, blow already exists")
-		logger.debug("buildBlowDataset - end - %f" % (time.clock() - tt))
-	
-	
-	def loadBlowEpisodes(self,period,index=0):
-		"""
-		Load from files the episodes created with the operation buildBlowDataset
-		return: list of dataframes for all the batteries
+		Example:
+		e = self.buildBlowDataSet(monthIndex=3)
+		print(len(e)) # batteries
+		print(len(e[0])) #months
+		print(len(e[0][0])) #episode in month 0
+		print(e[0][0][0][0].shape) #discharge blow
+		print(e[0][0][0][1].shape) #charge blow
+		self.plot(e[0][0][0][0],mode="GUI",name=None) # plot discharge blow
+		self.plot(e[0][0][0][1],mode="GUI",name=None) # plot charge blow
 		"""
 		tt = time.clock()
-		logger.debug("loadBlowEpisodes - start")
-		episodes = []
-		if(len(os.listdir(self.episodeBlowPath)) == 0):
-			logger.warning("No episodes found, call buildBlowDataset first!")
-		else:
-			for f in os.listdir(self.episodeBlowPath):
-				batteryBlowEpisodes = self.__loadZip(self.episodeBlowPath,f)
-				if(period == "D"):
-					episodes += batteryBlowEpisodes
-				else:
-					episodes += batteryBlowEpisodes[index]
-			logger.debug("Loaded %d episodes blow" % len(episodes))
-		logger.debug("loadBlowEpisodes - end - %f" % (time.clock() - tt) )
-		return episodes
+		logger.debug("buildBlowDataSet - start")
+		loadPath = self.espisodePath
+		episodes = [] # three level list, [battery][month][episode]
+		for f in os.listdir(loadPath):
+			batteryEpisodes = self.__loadZip(loadPath,f)
+			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndex)
+			episodes.append(batteryBlows)
+		logger.debug("buildBlowDataSet - end - %f" % (time.clock() - tt))
+		return episodes 
 	
 	def getXYDataSet(self,episodes):
 		"""
@@ -204,37 +169,41 @@ class EpisodedTimeSeries():
 			yout.append( y )
 		return xout,yout
 	
-	def showEpisodes(self,limit=2,mode="server",type="swab"):
+	def showEpisodes(self,monthIndex=0,limit=1,mode="server"):
 		"""
-		Show previously created episodes
+		Load data from the files created with buildDataSet.
+		monthIndex: show only episode for the provided month index
 		limit: max image to show, may be set to None
 		mode: if server image will be saved on disk, show otherwise
-		"""
-		if(type=="swab"):
-			folder = self.espisodePath
-		else:
-			fodler = self.episodeBlowPath
 		
+		Example:
+		self.showEpisodes(monthIndex=2,mode="GUI")
+		"""
+		folder = self.espisodePath
 		total = 0
 		for f in os.listdir(folder):
-			episodes = self.__loadZip(folder,f)
-			total += len(episodes)
-			logger.info("There are %d episodes for %s" % (len(episodes),f))
-			max2show = len(episodes)
+			batteryEpisodes = self.__loadZip(folder,f)
+			total += len(batteryEpisodes[monthIndex])
+			logger.info("There are %d episodes for %s" % (len(batteryEpisodes[monthIndex]),f))
+			max2show = len(batteryEpisodes[monthIndex])
 			if(limit is not None):
-				max2show = min(limit,len(episodes))
+				max2show = min(limit,len(batteryEpisodes[monthIndex]))
 			for e in range(max2show):
-				self.plot(episodes[e],mode=mode)
+				self.plot(batteryEpisodes[monthIndex][e],mode=mode)
 		logger.info("Total %d" % total)
 
 	
 	
 	def plot(self,data,mode="server",name=None):
 		"""
-		Plot data as is
+		Plot the input dataframe as is
 		mode: in server mode, images will be saved on disk, shown otherwise
 		name: in server mode if specified save the image with the provided name
 		"""
+		if(mode == "server"):
+			if not os.path.exists(self.episodeImageFolder):
+				os.makedirs(self.episodeImageFolder)
+		
 		#column index of the sequence time index
 		dateIndex = self.dataHeader.index(self.timeIndex)
 		nameIndex = self.dataHeader.index(self.nameIndex)
@@ -309,14 +278,14 @@ class EpisodedTimeSeries():
 		logger.debug("__readFileAsDataframe - end - %f" % (time.clock() - tt))
 		return data
 
-	def __buildUniformedDataSetFromFolder(self,dataFolder,period,force):
+	def __buildDataSetFromFolder(self,dataFolder,force):
 		""" 
 		Read all files in folder and save as episode dataframe 
 		Return: None
 		For every battery creates a file containing a list of dataframes
 		"""
 		tt = time.clock()
-		logger.debug("__buildUniformedDataSetFromFolder - begin")
+		logger.debug("__buildDataSetFromFolder - begin")
 		logger.info("Reading data from folder %s" %  dataFolder)
 		if( not os.path.isdir(dataFolder)):
 			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
@@ -325,29 +294,23 @@ class EpisodedTimeSeries():
 		count = 0
 		for file in os.listdir(dataFolder):
 			count = count + 1
-			logger.info("File %d of %d" % (count,totalFiles))
 			if(os.path.isfile(os.path.join(dataFolder,file))):
 				fileName = str(file)
-				
-				savePath = None
-				if(period == "D"):
-					savePath = os.path.join(self.espisodePath,fileName)
-				else:
-					savePath = os.path.join(self.episodeMonthlyPath,fileName)
-				
+				savePath = os.path.join(self.espisodePath,fileName)
 				if(force or not os.path.isfile(savePath)):
+					logger.info("Processing file %d of %d" % (count,totalFiles))
 					loaded = self.__readFileAsDataframe(os.path.join(dataFolder,fileName))
 					if(loaded is not None and loaded.shape[0] > 0):
-						self.__seekSwabEpisodes(loaded,fileName,period)
+						self.__seekSwabEpisodes(loaded,fileName)
 					else:
 						logger.warning("File %s is invalid as dataframe" % fileName)
 				else:
-					logger.info("Episodes for battery %s already exists" % fileName)
+					logger.debug("Episodes for battery %s already exists" % fileName)
 			else:
 				logger.debug("Not a file: %s " % file)
-		logger.debug("__buildUniformedDataSetFromFolder - end - %f" %  (time.clock() - tt))
+		logger.debug("__buildDataSetFromFolder - end - %f" %  (time.clock() - tt))
 	
-	def __seekSwabEpisodes(self,df,fileName,period="D"):
+	def __seekSwabEpisodes(self,df,fileName):
 		"""
 		Build list of espisodes starting and ending in swab status
 		df: Dataframe of a battery
@@ -355,37 +318,26 @@ class EpisodedTimeSeries():
 		"""
 		logger.debug("__seekSwabEpisodes - start")
 		tt = time.clock()
-		episodes = []
+		episodes = [] #this list will have an entry for every month of data in battery
 		valid = 0
 		contextDiscarded = 0
 		noiseDiscarded = 0
 		inconsistent = 0
 		incomplete = 0
-		groups = None
-		if(period == "D"):
-			# first of all group by day
-			groups = [g[1] for g in df.groupby([df.index.year, df.index.month, df.index.day])]
-			logger.info("Daily period %d" % len(groups))
-		else:
-			# first of all group by month
-			groups = [g[1] for g in df.groupby([df.index.year, df.index.month])]
-			logger.info("Mothly period %d" % len(groups))
+		
+		# first of all group by month
+		groups = [g[1] for g in df.groupby([df.index.year, df.index.month])]
 		
 		for grp in groups:
 			month = grp.index.month[0]
-			grpEpisodes,grpcontextDiscarded,grpnoiseDiscarded,grpinconsistent,grpincomplete = self.__seekSwabInGroups(grp)
-			logger.info("Found %d episodes in month %d" % (len(grpEpisodes),month))
-			
-			if(period == "D"):
-				episodes += grpEpisodes
-			else:
-				episodes.append(grpEpisodes)
-			
-			valid            += len(grpEpisodes)
-			contextDiscarded += grpcontextDiscarded
-			noiseDiscarded   += grpnoiseDiscarded
-			inconsistent     += grpinconsistent
-			incomplete       += grpincomplete
+			monthEpisodes,monthSwabDiscarded,monthNoiseDiscarded,monthInconsistent,monthIncomplete = self.__seekSwabInGroup(grp)
+			logger.debug("%s: found %d episodes in month %d" % (fileName,len(monthEpisodes),month))
+			episodes.append(monthEpisodes)
+			valid            += len(monthEpisodes)
+			contextDiscarded += monthSwabDiscarded
+			noiseDiscarded   += monthNoiseDiscarded
+			inconsistent     += monthInconsistent
+			incomplete       += monthIncomplete
 		
 		logger.info("--------------------------")
 		logger.info("Valid:        %d" 	% valid)
@@ -395,14 +347,13 @@ class EpisodedTimeSeries():
 		logger.info("Context:      %d" 	% contextDiscarded)
 		logger.info("--------------------------")
 
-		if(period == "D"):
-			self.__saveZip(self.espisodePath,fileName,episodes)
-		else:
-			self.__saveZip(self.episodeMonthlyPath,fileName,episodes)
+		
+		self.__saveZip(self.espisodePath,fileName,episodes)
+		
 		
 		logger.debug("__seekSwabEpisodes - end - %f" %  (time.clock() - tt))
 	
-	def __seekSwabInGroups(self,dataframe):
+	def __seekSwabInGroup(self,dataframe):
 	
 		# parameter - start
 		minimumDischargeDuration = 5 # minimun seconds of discharge after swab, lesser will be discarded as noisy episode
@@ -495,7 +446,7 @@ class EpisodedTimeSeries():
 				if(swabCount == swabLength):
 					terminate = True
 					endIndex = endIntetval
-			logger.debug("Swabfound: %s count: %d" % (terminate ,stepCount ))
+			logger.debug("Swabfound: %s count: %d startRow: %d endRow: %d" % (terminate ,stepCount,startRow, nextRow ))
 			
 			if(endIndex != -1):
 				s = dataframe.index.values[startIndex]
@@ -515,9 +466,10 @@ class EpisodedTimeSeries():
 		
 		return groupEpisodes,contextDiscarded,noiseDiscarded,inconsistent,incomplete
 	
-	def __seekEpisodesBlow(self,episodes,period,blowInterval = 5):
+	def __seekEpisodesBlow(self,episodes,monthIndex,blowInterval = 5):
 		"""
-		episodes: list of dataframe
+		episodes: list of list of dataframe, outer index is the month, inner index is the episode
+		monthIndex: index of the month of interest, if -1 all available month will be returned
 		return a list of tuples of dataframe.
 		The first element in the tuple is the discharge blow dataframe
 		The second element in the tuple is the charge blow dataframe
@@ -525,13 +477,7 @@ class EpisodedTimeSeries():
 		logger.debug("__seekEpisodesBlow - start")
 		tt = time.clock()
 		blowsEpisodes = []
-		if(period == "D"):
-			for episode in episodes:
-				b = self.__getBlow(episode,blowInterval)
-				if(b is not None):
-					blowsEpisodes.append(b)
-			logger.info("Found %d blows" % len(blowsEpisodes))
-		else:
+		if(monthIndex == -1):
 			for month in episodes:
 				monthlyBlow = []
 				for episode in month:
@@ -539,6 +485,15 @@ class EpisodedTimeSeries():
 					if(b is not None):
 						monthlyBlow.append(b)
 				blowsEpisodes.append(monthlyBlow)
+		else:
+			month = episodes[monthIndex]
+			monthlyBlow = []
+			for episode in month:
+				b = self.__getBlow(episode,blowInterval)
+				if(b is not None):
+					monthlyBlow.append(b)
+			blowsEpisodes.append(monthlyBlow)
+			
 		logger.debug("__seekEpisodesBlow - end - %f" %  (time.clock() - tt))
 		return blowsEpisodes
 	
@@ -558,7 +513,7 @@ class EpisodedTimeSeries():
 			].index
 		)
 		if(dischargeIndex.shape[0] == 0):
-			logger.warning("Something wrong. No Discharge")
+			logger.debug("Something wrong. No Discharge")
 			return None
 		# select all time-step where the battery is in charge
 		chargeIndex =  ( 
@@ -567,7 +522,7 @@ class EpisodedTimeSeries():
 			].index
 		)
 		if(chargeIndex.shape[0] == 0):
-			logger.warning("Something wrong. No charge")
+			logger.debug("Something wrong. No charge")
 			return None
 		
 		
