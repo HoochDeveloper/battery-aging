@@ -36,6 +36,8 @@ def main():
 
 	minerva = Minerva()
 	minerva.ets.buildDataSet(os.path.join(".","dataset"),force=False)
+	
+	minerva.ets.dataSetSummary()
 	#e = minerva.ets.loadDataSet()
 	#e = minerva.ets.buildBlowDataSet(monthIndex=3)
 	#print(len(e)) # batteries

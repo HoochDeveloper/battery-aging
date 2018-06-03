@@ -29,6 +29,8 @@ class EpisodedTimeSeries():
 	Give access to episode in timeseries
 	"""
 	
+	SEP = "---------------------------------------------------------"
+	
 	# custom header and types, dataset specific
 	""" List of column names as in file """
 	dataHeader = ([ "TSTAMP", "THING", "CONF","SPEED","S_IBATCB1_CB1","S_IBATCB2_CB2",
@@ -152,6 +154,59 @@ class EpisodedTimeSeries():
 		logger.debug("buildBlowDataSet - end - %f" % (time.clock() - tt))
 		return episodes 
 	
+	def dataSetSummary(self,showDistro=False):
+		batteries = self.loadDataSet()
+		logger.info("Data from %d different batteries" % len(batteries))
+		logger.info("Every battery has %d month of data" % len(batteries[0]))
+		monthlyEpisodes = np.zeros(len(batteries[0]))
+		batt = 0
+		for battery in batteries:
+			logger.info(self.SEP)
+			logger.info("Episode length summary for battery %d" % batt)
+			month = 0
+			min = np.inf
+			max = 0
+			totalEpisodeInBattery = 0
+			for episodeInMonth in battery:
+				totalEpisodeInBattery += len(episodeInMonth)
+			
+			distribution = np.zeros(totalEpisodeInBattery)
+			distroIdx = 0
+			for episodeInMonth in battery:
+				monthlyEpisodes[month] += len(episodeInMonth)
+				monthTotalTimeSteps = 0
+				minMonth = np.Inf
+				maxMonth = 0
+				for episode in episodeInMonth:
+					monthTotalTimeSteps += episode.shape[0]
+					distribution[distroIdx] = episode.shape[0]
+					distroIdx += 1
+					if(episode.shape[0] < min):
+						min = episode.shape[0]
+					if(episode.shape[0] > max):
+						max = episode.shape[0]
+					if(episode.shape[0] < minMonth):
+						minMonth = episode.shape[0]
+					if(episode.shape[0] > maxMonth):
+						maxMonth = episode.shape[0]
+				meanEpisodeTimeSteps = 0
+				if(len(episodeInMonth) > 0):
+					meanEpisodeTimeSteps = float(monthTotalTimeSteps) / float(len(episodeInMonth))
+				logger.info("Month: %d Mean: %f Min: %g Max %g" %  (month,meanEpisodeTimeSteps,minMonth,maxMonth))
+				month += 1
+			logger.info("Min: %g Max: %g" % (min,max))
+			if(showDistro):
+				histog,_ = np.histogram(distribution,bins=max)
+				plt.plot(histog)
+				plt.show()
+				
+			
+			batt +=1
+		
+		logger.info(self.SEP)
+		for month in range(len(batteries[0])):
+			logger.info("There are %d episodes in month %d" % (monthlyEpisodes[month], month))
+				
 	def getXYDataSet(self,episodes):
 		"""
 		For every episode in episodes creates the X feature dataframe and Y feature dataframe
