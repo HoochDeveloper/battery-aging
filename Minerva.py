@@ -33,11 +33,12 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 def main():
-
+	mode = "swabCleanDischarge"
+	#mode = "swab2swab"
 	minerva = Minerva()
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),force=False)
+	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=True)
 	
-	minerva.ets.dataSetSummary()
+	#minerva.ets.dataSetSummary()
 	#e = minerva.ets.loadDataSet()
 	#e = minerva.ets.buildBlowDataSet(monthIndex=3)
 	#print(len(e)) # batteries

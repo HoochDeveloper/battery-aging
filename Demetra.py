@@ -89,7 +89,7 @@ class EpisodedTimeSeries():
 		
 	
 	# public methods
-	def buildDataSet(self,dataFolder,force=False):
+	def buildDataSet(self,dataFolder,mode="swab2swab",force=False):
 		""" 
 		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
 		force: if True entire results will be created even if already exists
@@ -98,7 +98,7 @@ class EpisodedTimeSeries():
 		"""
 		tt = time.clock()
 		logger.debug("buildDataSet - start")
-		self.__buildDataSetFromFolder(dataFolder,force)
+		self.__buildDataSetFromFolder(dataFolder,mode,force)
 		logger.debug("buildDataSet - end - %f" % (time.clock() - tt))
 
 	def loadDataSet(self):
@@ -333,7 +333,7 @@ class EpisodedTimeSeries():
 		logger.debug("__readFileAsDataframe - end - %f" % (time.clock() - tt))
 		return data
 
-	def __buildDataSetFromFolder(self,dataFolder,force):
+	def __buildDataSetFromFolder(self,dataFolder,mode,force):
 		""" 
 		Read all files in folder and save as episode dataframe 
 		Return: None
@@ -341,7 +341,7 @@ class EpisodedTimeSeries():
 		"""
 		tt = time.clock()
 		logger.debug("__buildDataSetFromFolder - begin")
-		logger.info("Reading data from folder %s" %  dataFolder)
+		logger.info("Reading data from folder %s in mode %s" %  (dataFolder,mode))
 		if( not os.path.isdir(dataFolder)):
 			logger.warning("%s is not a valid folder, nothing will be done" % dataFolder )
 			return None
@@ -356,7 +356,7 @@ class EpisodedTimeSeries():
 					logger.info("Processing file %d of %d" % (count,totalFiles))
 					loaded = self.__readFileAsDataframe(os.path.join(dataFolder,fileName))
 					if(loaded is not None and loaded.shape[0] > 0):
-						self.__seekSwabEpisodes(loaded,fileName)
+						self.__seekEpisodes(loaded,fileName,mode)
 					else:
 						logger.warning("File %s is invalid as dataframe" % fileName)
 				else:
@@ -365,13 +365,13 @@ class EpisodedTimeSeries():
 				logger.debug("Not a file: %s " % file)
 		logger.debug("__buildDataSetFromFolder - end - %f" %  (time.clock() - tt))
 	
-	def __seekSwabEpisodes(self,df,fileName):
+	def __seekEpisodes(self,df,fileName,mode):
 		"""
 		Build list of espisodes starting and ending in swab status
 		df: Dataframe of a battery
 		Return: list of dataframe, every dataframe is an episode starting in swab and ending in swab. Episodes may have different time length
 		"""
-		logger.debug("__seekSwabEpisodes - start")
+		logger.debug("__seekEpisodes - start")
 		tt = time.clock()
 		episodes = [] #this list will have an entry for every month of data in battery
 		valid = 0
@@ -385,7 +385,7 @@ class EpisodedTimeSeries():
 		
 		for grp in groups:
 			month = grp.index.month[0]
-			monthEpisodes,monthSwabDiscarded,monthNoiseDiscarded,monthInconsistent,monthIncomplete = self.__seekSwabInGroup(grp)
+			monthEpisodes,monthSwabDiscarded,monthNoiseDiscarded,monthInconsistent,monthIncomplete = self.__seekInGroup(grp,mode=mode)
 			logger.debug("%s: found %d episodes in month %d" % (fileName,len(monthEpisodes),month))
 			episodes.append(monthEpisodes)
 			valid            += len(monthEpisodes)
@@ -406,10 +406,13 @@ class EpisodedTimeSeries():
 		self.__saveZip(self.espisodePath,fileName,episodes)
 		
 		
-		logger.debug("__seekSwabEpisodes - end - %f" %  (time.clock() - tt))
+		logger.debug("__seekEpisodes - end - %f" %  (time.clock() - tt))
 	
-	def __seekSwabInGroup(self,dataframe):
-	
+	def __seekInGroup(self,dataframe,mode):
+		"""
+		mode: 	swabCleanDischarge - search clean discharges, starting in swab
+				swab2swab - search continuous swab to swab episodes
+		"""
 		# parameter - start
 		minimumDischargeDuration = 5 # minimun seconds of discharge after swab, lesser will be discarded as noisy episode
 		dischargeThreshold = -10 # current must be lower of this to consider the battery in discharge
@@ -479,29 +482,21 @@ class EpisodedTimeSeries():
 				continue
 			# end noise avoidance
 			
-			#include previous context on episode
-			startIndex = startRow-swabLength
-			#seek next swab
-			seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
+			#seek valid episode
 			endIndex = -1
-			terminate = False
-			stepCount = 0 # counter in seek
+			if(mode=="swab2swab"):
+				seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
+				endIndex = self.__seekSwab2Swab(seekStartIndex,dataframe,swabLength,nextRow,swabThreshold)
+			elif(mode=="swabCleanDischarge"):
+				endIndex = self.__seekSwabCleanDischarge(startRow,dataframe,nextRow,dischargeThreshold)
+			else:
+				# default is swab2swab
+				logger.warning("%s is not a valid mode, swab2swab will be used" % mode)
+				seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
+				endIndex = self.__seekSwab2Swab(seekStartIndex,dataframe,swabLength,nextRow,swabThreshold)
 			
-			while not terminate and (seekStartIndex + stepCount) < nextRow:
-				stepCount = stepCount + 1
-				startInterval = seekStartIndex + stepCount
-				endIntetval = startInterval + swabLength
-				
-				interval = dataframe.iloc[startInterval:endIntetval,:]
-				swabCount = interval[
-					(interval[self.currentIndex] >= -swabThreshold ) 
-					&
-					(interval[self.currentIndex] <= swabThreshold)
-				].shape[0]
-				if(swabCount == swabLength):
-					terminate = True
-					endIndex = endIntetval
-			logger.debug("Swabfound: %s count: %d startRow: %d endRow: %d" % (terminate ,stepCount,startRow, nextRow ))
+			#include swab context in episode
+			startIndex = startRow-swabLength
 			
 			if(endIndex != -1):
 				s = dataframe.index.values[startIndex]
@@ -520,6 +515,54 @@ class EpisodedTimeSeries():
 				incomplete += 1
 		
 		return groupEpisodes,contextDiscarded,noiseDiscarded,inconsistent,incomplete
+	
+	def __seekSwab2Swab(self,seekStartIndex,dataframe,swabLength,nextRow,swabThreshold):
+		endIndex = -1
+		terminate = False
+		stepCount = 0 # counter in seek
+		while not terminate and (seekStartIndex + stepCount) < nextRow:
+			stepCount = stepCount + 1
+			startInterval = seekStartIndex + stepCount
+			endIntetval = startInterval + swabLength
+			
+			interval = dataframe.iloc[startInterval:endIntetval,:]
+			swabCount = interval[
+				(interval[self.currentIndex] >= -swabThreshold ) 
+				&
+				(interval[self.currentIndex] <= swabThreshold)
+			].shape[0]
+			if(swabCount == swabLength):
+				terminate = True
+				endIndex = endIntetval
+		
+		logger.debug("Swabfound: %s count: %d" % (terminate ,stepCount ))
+		return endIndex
+	
+	def __seekSwabCleanDischarge(self,seekStartIndex,dataframe,nextRow,dischargeThreshold):
+		endIndex = -1
+		terminate = False
+		stepCount = 0 # counter in seek
+		startInterval = seekStartIndex
+		while not terminate and (seekStartIndex + stepCount) < nextRow:
+			stepCount = stepCount + 1
+			
+			endIntetval = startInterval + stepCount
+			
+			interval = dataframe.iloc[startInterval:endIntetval,:]
+			endDischargeCount = interval[
+				(interval[self.currentIndex] > dischargeThreshold)
+			].shape[0]
+			if(endDischargeCount > 0):
+				terminate = True
+				endIndex = endIntetval-1
+			else:
+				endIndex = endIntetval
+		
+		logger.debug("Clean Discharge: %s duration: %d" % (terminate ,stepCount ))
+		return endIndex
+	
+	
+	
 	
 	def __seekEpisodesBlow(self,episodes,monthIndex,blowInterval = 5):
 		"""
