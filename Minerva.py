@@ -8,12 +8,12 @@ from Demetra import EpisodedTimeSeries
 
 #KERAS
 from keras.models import Sequential, Model
-from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation
+from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation, Masking, Lambda
 from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D,Reshape, Flatten
 from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger
-
+from keras.preprocessing.sequence import pad_sequences
 #sklearn
 from sklearn.model_selection import train_test_split
 from sklearn import preprocessing
@@ -56,7 +56,7 @@ def main():
 class Minerva():
 
 	modelName = "Functional_Conv_DeepModel.h5"
-	batchSize = 50
+	batchSize = 200
 	epochs = 500
 	ets = None
 	
@@ -77,44 +77,125 @@ class Minerva():
 	
 	def tmp(self):
 		batteries = self.ets.loadDataSet()
-		datasetNp = self.__datasetAsNpArray(batteries)
-		logger.info(datasetNp.shape)
-		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
-		scaler.fit(datasetNp)
+		x,y = self.__datasetAsNpArray(batteries)
+		logger.info(x.shape)
+		logger.info(y.shape)
+		xscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+		xscaler.fit(x)
+		yscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+		yscaler.fit(y)
 		logger.info("Fitted")
 		
 		xout = []
-		#yout = []
+		yout = []
 		for battery in batteries:
 			monthly = []
 			for month in battery:
 				for e in month:
-				#if len(month) > 0:
-					#e = pd.concat(month)
-					x = scaler.transform(e.values)
-					xout.append( x )
+					xscal = xscaler.transform(e.values)
+					yscal = yscaler.transform(e[self.ets.keepY].values)
+					xout.append( xscal )
+					yout.append( yscal )
 		
 		
 		print(len(xout))
+		print(len(yout))
 		
-		from keras.preprocessing.sequence import pad_sequences
-		xpad = pad_sequences(xout, maxlen=250, dtype='float32', padding='post', truncating='post', value=2.0)
+		maxLen = 125
+		maskVal = 2.0
 		
-
+		xpad = pad_sequences(xout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
+		logger.info("X padded")
+		ypad = pad_sequences(yout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
+		logger.info("Y padded")
 		print(xpad.shape)
-		return xpad
+		print(ypad.shape)
 		
+		X_train, X_test, y_train, y_test =train_test_split( xpad, ypad, test_size=0.2, random_state=42)
+		X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.1, random_state=42)
+		
+		model = self.__trainMask(X_train,y_train, X_valid, y_valid)
+		
+		
+		
+	def __trainMask(self,x_train, y_train, x_valid, y_valid):
+		
+		fold = "500_"
+		
+		x_train = self.__batchCompatible(self.batchSize,x_train)
+		y_train = self.__batchCompatible(self.batchSize,y_train)
+		x_valid = self.__batchCompatible(self.batchSize,x_valid)
+		y_valid = self.__batchCompatible(self.batchSize,y_valid)
+		
+		tt = time.clock()
+		
+		inputFeatures  = x_train.shape[2]
+		outputFeatures = y_train.shape[2]
+		timesteps =  x_train.shape[1]
+	
+		inputs = Input(shape=(timesteps,inputFeatures))
+		
+		mask = 4
+		
+		s = 256
+		
+		#m = Masking(mask_value=2.0)(inputs)
+		
+		a = Masking(mask_value = 2.0)(inputs)
+		b = LSTM(s, return_sequences=True, kernel_initializer="one",activation='relu')(a)
+		c = Dense(int(s/2),activation='tanh',kernel_initializer="one")(b)
+		d = Dense(outputFeatures, activation='tanh')(c)
+		
+		#a = Conv1D(s,mask, activation='relu')(m)
+		#b = Conv1D(int(s/2),mask, activation='relu')(a)
+		#c = Conv1D(int(s/4),mask, activation='relu')(b)
+		#c1 = Conv1D(int(s/8),mask, activation='relu')(c)
+		#d = Flatten()(c1)
+		#
+		#e = Dense(s,activation='relu')(d)
+		#f = Dense(timesteps*outputFeatures, activation='tanh')(e)
+		out = Lambda(lambda x: x,output_shape = (timesteps, outputFeatures) )(d)
+		#out = Reshape((timesteps, outputFeatures))(f)
+		
+		model = Model(inputs=inputs, outputs=out)
+	
+		
+	
+		adam = optimizers.Adam(lr=0.000005)		
+		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
+		print(model.summary())
+		
+		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
+		
+		csv_logger = CSVLogger(str(fold)+'training.log')
+		
+		model.fit(x_train, y_train,
+			batch_size=self.batchSize,
+			epochs=self.epochs,
+			validation_data=(x_valid,y_valid),
+			callbacks=[early,csv_logger]
+		)
+		
+		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
+		logger.info("Save model")
+		model.save(os.path.join( self.ets.rootResultFolder , str(fold)+self.modelName )) 
+		logger.info("Model saved")
+		return model
 		
 	
 	def __datasetAsNpArray(self,batteries):
-		out = []
+		x = []
+		y = []
 		for battery in batteries:
 			for month in battery:
 				for episode in month:
 					episode.drop(columns=self.ets.dropX,inplace=True)
+					ydf = episode[self.ets.keepY]
 					for t in range(0,episode.shape[0]):
-						out.append(episode.values[t])
-		return np.asarray(out)
+						x.append(episode.values[t])
+						y.append(ydf.values[t])
+						
+		return np.asarray(x),np.asarray(y)
 						
 	def trainMonth(self):
 		
