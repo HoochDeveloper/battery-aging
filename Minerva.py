@@ -36,7 +36,9 @@ def main():
 	mode = "swabCleanDischarge"
 	#mode = "swab2swab"
 	minerva = Minerva()
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=True)
+	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=True)
+	
+	minerva.tmp()
 	
 	#minerva.ets.dataSetSummary()
 	#e = minerva.ets.loadDataSet()
@@ -73,7 +75,47 @@ class Minerva():
 		logger.addHandler(hdlr)
 		self.ets = EpisodedTimeSeries()
 	
+	def tmp(self):
+		batteries = self.ets.loadDataSet()
+		datasetNp = self.__datasetAsNpArray(batteries)
+		logger.info(datasetNp.shape)
+		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+		scaler.fit(datasetNp)
+		logger.info("Fitted")
+		
+		xout = []
+		#yout = []
+		for battery in batteries:
+			monthly = []
+			for month in battery:
+				for e in month:
+				#if len(month) > 0:
+					#e = pd.concat(month)
+					x = scaler.transform(e.values)
+					xout.append( x )
+		
+		
+		print(len(xout))
+		
+		from keras.preprocessing.sequence import pad_sequences
+		xpad = pad_sequences(xout, maxlen=250, dtype='float32', padding='post', truncating='post', value=2.0)
+		
 
+		print(xpad.shape)
+		return xpad
+		
+		
+	
+	def __datasetAsNpArray(self,batteries):
+		out = []
+		for battery in batteries:
+			for month in battery:
+				for episode in month:
+					episode.drop(columns=self.ets.dropX,inplace=True)
+					for t in range(0,episode.shape[0]):
+						out.append(episode.values[t])
+		return np.asarray(out)
+						
 	def trainMonth(self):
 		
 		blows = self.ets.loadBlowEpisodes("M",index=0)
