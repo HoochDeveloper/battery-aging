@@ -125,7 +125,7 @@ class EpisodedTimeSeries():
 		logger.debug("loadDataSet - end - %f" % (time.clock() - tt) )
 		return episodes
 	
-	def buildBlowDataSet(self,monthIndex=-1):
+	def loadBlowDataSet(self,monthIndexes=[],join=True):
 		"""
 		Load data from the files created with buildDataSet.
 		For every episode in battery seek the blow and create a dataframe with discharge blow and charge blow
@@ -134,24 +134,37 @@ class EpisodedTimeSeries():
 		[batteryIndex][monthIndex][episodeInMonthIndex] = [dischargeBlowDataframe,chargeBlowDataframe]
 		
 		Example:
-		e = self.buildBlowDataSet(monthIndex=3)
+		e = self.loadBlowDataSet(monthIndex=3)
 		print(len(e)) # batteries
 		print(len(e[0])) #months
 		print(len(e[0][0])) #episode in month 0
-		print(e[0][0][0][0].shape) #discharge blow
-		print(e[0][0][0][1].shape) #charge blow
-		self.plot(e[0][0][0][0],mode="GUI",name=None) # plot discharge blow
-		self.plot(e[0][0][0][1],mode="GUI",name=None) # plot charge blow
+		if(join == False)
+			print(e[0][0][0][0].shape) #discharge blow
+			print(e[0][0][0][1].shape) #charge blow
+			self.plot(e[0][0][0][0],mode="GUI",name=None) # plot discharge blow
+			self.plot(e[0][0][0][1],mode="GUI",name=None) # plot charge blow
+		else:
+			print(e[0][0][0].shape) #join blow
+			self.plot(e[0][0][0],mode="GUI",name=None) # plot join blow
 		"""
 		tt = time.clock()
-		logger.debug("buildBlowDataSet - start")
+		logger.debug("loadBlowDataSet - start")
 		loadPath = self.espisodePath
 		episodes = [] # three level list, [battery][month][episode]
 		for f in os.listdir(loadPath):
 			batteryEpisodes = self.__loadZip(loadPath,f)
-			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndex)
-			episodes.append(batteryBlows)
-		logger.debug("buildBlowDataSet - end - %f" % (time.clock() - tt))
+			if len(monthIndexes) == 0:
+				batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,-1,join)
+				episodes.append(batteryBlows)
+			else:	
+				# FIX ME
+				blowsEpisodes = []
+				for monthIdx in monthIndexes:
+					batteryMonthBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIdx,join)
+					blowsEpisodes += batteryMonthBlows
+				episodes.append(blows)
+				
+		logger.debug("loadBlowDataSet - end - %f" % (time.clock() - tt))
 		return episodes 
 	
 	def dataSetSummary(self,showDistro=False):
@@ -206,24 +219,7 @@ class EpisodedTimeSeries():
 		logger.info(self.SEP)
 		for month in range(len(batteries[0])):
 			logger.info("There are %d episodes in month %d" % (monthlyEpisodes[month], month))
-				
-	def getXYDataSet(self,episodes):
-		"""
-		For every episode in episodes creates the X feature dataframe and Y feature dataframe
-		Return:
-			xout = list of dataframe with input feature
-			yout = list of dataframe with output features
-		"""
-		xout = []
-		yout = []
-		for e in episodes:
-			df = pd.concat(e)
-			x = df.drop(columns=self.dropX)
-			y = df[self.keepY]
-			xout.append( x )
-			yout.append( y )
-		return xout,yout
-	
+		
 	def showEpisodes(self,monthIndex=0,limit=1,mode="server"):
 		"""
 		Load data from the files created with buildDataSet.
@@ -564,7 +560,7 @@ class EpisodedTimeSeries():
 	
 	
 	
-	def __seekEpisodesBlow(self,episodes,monthIndex,blowInterval = 5):
+	def __seekEpisodesBlow(self,episodes,monthIndex,join,blowInterval = 5):
 		"""
 		episodes: list of list of dataframe, outer index is the month, inner index is the episode
 		monthIndex: index of the month of interest, if -1 all available month will be returned
@@ -579,7 +575,7 @@ class EpisodedTimeSeries():
 			for month in episodes:
 				monthlyBlow = []
 				for episode in month:
-					b = self.__getBlow(episode,blowInterval)
+					b = self.__getBlow(episode,blowInterval,join)
 					if(b is not None):
 						monthlyBlow.append(b)
 				blowsEpisodes.append(monthlyBlow)
@@ -587,7 +583,7 @@ class EpisodedTimeSeries():
 			month = episodes[monthIndex]
 			monthlyBlow = []
 			for episode in month:
-				b = self.__getBlow(episode,blowInterval)
+				b = self.__getBlow(episode,blowInterval,join)
 				if(b is not None):
 					monthlyBlow.append(b)
 			blowsEpisodes.append(monthlyBlow)
@@ -596,8 +592,13 @@ class EpisodedTimeSeries():
 		return blowsEpisodes
 	
 	
-	def __getBlow(self,episode,blowInterval):
-		
+	def __getBlow(self,episode,blowInterval,join):
+		"""
+		episode: to search blow in
+		blowInterval: how much timestep to get before and after the blow
+		join: if True the result is just a timeseries, otherwise a tuple [dischargeBlow,chargeBlow]
+		"""
+
 		dischargeThreshold = -10
 		chargeThreshold = 10
 	
@@ -644,7 +645,10 @@ class EpisodedTimeSeries():
 		chargeBlowCtx = episode.iloc[chargeBlowIdx-blowInterval:chargeBlowIdx+blowInterval,:]
 		
 		if(chargeBlowCtx.shape[0] > 0 and dischargeBlowCtx.shape[0] > 0):
-			return [dischargeBlowCtx,chargeBlowCtx]
+			if join:
+				return pd.concat([dischargeBlowCtx,chargeBlowCtx])
+			else:
+				return [dischargeBlowCtx,chargeBlowCtx]
 		else:
 			return None
 		
@@ -669,5 +673,4 @@ class EpisodedTimeSeries():
 		else:
 			logger.warning("File %s does not exists" % toLoad)
 		return out
-		
-# df = pd.DataFrame(np.random.randint(0,100,size=(100, 4)), columns=list('ABCD'))		
+	

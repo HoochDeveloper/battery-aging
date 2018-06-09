@@ -37,16 +37,17 @@ def main():
 	mode = "swab2swab"
 	minerva = Minerva()
 	
+
 	# Dataset creation
 	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False)
 	#minerva.ets.dataSetSummary()
-	
-	
-	minerva.tmp()
+	logger.info("Loading dataset")
+	batteries = minerva.ets.loadBlowDataSet(monthIndexes=[0,1]) # blows
+	minerva.crossTrain(batteries)
 	
 	
 	#e = minerva.ets.loadDataSet()
-	#e = minerva.ets.buildBlowDataSet(monthIndex=3)
+	#e = minerva.ets.loadBlowDataSet()
 	#print(len(e)) # batteries
 	#print(len(e[0])) #months
 	#print(len(e[0][0])) #episode in month 0
@@ -58,288 +59,150 @@ def main():
 	
 	
 class Minerva():
-
-	modelName = "Functional_Conv_DeepModel.h5"
+	
+	logFolder = "./logs"
+	modelName = "Conv_DeepModel"
+	modelExt = ".h5"
 	batchSize = 200
 	epochs = 500
 	ets = None
 	
 	def __init__(self):
-		logFolder = "./logs"
-		# creates log folder
-		if not os.path.exists(logFolder):
-			os.makedirs(logFolder)
 		
-		logPath = logFolder + "/Minerva.log"
-		hdlr = loghds.TimedRotatingFileHandler(logPath,
+		# creates log folder
+		if not os.path.exists(self.logFolder):
+			os.makedirs(self.logFolder)
+		
+		logFile = self.logFolder + "/Minerva.log"
+		hdlr = loghds.TimedRotatingFileHandler(logFile,
                                        when="H",
                                        interval=1,
-                                       backupCount=5)
+                                       backupCount=30)
 		hdlr.setFormatter(formatter)
 		logger.addHandler(hdlr)
 		self.ets = EpisodedTimeSeries()
 	
-	def tmp(self):
-		batteries = self.ets.loadDataSet()
-		x,y = self.__datasetAsNpArray(batteries)
-		logger.info(x.shape)
-		logger.info(y.shape)
-		xscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
-		xscaler.fit(x)
-		yscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
-		yscaler.fit(y)
-		logger.info("Fitted")
+	def train(self,batteries):
 		
-		xout = []
-		yout = []
-		for battery in batteries:
-			monthly = []
-			for month in battery:
-				for e in month:
-					xscal = xscaler.transform(e.values)
-					yscal = yscaler.transform(e[self.ets.keepY].values)
-					xout.append( xscal )
-					yout.append( yscal )
+		logger.info("Scaling")
+		xscaler,yscaler = self.__getXYscaler(batteries)
+		logger.info("3D array")
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		
+		#this is for padding
+		#if(False)
+		#	maxLen = 20
+		#	maskVal = -1.0
+		#	xpad = pad_sequences(xout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
+		#	logger.info("X padded")
+		#	ypad = pad_sequences(yout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
+		#	logger.info("Y padded")
 		
+
+		xtrain, xtest,  ytrain, ytest  = train_test_split( x, y, test_size=0.2, random_state=42)
+		xtrain, xvalid, ytrain, yvalid = train_test_split( xtrain, ytrain, test_size=0.1, random_state=42)
 		
-		maxLen = 45
-		maskVal = -1.0
+		name4model = "NoFold_" + self.modelName
+		self.__trainlModel(xtrain, ytrain, xvalid, yvalid,name4model)
+		self.__evaluateModel(xtest, ytest,name4model,yscaler)
 		
-		xpad = pad_sequences(xout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
-		logger.info("X padded")
-		ypad = pad_sequences(yout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
-		logger.info("Y padded")
-		
-		X_train, X_test, y_train, y_test =train_test_split( xpad, ypad, test_size=0.2, random_state=42)
-		X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.1, random_state=42)
-		
-		fold = "500_"
-		#model = self.__trainMask(X_train,y_train, X_valid, y_valid)
-		
-		self.__evaluateModel(X_test, y_test,fold,yscaler)
-		
-	def __trainMask(self,x_train, y_train, x_valid, y_valid):
-		
-		fold = "500_"
-		
-		x_train = self.__batchCompatible(self.batchSize,x_train)
-		y_train = self.__batchCompatible(self.batchSize,y_train)
-		x_valid = self.__batchCompatible(self.batchSize,x_valid)
-		y_valid = self.__batchCompatible(self.batchSize,y_valid)
-		
-		tt = time.clock()
-		
-		inputFeatures  = x_train.shape[2]
-		outputFeatures = y_train.shape[2]
-		timesteps =  x_train.shape[1]
-	
-		inputs = Input(shape=(timesteps,inputFeatures))
-		
-		model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)
-	
-		
-	
-		adam = optimizers.Adam(lr=0.000005)		
-		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
-		print(model.summary())
-		
-		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
-		
-		csv_logger = CSVLogger(str(fold)+'training.log')
-		
-		model.fit(x_train, y_train,
-			batch_size=self.batchSize,
-			epochs=self.epochs,
-			validation_data=(x_valid,y_valid),
-			callbacks=[early,csv_logger]
-		)
-		
-		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
-		logger.info("Save model")
-		model.save(os.path.join( self.ets.rootResultFolder , str(fold)+self.modelName )) 
-		logger.info("Model saved")
-		return model
-		
-	
-	def __datasetAsNpArray(self,batteries):
-		x = []
-		y = []
-		for battery in batteries:
-			for month in battery:
-				for episode in month:
-					episode.drop(columns=self.ets.dropX,inplace=True)
-					ydf = episode[self.ets.keepY]
-					for t in range(0,episode.shape[0]):
-						x.append(episode.values[t])
-						y.append(ydf.values[t])
-						
-		return np.asarray(x),np.asarray(y)
-						
-	def trainMonth(self):
-		
-		blows = self.ets.loadBlowEpisodes("M",index=0)
-		x,y = self.ets.getXYDataSet(blows)
-		x = self.__listToNpArray(x)
-		y = self.__listToNpArray(y)
-				
-		
-		xscaler = self.__getSkScaler(x)
-		yscaler = self.__getSkScaler(y)
-		
-		X_train, X_valid, y_train, y_valid =train_test_split( x, y, test_size=0.1, random_state=42)
-		
-		
-		xvalid = self.__skScale(X_valid,xscaler)
-		yvalid = self.__skScale(y_valid,yscaler)
-		xtrain = self.__skScale(X_train,xscaler)
-		ytrain = self.__skScale(y_train,yscaler)
-		
-		fold = "Mont"
-		if False:
-			self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid,fold)
-		else:
-			blows = self.ets.loadBlowEpisodes("M",index=3)
-			xtest,ytest = self.ets.getXYDataSet(blows)
-			xtest = self.__listToNpArray(xtest)
-			ytest = self.__listToNpArray(ytest)
-			xtest = self.__skScale(xtest,xscaler)
-			ytest = self.__skScale(ytest,yscaler)
-			self.__evaluateModel(xtest, ytest,fold,None)
-		
-	
-	def crossEvaluate(self):
-		logger.info("Blow load")
-		blows  = self.ets.loadBlowEpisodes()
-		logger.info("End load blow")
-		x,y = self.ets.getXYDataSet(blows)
-		logger.info("End blow concat")
-		
-		x = self.__listToNpArray(x)
-		y = self.__listToNpArray(y)
-				
-		
-		xscaler = self.__getSkScaler(x)
-		yscaler = self.__getSkScaler(y)
-		
-		count = 0
-		fold = 4
-		kf = KFold(n_splits=4, random_state=42, shuffle=True)
-		for train_index, test_index in kf.split(x):
-			count += 1
-			if(count != fold):
-				continue
-			
-			xtest = x[test_index]
-			ytest = y[test_index]
-			
-			xtest  = self.__skScale(xtest,xscaler)
-			ytest  = self.__skScale(ytest,yscaler)
-			
-			self.__evaluateModel(xtest, ytest,fold,None)
-			return
-		
-	def crossTrain(self):
-		
-		logger.info("Blow load")
-		blows  = self.ets.loadBlowEpisodes()
-		logger.info("End load blow")
-		x,y = self.ets.getXYDataSet(blows)
-		logger.info("End blow concat")
-		
-		x = self.__listToNpArray(x)
-		y = self.__listToNpArray(y)
-		
-		xscaler = self.__getSkScaler(x)
-		yscaler = self.__getSkScaler(y)
-		
-		fold = 0
-		kf = KFold(n_splits=4, random_state=42, shuffle=True)
+	def crossTrain(self,batteries):
+		logger.info("Scaling")
+		xscaler,yscaler = self.__getXYscaler(batteries)
+		logger.info("3D array")
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+
+		foldCounter = 0
+		kf = KFold(n_splits=5, random_state=42, shuffle=True)
 		for train_index, test_index in kf.split(x):
 			
-			fold += 1
-			X_train, X_test = x[train_index], x[test_index]
-			y_train, y_test = y[train_index], y[test_index]
 			
-			X_train, X_valid, y_train, y_valid = train_test_split( X_train, y_train, test_size=0.2, random_state=42)
+			trainX, testX = x[train_index], x[test_index]
+			trainY, testY = y[train_index], y[test_index]
 			
-			xvalid = self.__skScale(X_valid,xscaler)
-			yvalid = self.__skScale(y_valid,yscaler)
-			xtrain = self.__skScale(X_train,xscaler)
-			ytrain = self.__skScale(y_train,yscaler)
-		
+			# validation set
+			validPerc = 0.1
+			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
 			
-			self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid,fold)
-			xtest  = self.__skScale(X_test,xscaler)
-			ytest  = self.__skScale(y_test,yscaler)
+			name4model = "Fold_%d_%s" % (foldCounter,self.modelName)
 			
-			self.__evaluateModel(xtest, ytest,fold,False,None)
+			self.__trainlModel(trainX, trainY, validX, validY,name4model)
+			self.__evaluateModel(testX, testY,name4model,yscaler,False)
+			foldCounter += 1
 		
 		# sample to check scaler behavior
 		#self.__showNumpyArray(xtrain)
 		#xtrain = self.__skScaleBack(xtrain,xscaler)
 		#self.__showNumpyArray(xtrain)
 
-	def train(self):
-		xtrain,ytrain, xvalid,yvalid, xtest,ytest,xscaler,yscaler = self.__splitDataset()
-		fold = "A_"
-		if(False):
-			self.__trainSequentialModel(xtrain, ytrain, xvalid, yvalid,fold)
-		self.__evaluateModel(xtest, ytest,fold,yscaler)
+	def __evaluateModel(self,testX,testY,model2load,scaler = None, plot2video = False):
 		
-	def __splitDataset(self):
-		logger.info("Blow load")
-		blows  = self.ets.loadBlowEpisodes()
-		logger.info("End load blow")
-		x,y = self.ets.getXYDataSet(blows)
-		logger.info("End blow concat")
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
 		
-		x = self.__listToNpArray(x)
-		y = self.__listToNpArray(y)
+		#print(model.summary())
 		
-		xscaler = self.__getSkScaler(x)
-		yscaler = self.__getSkScaler(y)
+		testX = self.__batchCompatible(self.batchSize,testX)
+		testY = self.__batchCompatible(self.batchSize,testY)
 		
-		X_train, X_test,  y_train, y_test =train_test_split( x, y, test_size=0.2, random_state=42)
-		X_train, X_valid, y_train, y_valid =train_test_split( X_train, y_train, test_size=0.2, random_state=42)
+		tt = time.clock()
+		mse, mae = model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
+		logger.info("Test MSE %f - MAE %f Elapsed %f" % (mse,mae,(time.clock() - tt)))
+
+		if(plot2video):
+			logger.info("Predicting")
+			tt = time.clock()
+			y_pred = model.predict(testX,  batch_size=self.batchSize)
+			logger.info("Elapsed %f" % (time.clock() - tt))
+			if(scaler is not None):
+				y_pred = self.__skScaleBack(y_pred,scaler)
+				testY = self.__skScaleBack(testY,scaler)
+			for r in range(25):
+				plt.figure()
+				toPlot = np.random.randint(y_pred.shape[0])
+				i = 1
+				sid = 14
+				for col in range(y_pred.shape[2]):
+					plt.subplot(y_pred.shape[2], 1, i)
+					plt.plot(y_pred[toPlot][:, col],color="navy",label="Prediction")
+					plt.plot(testY[toPlot][:, col],color="orange",label="Real")
+					plt.legend()
+					i += 1
+				
+				plt.show()
+		
+	
 		
 		
-		xvalid = self.__skScale(X_valid,xscaler)
-		yvalid = self.__skScale(y_valid,yscaler)
-		xtrain = self.__skScale(X_train,xscaler)
-		ytrain = self.__skScale(y_train,yscaler)
+	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
 		
-		xtest  = self.__skScale(X_test,xscaler)
-		ytest  = self.__skScale(y_test,yscaler)
+		tt = time.clock()
+		logger.debug("__trainlModel - start")
 		
-		return xtrain,ytrain, xvalid,yvalid, xtest,ytest, xscaler,yscaler
-		
-		
-	def __trainSequentialModel(self,x_train, y_train, x_valid, y_valid,fold):
+		logger.info("Training model %s" % name4model)
 		
 		x_train = self.__batchCompatible(self.batchSize,x_train)
 		y_train = self.__batchCompatible(self.batchSize,y_train)
 		x_valid = self.__batchCompatible(self.batchSize,x_valid)
 		y_valid = self.__batchCompatible(self.batchSize,y_valid)
 		
-		tt = time.clock()
-		
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 
-		#model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)	
+		model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)	
 		
-		model = self.__functionalLSTMModel(inputFeatures,outputFeatures,x_train)	
 		adam = optimizers.Adam(lr=0.000005)		
 		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
-		print(model.summary())
+		#print(model.summary())
 		
 		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
 		
-		csv_logger = CSVLogger(str(fold)+'training.log')
+		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
+		
+		csv_logger = CSVLogger(cvsLogFile)
 		
 		model.fit(x_train, y_train,
+			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,y_valid),
@@ -347,55 +210,32 @@ class Minerva():
 		)
 		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
-		logger.info("Save model")
-		model.save(os.path.join( self.ets.rootResultFolder , str(fold)+self.modelName )) 
-		logger.info("Model saved")
-		return model
-	
-	
-	def __functionalLSTMModel(self,inputFeatures,outputFeatures,data):
-	
-		timesteps = data.shape[1]
-		signals   = data.shape[2]
-	
-		inputs = Input(shape=(timesteps,signals))
+		logger.debug("Saving model...")
+		model.save(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )) 
+		logger.debug("Model saved")
 		
-		mask = 4
-		
-		s = 512
-		a = Conv1D(s,mask, activation='relu')(inputs)
-		b = Conv1D(int(s/2),mask, activation='relu')(a)
-		c = Conv1D(int(s/4),mask, activation='relu')(b)
-		c1 = Conv1D(int(s/8),mask, activation='relu')(c)
-		d = Flatten()(c1)
-		
-		e = Dense(s,activation='relu')(d)
-		f = Dense(timesteps*outputFeatures, activation='tanh')(e)
-		
-		out = Reshape((timesteps, outputFeatures))(f)
-		
-		model = Model(inputs=inputs, outputs=out)
-		return model
-	
-	
-	
-	
+		trainMse, trainMae = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
+		logger.info("Train MSE %f - MAE %f" % (trainMse,trainMae))
+		validMse, validMae = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
+		logger.info("Valid MSE %f - MAE %f" % (validMse,validMae))
+		logger.debug("__trainlModel - end - %f" % (time.clock() - tt) )
+
 	def __functionalConvModel(self,inputFeatures,outputFeatures,data):
 	
 		timesteps = data.shape[1]
 		signals   = data.shape[2]
-		width  = 20
-		heigth = 20
+		width  = 10
+		heigth = 10
 		deepth = timesteps * signals
 		
-		mask = (5,5)
-		mask2 = (3,3)
+		mask = (3,3)
+		mask2 = (2,2)
 		poolMask = (2,2)
 
 		inputs = Input(shape=(timesteps,signals))
 		
 		initParams = 2
-		outParams = 512
+		outParams = 256
 		
 		enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
 		reshape1 = Reshape((width, heigth,deepth))(enlarge)
@@ -413,46 +253,17 @@ class Minerva():
 		model = Model(inputs=inputs, outputs=out)
 		return model
 	
-	
-	def __evaluateModel(self,x_test,y_test,fold,scaler = None):
+	def __getXYscaler(self,batteries):
 		
-		logger.info("Loading model...")
-		model = load_model(os.path.join( self.ets.rootResultFolder ,str(fold)+self.modelName ))
-		
-		print(model.summary())
-		
-		logger.info("Preparing data...")
-		x_test = self.__batchCompatible(self.batchSize,x_test)
-		y_test = self.__batchCompatible(self.batchSize,y_test)
-		
-		logger.info("Evaluating")
 		tt = time.clock()
-		mse, mae = model.evaluate( x=x_test, y=y_test, batch_size=self.batchSize, verbose=0)
-		logger.info("MSE %f - MAE %f Elapsed %f" % (mse,mae,(time.clock() - tt)))
-		
-		logger.info("Predicting")
-		tt = time.clock()
-		y_pred = model.predict(x_test,  batch_size=self.batchSize)
-		logger.info("Elapsed %f" % (time.clock() - tt))
-		
-		if(scaler is not None):
-			y_pred = self.__skScaleBack(y_pred,scaler)
-			y_test = self.__skScaleBack(y_test,scaler)
-		
-		if(True):
-			for r in range(25):
-				plt.figure()
-				toPlot = np.random.randint(y_pred.shape[0])
-				i = 1
-				sid = 14
-				for col in range(y_pred.shape[2]):
-					plt.subplot(y_pred.shape[2], 1, i)
-					plt.plot(y_pred[toPlot][:, col],color="navy",label="Prediction")
-					plt.plot(y_test[toPlot][:, col],color="orange",label="Real")
-					plt.legend()
-					i += 1
-				
-				plt.show()
+		logger.debug("__getXYscaler - start")
+		x,y = self.__datasetAs2DArray(batteries)
+		xscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+		xscaler.fit(x)
+		yscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+		yscaler.fit(y)
+		logger.debug("__getXYscaler - end - %f" % (time.clock() - tt) )
+		return xscaler,yscaler
 	
 	def __showNumpyArray(self,data):
 		plt.figure()
@@ -472,26 +283,61 @@ class Minerva():
 		if(exceed > 0):
 			data = data[:-exceed]
 		return data
-		
-	def __listToNpArray(self,list):
+	
+	def __datasetAs2DArray(self,batteries):
 		"""
-		Convert a list of dataframe [time-steps,features] in np 3d array [samples,time-steps,features]
+		Convert dataset to numpy array
 		"""
-		out = None
-		if(len(list) > 0):
-			out = np.zeros([len(list),list[0].shape[0],list[0].shape[1]])
-			for i in range(0,len(list)):
-				out[i] = list[i]
-		else:
-			logger.warning("Empty list, None will be returned")
-		return out
+		tt = time.clock()
+		logger.debug("__datasetAs2DArray - start")
+		x = []
+		y = []
+		for battery in batteries:
+			for month in battery:
+				for episode in month:
+					episode.drop(columns=self.ets.dropX,inplace=True)
+					ydf = episode[self.ets.keepY]
+					for t in range(0,episode.shape[0]):
+						x.append(episode.values[t])
+						y.append(ydf.values[t])
+		outX = np.asarray(x)
+		outY = np.asarray(y)
+		tt = time.clock()
+		logger.debug("__datasetAs2DArray - end - %f" % (time.clock() - tt) )
+		return outX,outY
+	
+	def __datasetAs3DArray(self,batteries,xscaler=None,yscaler=None):
+		tt = time.clock()
+		logger.debug("__datasetAs3DArray - start")
+		xlist = []
+		ylist = []
+		for battery in batteries:
+			monthly = []
+			for month in battery:
+				for e in month:
+					x = e.values
+					y = e[self.ets.keepY].values
+					if(xscaler is not None):
+						x = xscaler.transform(x)
+					if(yscaler is not None):
+						y = yscaler.transform(y)
+					xlist.append( x )
+					ylist.append( y )
 		
+		outX = np.asarray(xlist)
+		outY = np.asarray(ylist)
+		logger.debug("__datasetAs3DArray - end - %f" % (time.clock() - tt) )
+		return outX,outY
+		
+	
 	def __getSkScaler(self,data):
 		"""
 		Build a SKL scaler for the data
 		data: 3d array [samples,time-steps,features]
 		return: scaled 3d array
 		"""
+		tt = time.clock()
+		logger.debug("__getSkScaler - start")
 		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
 		#scaler = preprocessing.RobustScaler( quantile_range=(0.0, 100.0))
 		samples = data.shape[0]
@@ -501,6 +347,7 @@ class Minerva():
 		# so we reshape the data aggregating samples and time-steps leaving features alone
 		xnorm = data.reshape(samples*timesteps,features)
 		scaler.fit(xnorm)
+		logger.debug("__getSkScaler - end - %f" % (time.clock() - tt) )
 		return scaler
 	
 	def __skScale(self,data,scaler):
