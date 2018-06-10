@@ -51,7 +51,8 @@ def main():
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "Conv_DeepModel"
+	modelName = "Conv1D"
+	#modelName = "LSTM"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 500
@@ -105,9 +106,9 @@ class Minerva():
 		
 		
 	def crossTrain(self,batteries):
-		logger.info("Scaling")
+		
 		xscaler,yscaler = self.__getXYscaler(batteries)
-		logger.info("3D array")
+		
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 
 		foldCounter = 0
@@ -127,11 +128,7 @@ class Minerva():
 			self.__trainlModel(trainX, trainY, validX, validY,name4model)
 			self.__evaluateModel(testX, testY,name4model,yscaler,False)
 			foldCounter += 1
-		
-			# sample to check scaler behavior
-			#self.__showNumpyArray(xtrain)
-			#xtrain = self.__skScaleBack(xtrain,xscaler)
-			#self.__showNumpyArray(xtrain)
+
 
 	def __evaluateModel(self,testX,testY,model2load,scaler = None, plot2video = False):
 		
@@ -189,11 +186,11 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 
-		model = self.__functionalConvModel(inputFeatures,outputFeatures,x_train)	
+		model = self.__functionalModel(inputFeatures,outputFeatures,x_train)	
 		
 		adam = optimizers.Adam(lr=0.000005)		
 		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
-		#print(model.summary())
+		
 		
 		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
 		
@@ -220,37 +217,69 @@ class Minerva():
 		logger.info("Valid MSE %f - MAE %f" % (validMse,validMae))
 		logger.debug("__trainlModel - end - %f" % (time.clock() - tt) )
 
-	def __functionalConvModel(self,inputFeatures,outputFeatures,data):
+	def __functionalModel(self,inputFeatures,outputFeatures,data):
 	
 		timesteps = data.shape[1]
 		signals   = data.shape[2]
-		width  = 10
-		heigth = 10
-		deepth = timesteps * signals
-		
-		mask = (3,3)
-		mask2 = (2,2)
-		poolMask = (2,2)
-
 		inputs = Input(shape=(timesteps,signals))
 		
-		initParams = 2
-		outParams = 256
+		# OK CONV2D
+		#width  = 10
+		#heigth = 10
+		#deepth = timesteps * signals
+		#mask = (3,3)
+		#mask2 = (2,2)
+		#poolMask = (2,2)
+		#initParams = 2
+		#outParams = 256
+		#enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
+		#reshape1 = Reshape((width, heigth,deepth))(enlarge)
+		#conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
+		#conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
+		#maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
+		#conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
+		#maxpool2 = MaxPooling2D(pool_size=poolMask)(conv3)
+		#encoded = Flatten()(maxpool2) 
+		#dec1 = Dense(outParams,activation='relu')(encoded)
+		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec1)
+		#out = Reshape((timesteps, outputFeatures))(decoded)
 		
-		enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
-		reshape1 = Reshape((width, heigth,deepth))(enlarge)
-		conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
-		conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
-		maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
-		conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
-		maxpool2 = MaxPooling2D(pool_size=poolMask)(conv3)
-		encoded = Flatten()(maxpool2) 
+		# OK CONV1D
+		encoderFilter = 32
+		encoderKernel = 8
+		encoderPool = 2
+		encodedSize = 8
 		
-		dec1 = Dense(outParams,activation='relu')(encoded)
-		decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec1)
+		conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu')(inputs)
+		#conv2 = Conv1D(encoderFilter*2,int(encoderKernel/2),activation='relu')(conv1)
+		#conv3 = Conv1D(encoderFilter*4,int(encoderKernel/4),activation='relu')(conv2)
+		maxpool2 = MaxPooling1D(pool_size=encoderPool)(conv1)
+		flat1 = Flatten()(maxpool2) 
+		
+		encoded = Dense(encodedSize,activation='relu')(flat1)
+		
+		#dec1 = Dense(encodedSize*2,activation='relu')(encoded)
+		dec2 = Dense(encodedSize*4,activation='relu')(encoded)
+		decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec2)
 		out = Reshape((timesteps, outputFeatures))(decoded)
 		
+		# OK LSTM
+		#latent_dim = 16
+		#encodedSize = 8
+		#encoder1 = LSTM(latent_dim,return_sequences=True,activation='relu')(inputs)
+		#encoder2 = LSTM(8,return_sequences=True,activation='relu')(encoder1)
+		#encoder3 = LSTM(4,return_sequences=True,activation='relu')(encoder2)
+		#flat1 = Flatten()(encoder3) 
+		#encoded = Dense(encodedSize,activation='relu')(flat1)	
+		#dec1 = Dense(encodedSize*2,activation='relu')(encoded)
+		#dec2 = Dense(encodedSize*4,activation='relu')(dec1)
+		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec2)
+		#out = Reshape((timesteps, outputFeatures))(decoded)
+		
+		
 		model = Model(inputs=inputs, outputs=out)
+		print(model.summary())
+		
 		return model
 	
 	def __getXYscaler(self,batteries):
