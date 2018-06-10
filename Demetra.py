@@ -135,9 +135,9 @@ class EpisodedTimeSeries():
 		
 		Example:
 		e = self.loadBlowDataSet(monthIndex=3)
-		print(len(e)) # batteries
-		print(len(e[0])) #months
-		print(len(e[0][0])) #episode in month 0
+		print(len(e)) # number of batteries, e[0] gives the first battery 
+		print(len(e[0])) #number of data months for battery 0, e[0][0] gives the first month for first battery 
+		print(len(e[0][0])) #number of episodes in first month of first battery, e[0][0][0] gives the 1st episode of 1st month of 1st battery
 		if(join == False)
 			print(e[0][0][0][0].shape) #discharge blow
 			print(e[0][0][0][1].shape) #charge blow
@@ -153,16 +153,8 @@ class EpisodedTimeSeries():
 		episodes = [] # three level list, [battery][month][episode]
 		for f in os.listdir(loadPath):
 			batteryEpisodes = self.__loadZip(loadPath,f)
-			if len(monthIndexes) == 0:
-				batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,-1,join)
-				episodes.append(batteryBlows)
-			else:	
-				# FIX ME
-				blowsEpisodes = []
-				for monthIdx in monthIndexes:
-					batteryMonthBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIdx,join)
-					blowsEpisodes += batteryMonthBlows
-				episodes.append(blows)
+			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndexes,join)
+			episodes.append(batteryBlows)
 				
 		logger.debug("loadBlowDataSet - end - %f" % (time.clock() - tt))
 		return episodes 
@@ -560,10 +552,10 @@ class EpisodedTimeSeries():
 	
 	
 	
-	def __seekEpisodesBlow(self,episodes,monthIndex,join,blowInterval = 5):
+	def __seekEpisodesBlow(self,episodes,monthIndexes,join,blowInterval = 5):
 		"""
 		episodes: list of list of dataframe, outer index is the month, inner index is the episode
-		monthIndex: index of the month of interest, if -1 all available month will be returned
+		monthIndexes: indexes of the month(s) of interest, if empty all available month will be returned
 		return a list of tuples of dataframe.
 		The first element in the tuple is the discharge blow dataframe
 		The second element in the tuple is the charge blow dataframe
@@ -571,7 +563,7 @@ class EpisodedTimeSeries():
 		logger.debug("__seekEpisodesBlow - start")
 		tt = time.clock()
 		blowsEpisodes = []
-		if(monthIndex == -1):
+		if(len(monthIndexes) == 0):
 			for month in episodes:
 				monthlyBlow = []
 				for episode in month:
@@ -580,13 +572,14 @@ class EpisodedTimeSeries():
 						monthlyBlow.append(b)
 				blowsEpisodes.append(monthlyBlow)
 		else:
-			month = episodes[monthIndex]
-			monthlyBlow = []
-			for episode in month:
-				b = self.__getBlow(episode,blowInterval,join)
-				if(b is not None):
-					monthlyBlow.append(b)
-			blowsEpisodes.append(monthlyBlow)
+			for m in monthIndexes:
+				month = episodes[m]
+				monthlyBlow = []
+				for episode in month:
+					b = self.__getBlow(episode,blowInterval,join)
+					if(b is not None):
+						monthlyBlow.append(b)
+				blowsEpisodes.append(monthlyBlow)
 			
 		logger.debug("__seekEpisodesBlow - end - %f" %  (time.clock() - tt))
 		return blowsEpisodes
@@ -625,7 +618,7 @@ class EpisodedTimeSeries():
 			return None
 		
 		
-		#get the first index in charge
+		#get the first index in discharge
 		firstBlow = dischargeIndex[0]
 		
 		

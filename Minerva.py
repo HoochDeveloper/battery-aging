@@ -33,29 +33,19 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 def main():
-	#mode = "swabCleanDischarge"
-	mode = "swab2swab"
+	
+	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva()
 	
-
 	# Dataset creation
-	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False)
-	#minerva.ets.dataSetSummary()
-	logger.info("Loading dataset")
-	batteries = minerva.ets.loadBlowDataSet(monthIndexes=[0,1]) # blows
+	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False)
+	# Dataset loading
+	batteries = minerva.ets.loadBlowDataSet()
+	# Model train and cross validate
 	minerva.crossTrain(batteries)
 	
+	#minerva.predict4month(1,"Fold_4_Conv_DeepModel")
 	
-	#e = minerva.ets.loadDataSet()
-	#e = minerva.ets.loadBlowDataSet()
-	#print(len(e)) # batteries
-	#print(len(e[0])) #months
-	#print(len(e[0][0])) #episode in month 0
-	#print(e[0][0][0][0].shape) #discharge blow
-	#print(e[0][0][0][1].shape) #charge blow
-	#minerva.ets.plot(e[0][0][0][0],mode="GUI",name=None)
-	#minerva.ets.plot(e[0][0][0][1],mode="GUI",name=None)
-	#minerva.ets.showEpisodes(monthIndex=2,mode="GUI")
 	
 	
 class Minerva():
@@ -63,7 +53,7 @@ class Minerva():
 	logFolder = "./logs"
 	modelName = "Conv_DeepModel"
 	modelExt = ".h5"
-	batchSize = 200
+	batchSize = 100
 	epochs = 500
 	ets = None
 	
@@ -82,12 +72,26 @@ class Minerva():
 		logger.addHandler(hdlr)
 		self.ets = EpisodedTimeSeries()
 	
+	
+	def predict4month(self,monthIndex,name4model,plot2video = False):
+		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex]) # blows
+		logger.info("Model trained on month 0, predicting month %d" % monthIndex)
+		self.__predict(batteries,"Fold_4_Conv_DeepModel")
+	
+	
 	def train(self,batteries):
 		
 		logger.info("Scaling")
 		xscaler,yscaler = self.__getXYscaler(batteries)
 		logger.info("3D array")
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		
+		xtrain, xtest,  ytrain, ytest  = train_test_split( x, y, test_size=0.2, random_state=42)
+		xtrain, xvalid, ytrain, yvalid = train_test_split( xtrain, ytrain, test_size=0.1, random_state=42)
+		
+		name4model = "NoFold_" + self.modelName
+		self.__trainlModel(xtrain, ytrain, xvalid, yvalid,name4model)
+		self.__evaluateModel(xtest, ytest,name4model,yscaler)
 		
 		#this is for padding
 		#if(False)
@@ -98,13 +102,7 @@ class Minerva():
 		#	ypad = pad_sequences(yout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
 		#	logger.info("Y padded")
 		
-
-		xtrain, xtest,  ytrain, ytest  = train_test_split( x, y, test_size=0.2, random_state=42)
-		xtrain, xvalid, ytrain, yvalid = train_test_split( xtrain, ytrain, test_size=0.1, random_state=42)
 		
-		name4model = "NoFold_" + self.modelName
-		self.__trainlModel(xtrain, ytrain, xvalid, yvalid,name4model)
-		self.__evaluateModel(xtest, ytest,name4model,yscaler)
 		
 	def crossTrain(self,batteries):
 		logger.info("Scaling")
@@ -130,10 +128,10 @@ class Minerva():
 			self.__evaluateModel(testX, testY,name4model,yscaler,False)
 			foldCounter += 1
 		
-		# sample to check scaler behavior
-		#self.__showNumpyArray(xtrain)
-		#xtrain = self.__skScaleBack(xtrain,xscaler)
-		#self.__showNumpyArray(xtrain)
+			# sample to check scaler behavior
+			#self.__showNumpyArray(xtrain)
+			#xtrain = self.__skScaleBack(xtrain,xscaler)
+			#self.__showNumpyArray(xtrain)
 
 	def __evaluateModel(self,testX,testY,model2load,scaler = None, plot2video = False):
 		
@@ -169,21 +167,23 @@ class Minerva():
 					i += 1
 				
 				plt.show()
-		
 	
-		
-		
+	def __predict(self,batteries,name4model,plot2video = False):
+		xscaler,yscaler = self.__getXYscaler(batteries)
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		self.__evaluateModel(x, y,name4model,yscaler,plot2video)
+	
 	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
 		
 		tt = time.clock()
 		logger.debug("__trainlModel - start")
 		
-		logger.info("Training model %s" % name4model)
-		
 		x_train = self.__batchCompatible(self.batchSize,x_train)
 		y_train = self.__batchCompatible(self.batchSize,y_train)
 		x_valid = self.__batchCompatible(self.batchSize,x_valid)
 		y_valid = self.__batchCompatible(self.batchSize,y_valid)
+		
+		logger.info("Training model %s with train %s and valid %s" % (name4model,x_train.shape,x_valid.shape))
 		
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
@@ -254,7 +254,10 @@ class Minerva():
 		return model
 	
 	def __getXYscaler(self,batteries):
-		
+		"""
+		Creates the xscaler and y scaler for the dataset
+		batteries: 3 layer list of dataframe [battery][month][episode] = dataframe
+		"""
 		tt = time.clock()
 		logger.debug("__getXYscaler - start")
 		x,y = self.__datasetAs2DArray(batteries)
@@ -279,6 +282,9 @@ class Minerva():
 		plt.show()
 	
 	def __batchCompatible(self,batch_size,data):
+		"""
+		Transform data shape 0 in a multiple of batch_size
+		"""
 		exceed = data.shape[0] % batch_size
 		if(exceed > 0):
 			data = data[:-exceed]
@@ -286,7 +292,8 @@ class Minerva():
 	
 	def __datasetAs2DArray(self,batteries):
 		"""
-		Convert dataset to numpy array
+		Convert dataset to numpy 2D array
+		batteries: 3 layer list of dataframe [battery][month][episode] = dataframe
 		"""
 		tt = time.clock()
 		logger.debug("__datasetAs2DArray - start")
@@ -307,6 +314,11 @@ class Minerva():
 		return outX,outY
 	
 	def __datasetAs3DArray(self,batteries,xscaler=None,yscaler=None):
+		"""
+		Convert the dataset list structure to numpy 3D array
+		batteries: 3 layer list of dataframe [battery][month][episode] = dataframe
+		if scaler are specified, data will be transformed
+		"""
 		tt = time.clock()
 		logger.debug("__datasetAs3DArray - start")
 		xlist = []
@@ -329,41 +341,6 @@ class Minerva():
 		logger.debug("__datasetAs3DArray - end - %f" % (time.clock() - tt) )
 		return outX,outY
 		
-	
-	def __getSkScaler(self,data):
-		"""
-		Build a SKL scaler for the data
-		data: 3d array [samples,time-steps,features]
-		return: scaled 3d array
-		"""
-		tt = time.clock()
-		logger.debug("__getSkScaler - start")
-		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
-		#scaler = preprocessing.RobustScaler( quantile_range=(0.0, 100.0))
-		samples = data.shape[0]
-		timesteps = data.shape[1]
-		features = data.shape[2]
-		# the scaler need a 2d array. [<samples>,<features>]
-		# so we reshape the data aggregating samples and time-steps leaving features alone
-		xnorm = data.reshape(samples*timesteps,features)
-		scaler.fit(xnorm)
-		logger.debug("__getSkScaler - end - %f" % (time.clock() - tt) )
-		return scaler
-	
-	def __skScale(self,data,scaler):
-		"""
-		Apply the SKL scaler to the data
-		data: 3d array [samples,time-steps,features]
-		return: scaled 3d array
-		"""
-		samples = data.shape[0]
-		timesteps = data.shape[1]
-		features = data.shape[2]
-		# the scaler need a 2d array. [<samples>,<features>]
-		# so we reshape the data aggregating samples and time-steps leaving features alone
-		xnorm = data.reshape(samples*timesteps,features)
-		xnorm = scaler.transform(xnorm)
-		return xnorm.reshape(samples,timesteps,features)
 		
 	def __skScaleBack(self,data,scaler):
 		"""
