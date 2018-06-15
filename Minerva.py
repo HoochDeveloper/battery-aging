@@ -34,15 +34,15 @@ logger.addHandler(consoleHandler)
 
 def main():
 	
-	force = True
+	force = False
 	eps1 = 10
 	eps2 = 10
 	alpha1 = 15
 	alpha2 = 15
 	
 	mode = "swab2swab" #"swabCleanDischarge"
-	minerva = Minerva()
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force,eps1=eps1,eps2=eps2,alpha1=alpha1,alpha2=alpha2) # creates dataset
+	minerva = Minerva(eps1=eps1,eps2=eps2,alpha1=alpha1,alpha2=alpha2)
+	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset
 	########################
 	#Month by month prediction
 	#minerva.train4month(0)
@@ -51,26 +51,35 @@ def main():
 	
 	########################
 	# All dataset
-	batteries = minerva.ets.loadBlowDataSet(eps1=eps1,alpha1=alpha1,alpha2=alpha2)
-	minerva.ets.dataSetSummary(batteries)
-	#minerva.crossTrain(batteries) # Model train and cross validate
+	batteries = minerva.ets.loadBlowDataSet()
+	minerva.crossTrain(batteries) # Model train and cross validate
 	########################
 
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "Conv1D"
+	modelName = "10101515_Conv2D"
 	#modelName = "LSTM"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 500
 	ets = None
+	eps1 = 10
+	eps2 = 10
+	alpha1 = 15
+	alpha2 = 15
 	
-	def __init__(self):
+	
+	def __init__(self,eps1,eps2,alpha1,alpha2):
 		
 		# creates log folder
 		if not os.path.exists(self.logFolder):
 			os.makedirs(self.logFolder)
+		
+		self.eps1   = eps1
+		self.eps2   = eps2
+		self.alpha1 = alpha1
+		self.alpha2 = alpha2
 		
 		logFile = self.logFolder + "/Minerva.log"
 		hdlr = loghds.TimedRotatingFileHandler(logFile,
@@ -79,7 +88,7 @@ class Minerva():
                                        backupCount=30)
 		hdlr.setFormatter(formatter)
 		logger.addHandler(hdlr)
-		self.ets = EpisodedTimeSeries()
+		self.ets = EpisodedTimeSeries(self.eps1,self.eps2,self.alpha1,self.alpha2)
 	
 	
 	def predict4month(self,monthIndex,name4model,plot2video = False):
@@ -132,9 +141,9 @@ class Minerva():
 			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
 			
 			name4model = "Fold_%d_%s" % (foldCounter,self.modelName)
-			
-			self.__trainlModel(trainX, trainY, validX, validY,name4model)
-			self.__evaluateModel(testX, testY,name4model,yscaler,False)
+			if(False):
+				self.__trainlModel(trainX, trainY, validX, validY,name4model)
+			self.__evaluateModel(testX, testY,name4model,yscaler,True)
 			foldCounter += 1
 
 

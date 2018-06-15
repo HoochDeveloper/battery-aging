@@ -65,11 +65,23 @@ class EpisodedTimeSeries():
 	dischargeThreshold = -10 # specify current threshold for the battery to be considered in discharge state
 	swabThreshold = 5 # current between -swabThreshold and +swabThreshold will considered in SWAB state
 	
+	eps1 = 10
+	eps2 = 10
+	alpha1 = 15
+	alpha2 = 15
+	
 	#Constructor
-	def __init__(self):
+	def __init__(self,eps1,eps2,alpha1,alpha2):
 		""" 
 		Create, if not exists, the result path for storing the episoded dataset
 		"""
+		self.eps1   = eps1
+		self.eps2   = eps2
+		self.alpha1 = alpha1
+		self.alpha2 = alpha2
+		
+		self.espisodePath = os.path.join(self.rootResultFolder,"episodes_%d_%d_%d_%d" % (self.eps1,self.eps2,self.alpha1,self.alpha2))
+		
 		# creates log folder
 		if not os.path.exists(self.logFolder):
 			os.makedirs(self.logFolder)
@@ -89,26 +101,23 @@ class EpisodedTimeSeries():
 		# used for determining when an episode start in charge or discharge
 		self.currentIndex = self.dataHeader[16]
 		self.voltageIndex = self.dataHeader[17]
+		
 		logger.debug("Indexes: Current %s Volt %s " % (self.currentIndex,self.voltageIndex))
 		
 	
 	# public methods
-	def buildDataSet(self,dataFolder,mode="swab2swab",force=False,eps1=5,eps2=5,alpha1=5,alpha2=5):
+	def buildDataSet(self,dataFolder,mode="swab2swab",force=False):
 		""" 
 		dataFolder: folder that contains the raw dataset, every file in folder will be treated as independent thing;
 		force: if True entire results will be created even if already exists;
 		mode: specify episode to extract:  swab2swab or swabCleanDischarge
-		eps1: starting swab duration (sec)
-		eps2: ending swab duration (sec)
-		alpha1: minimum discharge duration (sec) after swab
-		alpha2: minimum charge duration (sec) after discharge
 		
 		return None, the dataset will be saved in one file per battery, every file contains a list with the following structure
 		[monthIndex][episodeInMonthIndex] = dataframe
 		"""
 		tt = time.clock()
 		logger.debug("buildDataSet - start")
-		self.__buildDataSetFromFolder(dataFolder,mode,force,eps1,eps2,alpha1,alpha2)
+		self.__buildDataSetFromFolder(dataFolder,mode,force,self.eps1,self.eps2,self.alpha1,self.alpha2)
 		logger.debug("buildDataSet - end - %f" % (time.clock() - tt))
 
 	def loadDataSet(self):
@@ -135,17 +144,12 @@ class EpisodedTimeSeries():
 		logger.debug("loadDataSet - end - %f" % (time.clock() - tt) )
 		return episodes
 	
-	def loadBlowDataSet(self,monthIndexes=[],join=True,eps1=5,alpha1=5,alpha2=5):
+	def loadBlowDataSet(self,monthIndexes=[],join=True):
 		"""
 		Load data from the files created with buildDataSet.
 		For every episode in battery seek the blow and create a dataframe with discharge blow and charge blow
 		monthIndexes: if specified build blows dataset only for the specified months
 		join: if True the result is just a dataframe paired discharge and charge blow, otherwise a tuple [dischargeBlow,chargeBlow]
-		eps1: starting swab duration (sec)
-		alpha1: minimum discharge duration (sec) after swab
-		alpha2: minimum charge duration (sec) after discharge
-		
-		
 		
 		return: list of dataframes for all the batteries with the following structure
 		[batteryIndex][monthIndex][episodeInMonthIndex] = [dischargeBlowDataframe,chargeBlowDataframe]
@@ -170,7 +174,7 @@ class EpisodedTimeSeries():
 		episodes = [] # three level list, [battery][month][episode]
 		for f in os.listdir(loadPath):
 			batteryEpisodes = self.__loadZip(loadPath,f)
-			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndexes,join,eps1,alpha1,alpha2)
+			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndexes,join,self.eps1,self.alpha1,self.alpha2)
 			episodes.append(batteryBlows)
 				
 		logger.debug("loadBlowDataSet - end - %f" % (time.clock() - tt))
