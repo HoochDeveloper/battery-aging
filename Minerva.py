@@ -34,9 +34,15 @@ logger.addHandler(consoleHandler)
 
 def main():
 	
+	force = True
+	eps1 = 10
+	eps2 = 10
+	alpha1 = 15
+	alpha2 = 15
+	
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva()
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset
+	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force,eps1=eps1,eps2=eps2,alpha1=alpha1,alpha2=alpha2) # creates dataset
 	########################
 	#Month by month prediction
 	#minerva.train4month(0)
@@ -45,8 +51,9 @@ def main():
 	
 	########################
 	# All dataset
-	batteries = minerva.ets.loadBlowDataSet()
-	minerva.crossTrain(batteries) # Model train and cross validate
+	batteries = minerva.ets.loadBlowDataSet(eps1=eps1,alpha1=alpha1,alpha2=alpha2)
+	minerva.ets.dataSetSummary(batteries)
+	#minerva.crossTrain(batteries) # Model train and cross validate
 	########################
 
 class Minerva():
