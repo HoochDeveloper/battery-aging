@@ -14,6 +14,7 @@ from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger
 from keras.preprocessing.sequence import pad_sequences
+# Ex: xpad = pad_sequences(xout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
 #sklearn
 from sklearn.model_selection import train_test_split
 from sklearn import preprocessing
@@ -35,14 +36,14 @@ logger.addHandler(consoleHandler)
 def main():
 	
 	force = False
-	eps1 = 10
-	eps2 = 10
-	alpha1 = 15
-	alpha2 = 15
+	eps1 	= 5
+	eps2 	= 5
+	alpha1 	= 5
+	alpha2 	= 5
 	
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=eps1,eps2=eps2,alpha1=alpha1,alpha2=alpha2)
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset
+	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset
 	########################
 	#Month by month prediction
 	#minerva.train4month(0)
@@ -52,22 +53,24 @@ def main():
 	########################
 	# All dataset
 	batteries = minerva.ets.loadBlowDataSet()
-	minerva.crossTrain(batteries) # Model train and cross validate
+	#minerva.crossTrain(batteries) # Model train and cross validate
+	#minerva.crossValidate(batteries)
 	########################
-
+	name4model = "Fold_%d_%s_%d_%d_%d_%d" % (0,minerva.modelName,eps1,eps2,alpha1,alpha2)
+	minerva.encode(batteries,name4model)
+	
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "10101515_Conv2D"
-	#modelName = "LSTM"
+	modelName = "Conv1D"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 500
 	ets = None
-	eps1 = 10
-	eps2 = 10
-	alpha1 = 15
-	alpha2 = 15
+	eps1   = 5
+	eps2   = 5
+	alpha1 = 5
+	alpha2 = 5
 	
 	
 	def __init__(self,eps1,eps2,alpha1,alpha2):
@@ -96,62 +99,99 @@ class Minerva():
 		logger.info("Model trained on month 0, predicting month %d" % monthIndex)
 		self.__predict(batteries,name4model,plot2video)
 	
-	
 	def train4month(self,monthIndex):
 		allDataset = self.ets.loadDataSet()
 		xscaler,yscaler = self.__getXYscaler(allDataset)
 		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex])
 		_,_ = self.__getXYscaler(batteries)
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
-		
-		
 		xtrain, xvalid, ytrain, yvalid = train_test_split( x, y, test_size=0.1, random_state=42)
-		
-		name4model = "Month_" + self.modelName
+		name4model = "Month_%s_%d_%d_%d_%d" % ( self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2 )
 		self.__trainlModel(xtrain, ytrain, xvalid, yvalid,name4model)
-		
-		
-		#this is for padding
-		#if(False)
-		#	maxLen = 20
-		#	maskVal = -1.0
-		#	xpad = pad_sequences(xout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
-		#	logger.info("X padded")
-		#	ypad = pad_sequences(yout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
-		#	logger.info("Y padded")
-		
-		
-		
-	def crossTrain(self,batteries):
-		
-		xscaler,yscaler = self.__getXYscaler(batteries)
-		
-		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 
+	def crossTrain(self,batteries):
+		xscaler,yscaler = self.__getXYscaler(batteries)
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		foldCounter = 0
 		kf = KFold(n_splits=5, random_state=42, shuffle=True)
 		for train_index, test_index in kf.split(x):
-			
-			
 			trainX, testX = x[train_index], x[test_index]
 			trainY, testY = y[train_index], y[test_index]
-			
 			# validation set
 			validPerc = 0.1
 			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
-			
-			name4model = "Fold_%d_%s" % (foldCounter,self.modelName)
-			if(False):
-				self.__trainlModel(trainX, trainY, validX, validY,name4model)
-			self.__evaluateModel(testX, testY,name4model,yscaler,True)
+			name4model = "Fold_%d_%s_%d_%d_%d_%d" % (foldCounter,self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2)
+			self.__trainlModel(trainX, trainY, validX, validY,name4model)
+			self.__evaluateModel(testX, testY,name4model,yscaler,False)
 			foldCounter += 1
 
+	def crossValidate(self,batteries,plot=True):
+		xscaler,yscaler = self.__getXYscaler(batteries)
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		foldCounter = 0
+		kf = KFold(n_splits=5, random_state=42, shuffle=True)
+		for train_index, test_index in kf.split(x):
+			testX = x[test_index]
+			testY = y[test_index]
+			name4model = "Fold_%d_%s_%d_%d_%d_%d" % (foldCounter,self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2)
+			self.__evaluateModel(testX, testY,name4model,yscaler,plot)
+			foldCounter += 1
+	
+	
+	def encode(self,batteries,model2load):
+		
+		xscaler,yscaler = self.__getXYscaler(batteries)
+		x,realState = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		
+		x = self.__batchCompatible(self.batchSize,x)
+		
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		encoder = Model(inputs=model.input,outputs=model.get_layer("encoder").output)
+		
+		decoder = Model(inputs=model.get_layer("DC1").input,outputs=model.get_layer("decoder").output)
+		
+		encodedState = encoder.predict(x,  batch_size=self.batchSize)
+		
+		print(encodedState.shape)
 
+		from sklearn import svm
+		
+		
+		
+		clf = svm.OneClassSVM(nu=0.1, kernel="rbf", gamma=0.1)
+		clf.fit(encodedState)
+		
+		
+		ageing = clf.predict(encodedState)
+		inlayer = ageing[ageing == 1].size
+		outlayer = ageing[ageing == -1].size
+		print("In %d Out %d" % (inlayer,outlayer) )
+		
+		
+		
+		ageingOK = x[ageing == 1]
+		ageingKO = x[ageing == -1]
+		ageingOK = self.__batchCompatible(self.batchSize,ageingOK)
+		ageingKO = self.__batchCompatible(self.batchSize,ageingKO)
+		
+		decodedState = decoder.predict(ageingOK,  batch_size=self.batchSize)
+		for r in range(25):
+			plt.figure()
+			toPlot = np.random.randint(decodedState.shape[0])
+			i = 1
+			for col in range(decodedState.shape[2]):
+				plt.subplot(decodedState.shape[2], 1, i)
+				plt.plot(decodedState[toPlot][:, col],color="navy",label="Prediction")
+				plt.plot(realState[toPlot][:, col],color="orange",label="Real")
+				plt.legend()
+				i += 1
+			plt.show()
+		
+
+	
 	def __evaluateModel(self,testX,testY,model2load,scaler = None, plot2video = False):
 		
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
-		
-		
 		
 		testX = self.__batchCompatible(self.batchSize,testX)
 		testY = self.__batchCompatible(self.batchSize,testY)
@@ -245,38 +285,44 @@ class Minerva():
 		inputs = Input(shape=(timesteps,signals))
 		
 		# OK CONV2D
-		width  = 10
-		heigth = 10
-		deepth = timesteps * signals
-		mask = (3,3)
-		mask2 = (2,2)
-		poolMask = (2,2)
-		initParams = 2
-		outParams = 256
-		enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
-		reshape1 = Reshape((width, heigth,deepth))(enlarge)
-		conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
-		conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
-		maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
-		conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
-		#maxpool2 = MaxPooling2D(pool_size=poolMask)(conv3)
-		encoded = Flatten()(conv3) 
-		dec1 = Dense(outParams,activation='relu')(encoded)
-		decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec1)
-		out = Reshape((timesteps, outputFeatures))(decoded)
+		#width  = 10
+		#heigth = 10
+		#deepth = timesteps * signals
+		#mask = (3,3)
+		#mask2 = (2,2)
+		#poolMask = (2,2)
+		#initParams = 2
+		#outParams = 256
+		#enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
+		#reshape1 = Reshape((width, heigth,deepth))(enlarge)
+		#conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
+		#conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
+		#maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
+		#conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
+		##maxpool2 = MaxPooling2D(pool_size=poolMask)(conv3)
+		#encoded = Flatten(name="encoder")(conv3) 
+		#dec1 = Dense(outParams,activation='relu')(encoded)
+		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec1)
+		#out = Reshape((timesteps, outputFeatures))(decoded)
 		
 		# OK CONV1D 7308
-		#encoderFilter = 32
-		#encoderKernel = 8
-		#encoderPool = 2
-		#encodedSize = 8
-		#conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu')(inputs)
-		#maxpool2 = MaxPooling1D(pool_size=encoderPool)(conv1)
-		#flat1 = Flatten()(maxpool2) 
-		#encoded = Dense(encodedSize,activation='relu')(flat1)
-		#dec2 = Dense(encodedSize*4,activation='relu')(encoded)
-		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec2)
-		#out = Reshape((timesteps, outputFeatures))(decoded)
+		encoderFilter = 64
+		encoderKernel = 4
+		encoderPool = 2
+		encodedSize = 8
+		#kernel_initializer='glorot_uniform', bias_initializer='zeros',
+		conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV1")(inputs)
+		maxpool1 = MaxPooling1D(pool_size=encoderPool,name="MP1")(conv1)
+		
+		conv2 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV2")(maxpool1)
+		maxpool2 = MaxPooling1D(pool_size=encoderPool,name="MP2")(conv2)
+		
+		flat1 = Flatten(name="FT1")(maxpool2) 
+		encoded = Dense(encodedSize,activation='relu',name="encoder")(flat1)
+		
+		dec1 = Dense(encodedSize*4,activation='relu',name="DC1")(encoded)
+		decoded = Dense(timesteps*outputFeatures, activation='tanh',name="DC2")(dec1)
+		out = Reshape((timesteps, outputFeatures),name="decoder")(decoded)
 		
 		# OK LSTM
 		#latent_dim = 16
@@ -285,17 +331,16 @@ class Minerva():
 		#encoder2 = LSTM(8,return_sequences=True,activation='relu')(encoder1)
 		#encoder3 = LSTM(4,return_sequences=True,activation='relu')(encoder2)
 		#flat1 = Flatten()(encoder3) 
-		#encoded = Dense(encodedSize,activation='relu')(flat1)	
+		#encoded = Dense(encodedSize,activation='relu',name="encoder")(flat1)	
 		#dec1 = Dense(encodedSize*2,activation='relu')(encoded)
 		#dec2 = Dense(encodedSize*4,activation='relu')(dec1)
 		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec2)
 		#out = Reshape((timesteps, outputFeatures))(decoded)
 		
 		
-		model = Model(inputs=inputs, outputs=out)
-		print(model.summary())
-		
-		return model
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		#print(autoencoderModel.summary())
+		return autoencoderModel
 	
 	def __getXYscaler(self,batteries):
 		"""
