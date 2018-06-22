@@ -53,16 +53,16 @@ def main():
 	########################
 	# All dataset
 	batteries = minerva.ets.loadBlowDataSet()
-	#minerva.crossTrain(batteries) # Model train and cross validate
-	#minerva.crossValidate(batteries)
+	minerva.crossTrain(batteries) # Model train and cross validate
+	#minerva.crossValidate(batteries,mode="GUI")
 	########################
-	name4model = "Fold_%d_%s_%d_%d_%d_%d" % (0,minerva.modelName,eps1,eps2,alpha1,alpha2)
-	minerva.encode(batteries,name4model)
+	#name4model = "Fold_%d_%s_%d_%d_%d_%d" % (0,minerva.modelName,eps1,eps2,alpha1,alpha2)
+	#minerva.encode(batteries,name4model)
 	
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "Conv1D"
+	modelName = "Conv1DHuber"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 500
@@ -74,7 +74,7 @@ class Minerva():
 	
 	
 	def __init__(self,eps1,eps2,alpha1,alpha2):
-		
+		# 
 		# creates log folder
 		if not os.path.exists(self.logFolder):
 			os.makedirs(self.logFolder)
@@ -125,7 +125,7 @@ class Minerva():
 			self.__evaluateModel(testX, testY,name4model,yscaler,False)
 			foldCounter += 1
 
-	def crossValidate(self,batteries,plot=True):
+	def crossValidate(self,batteries,plot=True,mode = "server"):
 		xscaler,yscaler = self.__getXYscaler(batteries)
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		foldCounter = 0
@@ -134,7 +134,7 @@ class Minerva():
 			testX = x[test_index]
 			testY = y[test_index]
 			name4model = "Fold_%d_%s_%d_%d_%d_%d" % (foldCounter,self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2)
-			self.__evaluateModel(testX, testY,name4model,yscaler,plot)
+			self.__evaluateModel(testX, testY,name4model,mode,yscaler,plot)
 			foldCounter += 1
 	
 	
@@ -189,7 +189,7 @@ class Minerva():
 		
 
 	
-	def __evaluateModel(self,testX,testY,model2load,scaler = None, plot2video = False):
+	def __evaluateModel(self,testX,testY,model2load,mode,scaler = None, plot = False):
 		
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
 		
@@ -201,8 +201,13 @@ class Minerva():
 		tt = time.clock()
 		mse, mae = model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
 		logger.info("Test MSE %f - MAE %f Elapsed %f" % (mse,mae,(time.clock() - tt)))
-
-		if(plot2video):
+		
+		if(mode == "server" ):
+			plt.switch_backend('agg')
+			if not os.path.exists(self.ets.episodeImageFolder):
+				os.makedirs(self.ets.episodeImageFolder)
+		
+		if(plot):
 			logger.info("Predicting")
 			tt = time.clock()
 			y_pred = model.predict(testX,  batch_size=self.batchSize)
@@ -221,15 +226,19 @@ class Minerva():
 					plt.plot(testY[toPlot][:, col],color="orange",label="Real")
 					plt.legend()
 					i += 1
-				
-				plt.show()
+				if(mode == "server" ):
+					name = str(toPlot) +"_"+str(uuid.uuid4())
+					plt.savefig(os.path.join(self.ets.episodeImageFolder,name), bbox_inches='tight')
+					plt.close()
+				else:
+					plt.show()
 	
-	def __predict(self,batteries,name4model,plot2video = False):
+	def __predict(self,batteries,name4model,plot = False):
 		allDataset = self.ets.loadDataSet()
 		xscaler,yscaler = self.__getXYscaler(allDataset)
 		_,_ = self.__getXYscaler(batteries)
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
-		self.__evaluateModel(x, y,name4model,yscaler,plot2video)
+		self.__evaluateModel(x, y,name4model,yscaler,plot)
 	
 	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
 		
@@ -250,7 +259,8 @@ class Minerva():
 		model = self.__functionalModel(inputFeatures,outputFeatures,x_train)	
 		
 		adam = optimizers.Adam(lr=0.000005)		
-		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
+		#model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
+		model.compile(loss='logcosh', optimizer=adam,metrics=['mae'])
 		
 		
 		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
@@ -306,7 +316,7 @@ class Minerva():
 		#out = Reshape((timesteps, outputFeatures))(decoded)
 		
 		# OK CONV1D 7308
-		encoderFilter = 64
+		encoderFilter = 128
 		encoderKernel = 4
 		encoderPool = 2
 		encodedSize = 8
@@ -339,7 +349,7 @@ class Minerva():
 		
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		#print(autoencoderModel.summary())
+		print(autoencoderModel.summary())
 		return autoencoderModel
 	
 	def __getXYscaler(self,batteries):
@@ -356,19 +366,6 @@ class Minerva():
 		yscaler.fit(y)
 		logger.debug("__getXYscaler - end - %f" % (time.clock() - tt) )
 		return xscaler,yscaler
-	
-	def __showNumpyArray(self,data):
-		plt.figure()
-		#toPlot = np.random.randint(data.shape[0])
-		toPlot = 0
-		i = 1
-		for col in range(data.shape[2]):
-			plt.subplot(data.shape[2], 1, i)
-			plt.plot(data[toPlot][:, col],color="orange",label="Real")
-			plt.legend()
-			i += 1
-		
-		plt.show()
 	
 	def __batchCompatible(self,batch_size,data):
 		"""

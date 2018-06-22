@@ -264,6 +264,7 @@ class EpisodedTimeSeries():
 		name: in server mode if specified save the image with the provided name
 		"""
 		if(mode == "server"):
+			plt.switch_backend('agg')
 			if not os.path.exists(self.episodeImageFolder):
 				os.makedirs(self.episodeImageFolder)
 		
