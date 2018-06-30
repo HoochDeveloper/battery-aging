@@ -44,36 +44,39 @@ def main():
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=eps1,eps2=eps2,alpha1=alpha1,alpha2=alpha2)
 	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset of not exists
-	mode =  "GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
+	plotMode = "server" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
+	if(plotMode == "server" ):
+		plt.switch_backend('agg')
+		if not os.path.exists(minerva.ets.episodeImageFolder):
+			os.makedirs(minerva.ets.episodeImageFolder)
+	
 	
 	######################### 
 	# show the histogram of resistance distribution month by month
-	#minerva.ets.resistanceDistribution(batteries,join=joinDischargeCharge,mode=mode)
+	#minerva.ets.resistanceDistribution(batteries,join=joinDischargeCharge,mode=plotMode)
 	
 	########################
 	#Month by month prediction
 	#name4model = "Fold_%d_%s_%d_%d_%d_%d" % (0,minerva.modelName,eps1,eps2,alpha1,alpha2)
 	#minerva.train4month(0)
-	minerva.predict4month(1,plot2video = False)
-	minerva.predict4month(2,plot2video = False)
-	minerva.predict4month(3,plot2video = False)
+	#minerva.predict4month(1,plot2video = False)
+	#minerva.predict4month(2,plot2video = False)
+	#minerva.predict4month(3,plot2video = False)
 	
 	########################
 	# All dataset predictions
-	#joinDischargeCharge = True # if False one episode is loaded as a tuple wiht 0 discharge blow and 1 charge blow
-	#batteries = minerva.ets.loadBlowDataSet(join=joinDischargeCharge) # load the dataset
-	
-	
+	joinDischargeCharge = True # if False one episode is loaded as a tuple wiht 0 discharge blow and 1 charge blow
+	batteries = minerva.ets.loadBlowDataSet(join=joinDischargeCharge) # load the dataset
 	# cross train the model
 	#minerva.crossTrain(batteries) # Model train and cross validate
 	# cross validate the model
-	# minerva.crossValidate(batteries,mode=mode)
+	minerva.crossValidate(batteries,mode=plotMode)
 
 class Minerva():
 	
 	logFolder = "./logs"
-	#modelName = "InceptionConv2Dlogcosh"
-	modelName = "ZeroInceptionConv2Dlogcosh"
+	modelName = "InceptionConv2Dlogcosh"
+	#modelName = "ZeroInceptionConv2Dlogcosh"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 500
@@ -167,11 +170,6 @@ class Minerva():
 		tt = time.clock()
 		mse, mae = model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
 		logger.info("Test MSE %f - MAE %f Elapsed %f" % (mse,mae,(time.clock() - tt)))
-		
-		if(mode == "server" ):
-			plt.switch_backend('agg')
-			if not os.path.exists(self.ets.episodeImageFolder):
-				os.makedirs(self.ets.episodeImageFolder)
 		
 		if(plot):
 			logger.info("Predicting")
