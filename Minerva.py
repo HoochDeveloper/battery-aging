@@ -43,10 +43,8 @@ def main():
 	
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=eps1,eps2=eps2,alpha1=alpha1,alpha2=alpha2)
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset of not exists
-	mode = "server" #"GUI" # set mode to server in order to save plot to disk instead of showing on video
-	joinDischargeCharge = True # if False one episode is loaded as a tuple wiht 0 discharge blow and 1 charge blow
-	batteries = minerva.ets.loadBlowDataSet(join=joinDischargeCharge) # load the dataset
+	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset of not exists
+	mode =  "GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
 	
 	######################### 
 	# show the histogram of resistance distribution month by month
@@ -56,19 +54,26 @@ def main():
 	#Month by month prediction
 	#name4model = "Fold_%d_%s_%d_%d_%d_%d" % (0,minerva.modelName,eps1,eps2,alpha1,alpha2)
 	#minerva.train4month(0)
-	#minerva.predict4month(3,"Month_Conv1D",plot2video = False)
+	minerva.predict4month(1,plot2video = False)
+	minerva.predict4month(2,plot2video = False)
+	minerva.predict4month(3,plot2video = False)
 	
 	########################
 	# All dataset predictions
+	#joinDischargeCharge = True # if False one episode is loaded as a tuple wiht 0 discharge blow and 1 charge blow
+	#batteries = minerva.ets.loadBlowDataSet(join=joinDischargeCharge) # load the dataset
+	
+	
 	# cross train the model
 	#minerva.crossTrain(batteries) # Model train and cross validate
 	# cross validate the model
-	minerva.crossValidate(batteries,mode=mode)
+	# minerva.crossValidate(batteries,mode=mode)
 
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "Conv1DHuber"
+	#modelName = "InceptionConv2Dlogcosh"
+	modelName = "ZeroInceptionConv2Dlogcosh"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 500
@@ -100,9 +105,10 @@ class Minerva():
 		self.ets = EpisodedTimeSeries(self.eps1,self.eps2,self.alpha1,self.alpha2)
 	
 	
-	def predict4month(self,monthIndex,name4model,plot2video = False):
+	def predict4month(self,monthIndex,plot2video = False):
 		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex]) # blows
 		logger.info("Model trained on month 0, predicting month %d" % monthIndex)
+		name4model = "Month_%s_%d_%d_%d_%d" % ( self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2 )
 		self.__predict(batteries,name4model,plot2video)
 	
 	def train4month(self,monthIndex):
@@ -110,6 +116,8 @@ class Minerva():
 		xscaler,yscaler = self.__getXYscaler(allDataset)
 		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex])
 		_,_ = self.__getXYscaler(batteries)
+		
+		xscaler,yscaler = None,None
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		xtrain, xvalid, ytrain, yvalid = train_test_split( x, y, test_size=0.1, random_state=42)
 		name4model = "Month_%s_%d_%d_%d_%d" % ( self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2 )
@@ -117,7 +125,9 @@ class Minerva():
 
 	def crossTrain(self,batteries):
 		xscaler,yscaler = self.__getXYscaler(batteries)
-		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		#x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		xscaler,yscaler = None, None
+		x,y = self.__datasetAs3DArray(batteries)
 		foldCounter = 0
 		kf = KFold(n_splits=5, random_state=42, shuffle=True)
 		for train_index, test_index in kf.split(x):
@@ -133,7 +143,9 @@ class Minerva():
 
 	def crossValidate(self,batteries,plot=True,mode = "server"):
 		xscaler,yscaler = self.__getXYscaler(batteries)
-		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		#x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		xscaler,yscaler = None, None
+		x,y = self.__datasetAs3DArray(batteries)
 		foldCounter = 0
 		kf = KFold(n_splits=5, random_state=42, shuffle=True)
 		for train_index, test_index in kf.split(x):
@@ -188,6 +200,7 @@ class Minerva():
 		allDataset = self.ets.loadDataSet()
 		xscaler,yscaler = self.__getXYscaler(allDataset)
 		_,_ = self.__getXYscaler(batteries)
+		xscaler,yscaler = None, None
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		self.__evaluateModel(x, y,name4model,yscaler,plot)
 	
@@ -209,19 +222,14 @@ class Minerva():
 
 		model = self.__functionalModel(inputFeatures,outputFeatures,x_train)	
 		
-		adam = optimizers.Adam(lr=0.000005)		
-		#model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
+		adam = optimizers.Adam(lr=0.000001)		
 		model.compile(loss='logcosh', optimizer=adam,metrics=['mae'])
-		
-		
-		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
-		
+	
+		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=1, verbose=0, mode='min')	
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
-		
 		csv_logger = CSVLogger(cvsLogFile)
-		
 		model.fit(x_train, y_train,
-			verbose = 0,
+			verbose = 1,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,y_valid),
@@ -234,56 +242,75 @@ class Minerva():
 		logger.debug("Model saved")
 		
 		trainMse, trainMae = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
-		logger.info("Train MSE %f - MAE %f" % (trainMse,trainMae))
+		logger.info("Train MAE %f - LCH %f" % (trainMse,trainMae))
 		validMse, validMae = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
-		logger.info("Valid MSE %f - MAE %f" % (validMse,validMae))
+		logger.info("Valid MAE %f - LCH %f" % (validMse,validMae))
 		logger.debug("__trainlModel - end - %f" % (time.clock() - tt) )
 
 	def __functionalModel(self,inputFeatures,outputFeatures,data):
-	
+		
+		encodedSize = 8
 		timesteps = data.shape[1]
 		signals   = data.shape[2]
 		inputs = Input(shape=(timesteps,signals))
 		
 		# OK CONV2D
-		#width  = 10
-		#heigth = 10
-		#deepth = timesteps * signals
-		#mask = (3,3)
-		#mask2 = (2,2)
-		#poolMask = (2,2)
-		#initParams = 2
-		#outParams = 256
-		#enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
-		#reshape1 = Reshape((width, heigth,deepth))(enlarge)
-		#conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
-		#conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
-		#maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
-		#conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
-		##maxpool2 = MaxPooling2D(pool_size=poolMask)(conv3)
-		#encoded = Flatten(name="encoder")(conv3) 
-		#dec1 = Dense(outParams,activation='relu')(encoded)
-		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec1)
-		#out = Reshape((timesteps, outputFeatures))(decoded)
+		width  = 15
+		heigth = 15
+		deepth = timesteps * signals
+		mask = (5,5)
+		mask2 = (3,3)
+		poolMask = (3,3)
+		initParams = 16
+		outParams = 512
+		
+		enlarge1  = Dense(width*heigth*signals,activation='relu')(inputs)
+		reshape1 = Reshape((width, heigth,deepth))(enlarge1)
+		conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
+		conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
+		maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
+		conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
+		
+		flat1 = Flatten()(conv3)
+		enlarge2  = Dense(width*heigth*deepth,activation='relu')(flat1)
+		reshape2 = Reshape((width, heigth,deepth))(enlarge2)
+		conv4 =    Conv2D(initParams*8,mask, activation='relu')(reshape2)
+		conv5 =    Conv2D(initParams*4,mask2, activation='relu')(conv4)
+		maxpool2 = MaxPooling2D(pool_size=poolMask)(conv5)
+		conv6 =    Conv2D(initParams,mask2, activation='relu')(maxpool2)
+		
+		flat2 = Flatten()(conv6) 
+		encoded = Dense(encodedSize,activation='relu',name="encoder")(flat2)
+		
+		decenlarge2  = Dense(width*heigth*deepth,activation='relu')(encoded)
+		decreshape2 = Reshape((width, heigth,deepth))(decenlarge2)
+		decconv4 =    Conv2D(initParams*8,mask, activation='relu')(decreshape2)
+		decconv5 =    Conv2D(initParams*4,mask2, activation='relu')(decconv4)
+		decmaxpool2 = MaxPooling2D(pool_size=poolMask)(decconv5)
+		decconv6 =    Conv2D(initParams,mask2, activation='relu')(decmaxpool2)
+		
+		flat3 = Flatten()(decconv6) 
+		dec1 = Dense(outParams,activation='relu')(flat3)
+		decoded = Dense(timesteps*outputFeatures, activation='linear')(dec1)
+		out = Reshape((timesteps, outputFeatures))(decoded)
 		
 		# OK CONV1D 7308
-		encoderFilter = 128
-		encoderKernel = 4
-		encoderPool = 2
-		encodedSize = 8
+		#encoderFilter = 128
+		#encoderKernel = 4
+		#encoderPool = 2
 		#kernel_initializer='glorot_uniform', bias_initializer='zeros',
-		conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV1")(inputs)
-		maxpool1 = MaxPooling1D(pool_size=encoderPool,name="MP1")(conv1)
-		
-		conv2 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV2")(maxpool1)
-		maxpool2 = MaxPooling1D(pool_size=encoderPool,name="MP2")(conv2)
-		
-		flat1 = Flatten(name="FT1")(maxpool2) 
-		encoded = Dense(encodedSize,activation='relu',name="encoder")(flat1)
-		
-		dec1 = Dense(encodedSize*4,activation='relu',name="DC1")(encoded)
-		decoded = Dense(timesteps*outputFeatures, activation='tanh',name="DC2")(dec1)
-		out = Reshape((timesteps, outputFeatures),name="decoder")(decoded)
+		#conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV1")(inputs)
+		#maxpool1 = MaxPooling1D(pool_size=encoderPool,name="MP1")(conv1)
+		#
+		#conv2 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV2")(maxpool1)
+		#maxpool2 = MaxPooling1D(pool_size=encoderPool,name="MP2")(conv2)
+		#
+		#flat1 = Flatten(name="FT1")(maxpool2) 
+		#encoded = Dense(encodedSize,activation='relu',name="encoder")(flat1)
+		#
+		#dec1 = Dense(encodedSize*4,activation='relu',name="DC1")(encoded)
+		#decoded = Dense(timesteps*outputFeatures, activation='tanh',name="DC2")(dec1)
+		#out = Reshape((timesteps, outputFeatures),name="decoder")(decoded)
 		
 		# OK LSTM
 		#latent_dim = 16
