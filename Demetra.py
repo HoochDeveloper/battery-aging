@@ -8,11 +8,11 @@ Module for handling data loading
 Requires: 
 	pandas 	(https://pandas.pydata.org/)
 	numpy	(http://www.numpy.org/)
+	seaborn (https://seaborn.pydata.org/)
 """
 #Imports
 import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt, glob
 from datetime import datetime
-
 from logging import handlers as loghds
 
 #Module logging
@@ -162,11 +162,11 @@ class EpisodedTimeSeries():
 		if(join == False)
 			print(e[0][0][0][0].shape) #discharge blow
 			print(e[0][0][0][1].shape) #charge blow
-			self.plot(e[0][0][0][0],mode="GUI",name=None) # plot discharge blow
-			self.plot(e[0][0][0][1],mode="GUI",name=None) # plot charge blow
+			self.plotDataFrame(e[0][0][0][0],mode="GUI",name=None) # plot discharge blow
+			self.plotDataFrame(e[0][0][0][1],mode="GUI",name=None) # plot charge blow
 		else:
 			print(e[0][0][0].shape) #join blow
-			self.plot(e[0][0][0],mode="GUI",name=None) # plot join blow
+			self.plotDataFrame(e[0][0][0],mode="GUI",name=None) # plot join blow
 		"""
 		tt = time.clock()
 		logger.debug("loadBlowDataSet - start")
@@ -180,7 +180,42 @@ class EpisodedTimeSeries():
 		logger.debug("loadBlowDataSet - end - %f" % (time.clock() - tt))
 		return episodes 
 	
-	def dataSetSummary(self,batteries,showDistro=False):
+	
+	def resistanceDistribution(self,batteries,join=True,mode="server"):	
+		bins = [-50,-30,-20,-10,-5,-2,-1,-0.5,0,0.5,1,2,5,10,20,30,50]
+		nameIndex = self.dataHeader.index(self.nameIndex)
+		for battery in batteries:
+			month = 0
+			batteryName = ""
+			for episodeInMonth in battery:
+				batteryR = np.empty(0)
+				batteryDischargeR = np.empty(0)
+				batteryChargeR = np.empty(0)
+				for episode in episodeInMonth:
+					if(join == True):
+						batteryName =  episode.values[:, nameIndex][0]
+						episodeResistance = self.__getEpisodeResistance(episode)
+						batteryR = np.concatenate([batteryR,episodeResistance])
+					else:
+						batteryName =  episode[0].values[:, nameIndex][0]
+						dischargeResistance = self.__getEpisodeResistance(episode[0])
+						chargeResistance = self.__getEpisodeResistance(episode[1])
+						batteryDischargeR = np.concatenate([batteryDischargeR,dischargeResistance])
+						batteryChargeR = np.concatenate([batteryChargeR,chargeResistance]) 
+				if(join == True):			
+					self.__plotResistanceDistro(batteryR,bins,"Battery %s blow episode resistance Month %d" % (batteryName,month ),mode)
+				else:
+					self.__plotResistanceDistro(batteryDischargeR,bins,"Battery %s Discharge Blow resistance Month %d" % (batteryName,month))
+					self.__plotResistanceDistro(batteryChargeR,bins,"Battery %s  Charge Blow resistance Month %d" %(batteryName,month))
+				month += 1
+				
+	def __plotResistanceDistro(self,batteryR,bins,title,mode):
+		weights = np.ones_like(batteryR)/float(len(batteryR)) # array with all 1 / len(r)
+		plt.hist(batteryR, bins=bins,weights=weights)
+		plt.title(title)
+		self.plotMode(mode,imgTitle=title,autoClose=False)
+			
+	def dataSetSummary(self,batteries):
 		logger.info("Data from %d different batteries" % len(batteries))
 		logger.info("Every battery has %d month of data" % len(batteries[0]))
 		monthlyEpisodes = np.zeros(len(batteries[0]))
@@ -214,23 +249,27 @@ class EpisodedTimeSeries():
 						minMonth = episode.shape[0]
 					if(episode.shape[0] > maxMonth):
 						maxMonth = episode.shape[0]
+
 				meanEpisodeTimeSteps = 0
 				if(len(episodeInMonth) > 0):
 					meanEpisodeTimeSteps = float(monthTotalTimeSteps) / float(len(episodeInMonth))
 				logger.info("Month: %d Mean: %f Min: %g Max %g" %  (month,meanEpisodeTimeSteps,minMonth,maxMonth))
 				month += 1
 			logger.info("Min: %g Max: %g" % (min,max))
-			if(showDistro):
-				histog,_ = np.histogram(distribution,bins=max)
-				plt.plot(histog)
-				plt.show()
-				
-			
 			batt +=1
 		
 		logger.info(self.SEP)
 		for month in range(len(batteries[0])):
 			logger.info("There are %d episodes in month %d" % (monthlyEpisodes[month], month))
+		
+	def __getEpisodeResistance(self,episode):
+		"""
+		Get the values for battery resistance in given episode, Inf and Nan are replaced with 0
+		"""
+		resistance = episode[self.voltageIndex] / episode[self.currentIndex]
+		resistance.replace([np.inf,-np.inf], 0, inplace = True)
+		resistance.fillna(0, inplace = True)
+		return resistance.values
 		
 	def showEpisodes(self,monthIndex=0,limit=1,mode="server"):
 		"""
@@ -252,12 +291,12 @@ class EpisodedTimeSeries():
 			if(limit is not None):
 				max2show = min(limit,len(batteryEpisodes[monthIndex]))
 			for e in range(max2show):
-				self.plot(batteryEpisodes[monthIndex][e],mode=mode)
+				self.plotDataFrame(batteryEpisodes[monthIndex][e],mode=mode)
 		logger.info("Total %d" % total)
 
 	
 	
-	def plot(self,data,mode="server",name=None):
+	def plotDataFrame(self,data,mode="server",name=None):
 		"""
 		Plot the input dataframe as is
 		mode: in server mode, images will be saved on disk, shown otherwise
@@ -295,16 +334,29 @@ class EpisodedTimeSeries():
 		frequency = int(len(timeLabel) / 4)
 		plt.xticks(xs[::frequency], timeLabel[::frequency])
 		plt.xticks(rotation=45)
-		if(mode != "server"):
-			plt.show()
+		
+		imgTitle = ""
+		if(name is None):
+			imgTitle = batteryName +"_"+str(uuid.uuid4())
 		else:
-			if(name is None):
-				name = batteryName +"_"+str(uuid.uuid4())
+			imgTitle = batteryName +"_"+name 
+		self.plotMode(mode,imgTitle)
+		
+	def plotMode(self,mode,imgTitle=None,autoClose=False):
+		if(mode != "server"):
+			blk = True
+			if(autoClose == True):
+				blk = False
+			plt.show(block=blk)
+			if(autoClose == True):
+				plt.close()
+		else:
+			if(imgTitle is None):
+				name = str(uuid.uuid4())
 			else:
-				name = batteryName +"_"+name 
+				name = imgTitle
 			plt.savefig(os.path.join(self.episodeImageFolder,name), bbox_inches='tight')
 			plt.close()
-			
 	
 	
 	# private methods
@@ -659,7 +711,7 @@ class EpisodedTimeSeries():
 		
 	
 		#logger.debug("First blow: %s - Last blow: %s" % (firstBlow,lastBlow))
-		#self.plot(episode)
+		#self.plotDataFrame(episode)
 		
 		dischargeBlowIdx = episode.index.get_loc(firstBlow)
 		dischargeBlowCtx = episode.iloc[dischargeBlowIdx-eps1:dischargeBlowIdx+alpha1,:]

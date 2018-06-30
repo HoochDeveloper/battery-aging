@@ -43,22 +43,28 @@ def main():
 	
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=eps1,eps2=eps2,alpha1=alpha1,alpha2=alpha2)
-	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset
+	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=force) # creates dataset of not exists
+	mode = "server" #"GUI" # set mode to server in order to save plot to disk instead of showing on video
+	joinDischargeCharge = True # if False one episode is loaded as a tuple wiht 0 discharge blow and 1 charge blow
+	batteries = minerva.ets.loadBlowDataSet(join=joinDischargeCharge) # load the dataset
+	
+	######################### 
+	# show the histogram of resistance distribution month by month
+	#minerva.ets.resistanceDistribution(batteries,join=joinDischargeCharge,mode=mode)
+	
 	########################
 	#Month by month prediction
+	#name4model = "Fold_%d_%s_%d_%d_%d_%d" % (0,minerva.modelName,eps1,eps2,alpha1,alpha2)
 	#minerva.train4month(0)
 	#minerva.predict4month(3,"Month_Conv1D",plot2video = False)
-	########################
 	
 	########################
-	# All dataset
-	batteries = minerva.ets.loadBlowDataSet()
-	minerva.crossTrain(batteries) # Model train and cross validate
-	#minerva.crossValidate(batteries,mode="GUI")
-	########################
-	#name4model = "Fold_%d_%s_%d_%d_%d_%d" % (0,minerva.modelName,eps1,eps2,alpha1,alpha2)
-	#minerva.encode(batteries,name4model)
-	
+	# All dataset predictions
+	# cross train the model
+	#minerva.crossTrain(batteries) # Model train and cross validate
+	# cross validate the model
+	minerva.crossValidate(batteries,mode=mode)
+
 class Minerva():
 	
 	logFolder = "./logs"
@@ -137,58 +143,6 @@ class Minerva():
 			self.__evaluateModel(testX, testY,name4model,mode,yscaler,plot)
 			foldCounter += 1
 	
-	
-	def encode(self,batteries,model2load):
-		
-		xscaler,yscaler = self.__getXYscaler(batteries)
-		x,realState = self.__datasetAs3DArray(batteries,xscaler,yscaler)
-		
-		x = self.__batchCompatible(self.batchSize,x)
-		
-		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
-		encoder = Model(inputs=model.input,outputs=model.get_layer("encoder").output)
-		
-		decoder = Model(inputs=model.get_layer("DC1").input,outputs=model.get_layer("decoder").output)
-		
-		encodedState = encoder.predict(x,  batch_size=self.batchSize)
-		
-		print(encodedState.shape)
-
-		from sklearn import svm
-		
-		
-		
-		clf = svm.OneClassSVM(nu=0.1, kernel="rbf", gamma=0.1)
-		clf.fit(encodedState)
-		
-		
-		ageing = clf.predict(encodedState)
-		inlayer = ageing[ageing == 1].size
-		outlayer = ageing[ageing == -1].size
-		print("In %d Out %d" % (inlayer,outlayer) )
-		
-		
-		
-		ageingOK = x[ageing == 1]
-		ageingKO = x[ageing == -1]
-		ageingOK = self.__batchCompatible(self.batchSize,ageingOK)
-		ageingKO = self.__batchCompatible(self.batchSize,ageingKO)
-		
-		decodedState = decoder.predict(ageingOK,  batch_size=self.batchSize)
-		for r in range(25):
-			plt.figure()
-			toPlot = np.random.randint(decodedState.shape[0])
-			i = 1
-			for col in range(decodedState.shape[2]):
-				plt.subplot(decodedState.shape[2], 1, i)
-				plt.plot(decodedState[toPlot][:, col],color="navy",label="Prediction")
-				plt.plot(realState[toPlot][:, col],color="orange",label="Real")
-				plt.legend()
-				i += 1
-			plt.show()
-		
-
-	
 	def __evaluateModel(self,testX,testY,model2load,mode,scaler = None, plot = False):
 		
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
@@ -226,13 +180,10 @@ class Minerva():
 					plt.plot(testY[toPlot][:, col],color="orange",label="Real")
 					plt.legend()
 					i += 1
-				if(mode == "server" ):
-					name = str(toPlot) +"_"+str(uuid.uuid4())
-					plt.savefig(os.path.join(self.ets.episodeImageFolder,name), bbox_inches='tight')
-					plt.close()
-				else:
-					plt.show()
-	
+				
+				title = str(toPlot) +"_"+str(uuid.uuid4())
+				self.ets.plotMode(mode,title)
+
 	def __predict(self,batteries,name4model,plot = False):
 		allDataset = self.ets.loadDataSet()
 		xscaler,yscaler = self.__getXYscaler(allDataset)
