@@ -38,47 +38,58 @@ def main():
 	
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5)
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
+	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
 	plotMode = "server" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
 	if(plotMode == "server" ):
 		plt.switch_backend('agg')
 		if not os.path.exists(minerva.ets.episodeImageFolder):
 			os.makedirs(minerva.ets.episodeImageFolder)
-			
+	
+	logger.info("Loading the dataset")
+	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+
+	
 	######################### 
 	# show the histogram of resistance distribution month by month for every battery
-	logger.info("Battery resistance distribution - start")
-	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	minerva.ets.resistanceDistribution(batteries,join=True,mode=plotMode)
-	logger.info("Battery resistance distribution - end")
+	#logger.info("Battery resistance distribution - start")
+	#minerva.ets.resistanceDistribution(batteries,join=True,mode=plotMode)
+	#logger.info("Battery resistance distribution - end")
 	########################
-	logger.info("Autoencoder trained on month 0 - start")
+	#logger.info("Autoencoder trained on month 0 - start")
 	#Train the model on first month data for all batteris
-	minerva.train4month(0)
+	#minerva.train4month(0)
 	#Month by month prediction
-	scaleDataset = True
-	xscaler,yscaler = None, None
-	if(scaleDataset):
-		logger.info("Loading dataset")
-		allDataset = minerva.ets.loadDataSet()
-		minerva.dropDatasetLabel(allDataset)
-		logger.info("Compute scaler")
-		xscaler,yscaler = minerva.getXYscaler(allDataset)
-		logger.info("Scaler loaded")
+	#scaleDataset = True
+	#xscaler,yscaler = None, None
+	#if(scaleDataset):
+	#	logger.info("Loading dataset")
+	#	allDataset = minerva.ets.loadDataSet()
+	#	minerva.dropDatasetLabel(allDataset)
+	#	logger.info("Compute scaler")
+	#	xscaler,yscaler = minerva.getXYscaler(allDataset)
+	#	logger.info("Scaler loaded")
 	# predict for every other months
-	minerva.decode4month(1,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	minerva.decode4month(2,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	logger.info("Autoencoder trained on month 0 - end")
+	#minerva.decode4month(1,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	#minerva.decode4month(2,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	#minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	#logger.info("Autoencoder trained on month 0 - end")
 	########################
 	# Train on all batteries and all months
 	########################
-	logger.info("Autoencoder trained all months - start")
-	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	minerva.crossTrain(batteries) #  cross train the model
-	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	minerva.crossValidate(batteries,plotMode=plotMode) 	# cross validate the model
-	logger.info("Autoencoder trained all months - end")
+	#logger.info("Autoencoder trained all months - start")
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#minerva.crossTrain(batteries) #  cross train the model
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#minerva.crossValidate(batteries,plotMode=plotMode) 	# cross validate the model
+	#logger.info("Autoencoder trained all months - end")
+	
+	#######################
+	# Anomaly detection
+	#######################
+	logger.info("Anomlay detection - start")
+	model2load = "Fold_2_FullyConnected_5_5_5_5"
+	minerva.anomalyDetect(batteries,model2load)
+	logger.info("Anomlay detection - end")
 	
 class Minerva():
 	
@@ -182,6 +193,54 @@ class Minerva():
 			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,showImages)
 			foldCounter += 1
 	
+	def anomalyDetect(self,batteries,model2load,scaleDataset=True):
+		
+		logger.info("Encoding")
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		encoder = Model(inputs=model.input, outputs=model.get_layer("ENC").output)
+								 
+		xscaler,yscaler = None, None
+		self.dropDatasetLabel(batteries)
+		if(scaleDataset):
+			xscaler,yscaler = self.getXYscaler(batteries)
+		x,_ = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		
+		
+		x = self.__batchCompatible(self.batchSize,x)
+		encoded = encoder.predict(x,batch_size=self.batchSize)
+		print(encoded.shape)
+		
+		logger.info("Encoded")
+		
+		from sklearn.svm import OneClassSVM
+		
+		osvm = OneClassSVM(nu=0.261, gamma=0.05)
+		logger.info("Fitting OCSVM")
+		osvm.fit(encoded)
+		logger.info("Detecting anomalies")
+		labels = osvm.predict(encoded)
+		print(labels.shape)
+		import collections
+		print(collections.Counter(labels))
+		
+		
+		#from sklearn.covariance import EllipticEnvelope
+		#from sklearn.svm import OneClassSVM
+
+		#"Empirical Covariance": EllipticEnvelope(support_fraction=1., contamination=0.261),
+		#"Robust Covariance (Minimum Covariance Determinant)":
+		#EllipticEnvelope(contamination=0.261),
+		#"OCSVM":  OneClassSVM(nu=0.261, gamma=0.05)
+
+		anomalies = np.where(labels == -1) 
+		print(anomalies[0])
+		print(anomalies[0].shape)
+		
+		self.ets.resistanceDistribution(batteries[anomalies[0]],join=True,mode="GUI")
+		
+		
+		
+		
 	
 	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
 		
