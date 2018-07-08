@@ -203,13 +203,13 @@ class EpisodedTimeSeries():
 						batteryDischargeR = np.concatenate([batteryDischargeR,dischargeResistance])
 						batteryChargeR = np.concatenate([batteryChargeR,chargeResistance]) 
 				if(join == True):			
-					self.__plotResistanceDistro(batteryR,bins,"Battery %s blow episode resistance Month %d" % (batteryName,month ),mode)
+					self.plotResistanceDistro(batteryR,bins,"Battery %s blow episode resistance Month %d" % (batteryName,month ),mode)
 				else:
-					self.__plotResistanceDistro(batteryDischargeR,bins,"Battery %s Discharge Blow resistance Month %d" % (batteryName,month))
-					self.__plotResistanceDistro(batteryChargeR,bins,"Battery %s  Charge Blow resistance Month %d" %(batteryName,month))
+					self.plotResistanceDistro(batteryDischargeR,bins,"Battery %s Discharge Blow resistance Month %d" % (batteryName,month))
+					self.plotResistanceDistro(batteryChargeR,bins,"Battery %s  Charge Blow resistance Month %d" %(batteryName,month))
 				month += 1
 				
-	def __plotResistanceDistro(self,batteryR,bins,title,mode):
+	def plotResistanceDistro(self,batteryR,bins,title,mode):
 		weights = np.ones_like(batteryR)/float(len(batteryR)) # array with all 1 / len(r)
 		plt.hist(batteryR, bins=bins,weights=weights)
 		plt.title(title)

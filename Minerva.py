@@ -39,7 +39,7 @@ def main():
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5)
 	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
-	plotMode = "server" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
+	plotMode = "GUI" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
 	if(plotMode == "server" ):
 		plt.switch_backend('agg')
 		if not os.path.exists(minerva.ets.episodeImageFolder):
@@ -88,7 +88,7 @@ def main():
 	#######################
 	logger.info("Anomlay detection - start")
 	model2load = "Fold_2_FullyConnected_5_5_5_5"
-	minerva.anomalyDetect(batteries,model2load)
+	minerva.anomalyDetect(batteries,model2load,scaleDataset=True,plotMode=plotMode)
 	logger.info("Anomlay detection - end")
 	
 class Minerva():
@@ -193,7 +193,7 @@ class Minerva():
 			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,showImages)
 			foldCounter += 1
 	
-	def anomalyDetect(self,batteries,model2load,scaleDataset=True):
+	def anomalyDetect(self,batteries,model2load,scaleDataset=True,plotMode="server"):
 		
 		logger.info("Encoding")
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
@@ -219,25 +219,26 @@ class Minerva():
 		osvm.fit(encoded)
 		logger.info("Detecting anomalies")
 		labels = osvm.predict(encoded)
-		print(labels.shape)
-		import collections
-		print(collections.Counter(labels))
-		
-		
-		#from sklearn.covariance import EllipticEnvelope
-		#from sklearn.svm import OneClassSVM
 
-		#"Empirical Covariance": EllipticEnvelope(support_fraction=1., contamination=0.261),
-		#"Robust Covariance (Minimum Covariance Determinant)":
-		#EllipticEnvelope(contamination=0.261),
-		#"OCSVM":  OneClassSVM(nu=0.261, gamma=0.05)
 
-		anomalies = np.where(labels == -1) 
-		print(anomalies[0])
-		print(anomalies[0].shape)
+		anomalies = np.where(labels == -1) 	
+		regular = np.where(labels == 1) 	
+		anomalyBatteries = x[anomalies]
+		regularBatteries = x[regular]
+		anomalyBatteryR = anomalyBatteries[:,:,-1] / anomalyBatteries[:,:,-2]
+		regularBatteryR = regularBatteries[:,:,-1] / regularBatteries[:,:,-2]
 		
-		self.ets.resistanceDistribution(batteries[anomalies[0]],join=True,mode="GUI")
+		print(anomalyBatteryR.shape)
+		print(regularBatteryR.shape)
 		
+		bins = [-50,-30,-20,-10,-5,-2,-1,-0.5,0,0.5,1,2,5,10,20,30,50]
+		
+		for i in range(0,15):
+			toPlot = np.random.randint(anomalyBatteryR.shape[0])
+			self.ets.plotResistanceDistro(anomalyBatteryR[toPlot],bins,"Anomaly Resistance %d" % toPlot,plotMode)
+			toPlot = np.random.randint(regularBatteryR.shape[0])
+			self.ets.plotResistanceDistro(regularBatteryR[toPlot],bins,"Regular Resistance %d" % toPlot,plotMode)
+
 		
 		
 		
