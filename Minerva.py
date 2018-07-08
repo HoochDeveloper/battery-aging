@@ -44,11 +44,7 @@ def main():
 		plt.switch_backend('agg')
 		if not os.path.exists(minerva.ets.episodeImageFolder):
 			os.makedirs(minerva.ets.episodeImageFolder)
-	
-	logger.info("Loading the dataset")
-	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-
-	
+			
 	######################### 
 	# show the histogram of resistance distribution month by month for every battery
 	#logger.info("Battery resistance distribution - start")
@@ -74,7 +70,7 @@ def main():
 	#minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
 	#logger.info("Autoencoder trained on month 0 - end")
 	########################
-	# Train on all batteries and all months
+	## Train on all batteries and all months
 	########################
 	#logger.info("Autoencoder trained all months - start")
 	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
@@ -84,17 +80,26 @@ def main():
 	#logger.info("Autoencoder trained all months - end")
 	
 	#######################
-	# Anomaly detection
+	## Anomaly detection
 	#######################
-	logger.info("Anomlay detection - start")
-	model2load = "Fold_2_FullyConnected_5_5_5_5"
-	minerva.anomalyDetect(batteries,model2load,scaleDataset=True,plotMode=plotMode)
-	logger.info("Anomlay detection - end")
+	#logger.info("Loading the dataset")
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#logger.info("Anomlay detection - start")
+	#model2load = "Fold_2_" + minerva.modelName + "_5_5_5_5"
+	#minerva.anomalyDetect(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#logger.info("Anomlay detection - end")
+	
+	
+	##Show encoded plot
+	model2load = "Fold_2_" + minerva.modelName + "_5_5_5_5"
+	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	encodedSize =2
+	minerva.plotEncoded(batteries,model2load,scaleDataset=True,plotMode=plotMode,encodedSize=encodedSize)
 	
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "FullyConnected"
+	modelName = "FullyConnected_2value"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 1000
@@ -193,6 +198,44 @@ class Minerva():
 			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,showImages)
 			foldCounter += 1
 	
+	
+	def plotEncoded(self,batteries,model2load,scaleDataset=True,plotMode="server",encodedSize=2):
+		from mpl_toolkits.mplot3d import Axes3D
+		logger.info("Plot encoded")
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		encoder = Model(inputs=model.input, outputs=model.get_layer("ENC").output)
+	
+		xscaler,yscaler = None, None
+		self.dropDatasetLabel(batteries)
+		if(scaleDataset):
+			xscaler,yscaler = self.getXYscaler(batteries)
+		x,_ = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		
+		
+		x = self.__batchCompatible(self.batchSize,x)
+		encoded = encoder.predict(x,batch_size=self.batchSize)
+		print(encoded.shape)
+		if(False):
+			fig = plt.figure()
+			x = encoded[:,0]
+			y = encoded[:,1]
+			
+			if(encodedSize > 2):
+				z = encoded[:,2]
+				ax = fig.add_subplot(111, projection='3d')
+				ax.scatter(x, y, z, c='r', marker='o')
+			else:
+				plt.scatter(x, y, c='r', marker='o')
+
+			plt.show()
+		
+		bins = [-50,-30,-20,-10,-5,-2,-1,-0.5,0,0.5,1,2,5,10,20,30,50]
+		for i in range(encoded.shape[0]):
+			if(encoded[i][0] >= 3):
+				resistance = x[i,:,-1] / x[i,:,-2]
+				self.ets.plotResistanceDistro(resistance,bins,"Anomaly Resistance %d" % i,plotMode)
+		
+	
 	def anomalyDetect(self,batteries,model2load,scaleDataset=True,plotMode="server"):
 		
 		logger.info("Encoding")
@@ -214,7 +257,7 @@ class Minerva():
 		
 		from sklearn.svm import OneClassSVM
 		
-		osvm = OneClassSVM(nu=0.261, gamma=0.05)
+		osvm = OneClassSVM(nu=0.001, gamma=0.05)
 		logger.info("Fitting OCSVM")
 		osvm.fit(encoded)
 		logger.info("Detecting anomalies")
@@ -258,7 +301,7 @@ class Minerva():
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
-		encodedSize = 8
+		encodedSize = 2
 		
 		model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 		
