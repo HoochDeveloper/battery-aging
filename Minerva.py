@@ -52,9 +52,9 @@ def main():
 	#logger.info("Battery resistance distribution - end")
 	########################
 	#logger.info("Autoencoder trained on month 0 - start")
-	#Train the model on first month data for all batteris
-	#minerva.train4month(0)
-	#Month by month prediction
+	### Train the model on first month data for all batteris
+	#minerva.train4month(0,forceTrain=False)
+	### Month by month prediction
 	#scaleDataset = True
 	#xscaler,yscaler = None, None
 	#if(scaleDataset):
@@ -64,7 +64,7 @@ def main():
 	#	logger.info("Compute scaler")
 	#	xscaler,yscaler = minerva.getXYscaler(allDataset)
 	#	logger.info("Scaler loaded")
-	# predict for every other months
+	### predict for every other months
 	#minerva.decode4month(1,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
 	#minerva.decode4month(2,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
 	#minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
@@ -74,7 +74,7 @@ def main():
 	########################
 	#logger.info("Autoencoder trained all months - start")
 	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#minerva.crossTrain(batteries) #  cross train the model
+	#minerva.crossTrain(batteries,forceTrain=False) #  cross train the model
 	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
 	#minerva.crossValidate(batteries,plotMode=plotMode) 	# cross validate the model
 	#logger.info("Autoencoder trained all months - end")
@@ -91,15 +91,29 @@ def main():
 	
 	
 	##Show encoded plot
-	model2load = "Fold_2_" + minerva.modelName + "_5_5_5_5"
+	#model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#encodedSize =4
+	#minerva.plotEncoded(batteries,model2load,scaleDataset=True,plotMode=plotMode,encodedSize=encodedSize)
+	
+	
 	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	encodedSize =2
-	minerva.plotEncoded(batteries,model2load,scaleDataset=True,plotMode=plotMode,encodedSize=encodedSize)
+	model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
+	minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#print("Month 1")
+	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[1])
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#print("Month 2")
+	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[2])
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#print("Month 3")
+	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[3])
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
 	
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "FullyConnected_2value"
+	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
 	epochs = 1000
@@ -234,57 +248,65 @@ class Minerva():
 			if(encoded[i][0] >= 3):
 				resistance = x[i,:,-1] / x[i,:,-2]
 				self.ets.plotResistanceDistro(resistance,bins,"Anomaly Resistance %d" % i,plotMode)
-		
 	
-	def anomalyDetect(self,batteries,model2load,scaleDataset=True,plotMode="server"):
-		
-		logger.info("Encoding")
+	def decodeAndShow(self,batteries,model2load,scaleDataset=True,plotMode="server"):
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
-		encoder = Model(inputs=model.input, outputs=model.get_layer("ENC").output)
-								 
 		xscaler,yscaler = None, None
 		self.dropDatasetLabel(batteries)
 		if(scaleDataset):
 			xscaler,yscaler = self.getXYscaler(batteries)
-		x,_ = self.__datasetAs3DArray(batteries,xscaler,yscaler)
-		
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		
 		x = self.__batchCompatible(self.batchSize,x)
-		encoded = encoder.predict(x,batch_size=self.batchSize)
-		print(encoded.shape)
+		y = self.__batchCompatible(self.batchSize,y)
+		decoded = model.predict(x,batch_size=self.batchSize)
 		
-		logger.info("Encoded")
+		from sklearn.metrics import mean_absolute_error
+		downScaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(y[i,:,0], decoded[i,:,0])
+			downScaledMAE[i] = mae
 		
-		from sklearn.svm import OneClassSVM
+		anomaltTh = 0.05
+		anomaliesIdx = np.where( downScaledMAE > anomaltTh ) 
+		anomalies = downScaledMAE[ anomaliesIdx ]
 		
-		osvm = OneClassSVM(nu=0.001, gamma=0.05)
-		logger.info("Fitting OCSVM")
-		osvm.fit(encoded)
-		logger.info("Detecting anomalies")
-		labels = osvm.predict(encoded)
-
-
-		anomalies = np.where(labels == -1) 	
-		regular = np.where(labels == 1) 	
-		anomalyBatteries = x[anomalies]
-		regularBatteries = x[regular]
-		anomalyBatteryR = anomalyBatteries[:,:,-1] / anomalyBatteries[:,:,-2]
-		regularBatteryR = regularBatteries[:,:,-1] / regularBatteries[:,:,-2]
-		
-		print(anomalyBatteryR.shape)
-		print(regularBatteryR.shape)
-		
-		bins = [-50,-30,-20,-10,-5,-2,-1,-0.5,0,0.5,1,2,5,10,20,30,50]
-		
-		for i in range(0,15):
-			toPlot = np.random.randint(anomalyBatteryR.shape[0])
-			self.ets.plotResistanceDistro(anomalyBatteryR[toPlot],bins,"Anomaly Resistance %d" % toPlot,plotMode)
-			toPlot = np.random.randint(regularBatteryR.shape[0])
-			self.ets.plotResistanceDistro(regularBatteryR[toPlot],bins,"Regular Resistance %d" % toPlot,plotMode)
-
+		print("Anomalies %d" % anomalies.shape[0])
 		
 		
+		toShowReal = y[ anomaliesIdx]
+		toShowDecoded = decoded[anomaliesIdx]
 		
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		
+		bins = np.arange(-5,5,.5)
+		my_dpi = 96
+		for i in range(toShowReal.shape[0]):
+			plt.figure(figsize=(1600/my_dpi, 800/my_dpi), dpi=my_dpi)
+			plt.subplot(3, 1, 1)
+			plt.plot(toShowReal[i,:,0],color="orange",label="Real A")
+			plt.plot(toShowDecoded[i,:,0],color="navy",label="Decoded A")
+			plt.legend()
+			
+			plt.subplot(3, 1, 2)
+			plt.plot(toShowReal[i,:,1],color="orange",label="Real V")
+			plt.plot(toShowDecoded[i,:,1],color="navy",label="Decoded V")
+			plt.legend()
+			
+			resistance = toShowReal[i,:,1] / toShowReal[i,:,0]
+			resistance[resistance == -np.inf] = 0
+			resistance[resistance == np.inf] = 0
+			weights = np.ones_like(resistance)/float(len(resistance)) # array with all 1 / len(r)
+			
+			plt.subplot(3, 1, 3)
+			plt.hist(resistance, bins=bins,weights=weights,color="navy",label="V / A")
+			plt.xticks(bins)
+			plt.xticks(rotation=90)
+			plt.legend()
+			
+			self.ets.plotMode(plotMode,None)
+	
 	
 	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
 		
@@ -301,13 +323,13 @@ class Minerva():
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
-		encodedSize = 2
+		encodedSize = 8
 		
 		model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 		
 		adam = optimizers.Adam()		
 		model.compile(loss='mae', optimizer=adam,metrics=['logcosh'])
-		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=75, verbose=1, mode='min')	
+		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=25, verbose=1, mode='min')	
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		csv_logger = CSVLogger(cvsLogFile)
 		model.fit(x_train, y_train,
@@ -377,12 +399,12 @@ class Minerva():
 		inputs = Input(shape=(timesteps,inputFeatures))
 		
 		#OK CONV1D
-		d1 = Dense(1024,activation='relu',name="D1")(inputs)
-		d2 = Dense(512,activation='relu',name="D2")(d1)
-		d3 = Dense(256,activation='relu',name="D3")(d2)
-		d4 = Dense(128,activation='relu',name="D4")(d3)
-		d5 = Dense(64,activation='relu',name="D5")(d3)
-		d6 = Dense(32,activation='relu',name="D6")(d3)
+		#d1 = Dense(1024,activation='relu',name="D1")(inputs)
+		#d2 = Dense(512,activation='relu',name="D2")(d1)
+		#d3 = Dense(256,activation='relu',name="D3")(inputs) #(d2)
+		d4 = Dense(128,activation='relu',name="D4")(inputs)  #(d3)
+		d5 = Dense(64,activation='relu',name="D5")(d4)
+		d6 = Dense(32,activation='relu',name="D6")(d5)
 		
 		f1 = Flatten(name="F1")(d6) 
 		enc = Dense(encodedSize,activation='relu',name="ENC")(f1)
@@ -391,9 +413,9 @@ class Minerva():
 		r1 = Reshape((timesteps, 32),name="R1")(d7)
 		d8 = Dense(64,activation='relu',name="D8")(r1)
 		d9 = Dense(128,activation='relu',name="D9")(d8)
-		d10 = Dense(256,activation='relu',name="D10")(d9)
-		d11 = Dense(512,activation='relu',name="D11")(d10)
-		out = Dense(outputFeatures,activation='linear',name="OUT")(d11)
+		#d10 = Dense(256,activation='relu',name="D10")(d9)
+		#d11 = Dense(512,activation='relu',name="D11")(d10)
+		out = Dense(outputFeatures,activation='linear',name="OUT")(d9) #(d11)
 		
 		
 		#encoderFilter = 128
