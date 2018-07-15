@@ -39,12 +39,18 @@ def main():
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5)
 	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
-	plotMode = "GUI" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
+	plotMode = "server" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
 	if(plotMode == "server" ):
 		plt.switch_backend('agg')
 		if not os.path.exists(minerva.ets.episodeImageFolder):
 			os.makedirs(minerva.ets.episodeImageFolder)
-			
+	
+
+	#from keras.utils import plot_model
+	#model2load = "Month_" + minerva.modelName + "_5_5_5_5"
+	#model = load_model(os.path.join( minerva.ets.rootResultFolder ,model2load+minerva.modelExt))
+	#plot_model(model, to_file='model.png',show_shapes=True, show_layer_names=True)
+	
 	######################### 
 	# show the histogram of resistance distribution month by month for every battery
 	#logger.info("Battery resistance distribution - start")
@@ -55,20 +61,20 @@ def main():
 	### Train the model on first month data for all batteris
 	#minerva.train4month(0,forceTrain=False)
 	### Month by month prediction
-	#scaleDataset = True
-	#xscaler,yscaler = None, None
-	#if(scaleDataset):
-	#	logger.info("Loading dataset")
-	#	allDataset = minerva.ets.loadDataSet()
-	#	minerva.dropDatasetLabel(allDataset)
-	#	logger.info("Compute scaler")
-	#	xscaler,yscaler = minerva.getXYscaler(allDataset)
-	#	logger.info("Scaler loaded")
-	### predict for every other months
+	scaleDataset = True
+	xscaler,yscaler = None, None
+	if(scaleDataset):
+		logger.info("Loading dataset")
+		allDataset = minerva.ets.loadDataSet()
+		minerva.dropDatasetLabel(allDataset)
+		logger.info("Compute scaler")
+		xscaler,yscaler = minerva.getXYscaler(allDataset)
+		logger.info("Scaler loaded")
+	#### predict for every other months
 	#minerva.decode4month(1,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
 	#minerva.decode4month(2,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	#minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	#logger.info("Autoencoder trained on month 0 - end")
+	minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	logger.info("Autoencoder trained on month 0 - end")
 	########################
 	## Train on all batteries and all months
 	########################
@@ -76,7 +82,7 @@ def main():
 	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
 	#minerva.crossTrain(batteries,forceTrain=False) #  cross train the model
 	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#minerva.crossValidate(batteries,plotMode=plotMode) 	# cross validate the model
+	#minerva.crossValidate(batteries,plotMode=plotMode,showImages=False) 	# cross validate the model
 	#logger.info("Autoencoder trained all months - end")
 	
 	#######################
@@ -93,13 +99,15 @@ def main():
 	##Show encoded plot
 	#model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
 	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#encodedSize =4
+	#encodedSize =8
 	#minerva.plotEncoded(batteries,model2load,scaleDataset=True,plotMode=plotMode,encodedSize=encodedSize)
 	
 	
-	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
-	minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	
+	
 	#print("Month 1")
 	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[1])
 	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
@@ -148,12 +156,57 @@ class Minerva():
 	def decode4month(self,monthIndex,plotMode,showImages=False,xscaler=None,yscaler=None):
 		logger.info("Model trained on month 0, autoencoding for month %d" % monthIndex)
 		name4model = "Month_%s_%d_%d_%d_%d" % ( self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2 )
+		
+		model = load_model(os.path.join( self.ets.rootResultFolder ,name4model+self.modelExt))
+		
 		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex]) # blows
 		self.dropDatasetLabel(batteries)
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
-		self.__evaluateModel(x, y,name4model,plotMode,yscaler,showImages)
+		#self.__evaluateModel(x, y,name4model,plotMode,yscaler,showImages)
+		x = self.__batchCompatible(self.batchSize,x)
+		y = self.__batchCompatible(self.batchSize,y)
+		decoded = model.predict(x,batch_size=self.batchSize)
+		
+		from sklearn.metrics import mean_absolute_error
+		downScaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(y[i,:,0], decoded[i,:,0])
+			downScaledMAE[i] = mae
+		
+		wholeDownScaleMae = mean_absolute_error(y[:,:,0], decoded[:,:,0])
+		print("Full MAE downscale %f" % wholeDownScaleMae)
+		
+		inscaleDecoded = self.__skScaleBack(decoded,yscaler)
+		inscaleReal = self.__skScaleBack(y,yscaler)
+		inscaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(inscaleReal[i,:,0], inscaleDecoded[i,:,0])
+			inscaledMAE[i] = mae
+		
+		wholeInscaleMae = mean_absolute_error(inscaleReal[:,:,0], inscaleDecoded[:,:,0])
+		print("Full MAE inscale %f" % wholeInscaleMae)
+		
+		anomaltTh = 0.03
+		anomaliesIdx = np.where( downScaledMAE > anomaltTh )   #np.where( downScaledMAE > anomaltTh ) 
+		anomalies = downScaledMAE[ anomaliesIdx ]
 		
 		
+		print("Anomalies %d" % anomalies.shape[0])
+		toShowReal = y[ anomaliesIdx]
+		toShowDecoded = decoded[anomaliesIdx]
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Anomlaies_%d" % monthIndex)
+		
+		regularIdx =  np.where( downScaledMAE <= anomaltTh ) 
+		regulars = downScaledMAE[ regularIdx ]
+		print("Regulars %d" % regulars.shape[0])
+		toShowReal = y[ regularIdx]
+		toShowDecoded = decoded[regularIdx]
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Regular_%d" % monthIndex)
+	
 	
 	def train4month(self,monthIndex,scaleDataset=True,forceTrain=False):
 		
@@ -210,6 +263,13 @@ class Minerva():
 			testY = y[test_index]
 			name4model = "Fold_%d_%s_%d_%d_%d_%d" % (foldCounter,self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2)
 			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,showImages)
+			validPerc = 0.1
+			trainX = x[train_index]
+			trainY = y[train_index]
+			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
+			self.__evaluateModel(trainX, trainY,name4model,plotMode,yscaler,showImages,phase="Train")
+			self.__evaluateModel(validX, validY,name4model,plotMode,yscaler,showImages,phase="Valid")
+			
 			foldCounter += 1
 	
 	
@@ -267,22 +327,52 @@ class Minerva():
 			mae = mean_absolute_error(y[i,:,0], decoded[i,:,0])
 			downScaledMAE[i] = mae
 		
-		anomaltTh = 0.05
-		anomaliesIdx = np.where( downScaledMAE > anomaltTh ) 
+		wholeDownScaleMae = mean_absolute_error(y[:,:,0], decoded[:,:,0])
+		print("Full MAE downscale %f" % wholeDownScaleMae)
+		
+		inscaleDecoded = self.__skScaleBack(decoded,yscaler)
+		inscaleReal = self.__skScaleBack(y,yscaler)
+		inscaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(inscaleReal[i,:,0], inscaleDecoded[i,:,0])
+			inscaledMAE[i] = mae
+		
+		wholeInscaleMae = mean_absolute_error(inscaleReal[:,:,0], inscaleDecoded[:,:,0])
+		print("Full MAE inscale %f" % wholeInscaleMae)
+		
+		anomaltTh = 0.03
+		anomaliesIdx = np.where( downScaledMAE > anomaltTh )   #np.where( downScaledMAE > anomaltTh ) 
 		anomalies = downScaledMAE[ anomaliesIdx ]
 		
+		
 		print("Anomalies %d" % anomalies.shape[0])
-		
-		
 		toShowReal = y[ anomaliesIdx]
 		toShowDecoded = decoded[anomaliesIdx]
-		
 		toShowReal = self.__skScaleBack(toShowReal,yscaler)
 		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Anomlaies")
 		
-		bins = np.arange(-5,5,.5)
-		my_dpi = 96
-		for i in range(toShowReal.shape[0]):
+		
+		#########
+		regularIdx =  np.where( downScaledMAE <= anomaltTh ) 
+		regulars = downScaledMAE[ regularIdx ]
+		print("Regulars %d" % regulars.shape[0])
+		toShowReal = y[ regularIdx]
+		toShowDecoded = decoded[regularIdx]
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Regular")
+		
+	
+	
+	def __plotRealVsDecodedVsResistance(self,toShowReal,toShowDecoded,num2shw,plotMode="server",random=False,title=None):
+		my_dpi = 120
+		max2show = min(num2shw,toShowReal.shape[0])
+		for r in range(max2show):
+			if(random):
+				i = np.random.randint(toShowReal.shape[0])
+			else:
+				i = r
 			plt.figure(figsize=(1600/my_dpi, 800/my_dpi), dpi=my_dpi)
 			plt.subplot(3, 1, 1)
 			plt.plot(toShowReal[i,:,0],color="orange",label="Real A")
@@ -299,14 +389,17 @@ class Minerva():
 			resistance[resistance == np.inf] = 0
 			weights = np.ones_like(resistance)/float(len(resistance)) # array with all 1 / len(r)
 			
-			plt.subplot(3, 1, 3)
-			plt.hist(resistance, bins=bins,weights=weights,color="navy",label="V / A")
+			plt.subplot(3, 2, 5)
+			plt.plot(resistance,color="orange",label="Real V / A")
+			plt.legend()
+			
+			plt.subplot(3, 2, 6)
+			bins = np.arange(-5,5,.5)
+			plt.hist(resistance, bins=bins,weights=weights,color="orange",label="Distr. V / A")
 			plt.xticks(bins)
 			plt.xticks(rotation=90)
 			plt.legend()
-			
-			self.ets.plotMode(plotMode,None)
-	
+			self.ets.plotMode(plotMode,title)
 	
 	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
 		
@@ -333,7 +426,7 @@ class Minerva():
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		csv_logger = CSVLogger(cvsLogFile)
 		model.fit(x_train, y_train,
-			verbose = 1,
+			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,y_valid),
@@ -353,18 +446,18 @@ class Minerva():
 	
 	
 	
-	def __evaluateModel(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=10):
+	def __evaluateModel(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=10,phase="Test"):
 		
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
 		
 		testX = self.__batchCompatible(self.batchSize,testX)
 		testY = self.__batchCompatible(self.batchSize,testY)
 		
-		logger.info("Testing model %s with test %s" % (model2load,testX.shape))
+		logger.info("Validating model %s with test %s" % (model2load,testX.shape))
 		
 		tt = time.clock()
 		mse, mae = model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
-		logger.info("Test MAE %f - LCH %f Elapsed %f" % (mse,mae,(time.clock() - tt)))
+		logger.info("%s MAE %f - LCH %f Elapsed %f" % (phase,mse,mae,(time.clock() - tt)))
 		
 		
 		logger.info("Autoencoding")
@@ -375,7 +468,7 @@ class Minerva():
 			ydecoded = self.__skScaleBack(ydecoded,scaler)
 			testY = self.__skScaleBack(testY,scaler)
 			scaledMAE = self.__skMAE(testY,ydecoded)
-			logger.info("Test scaled MAE %f" % scaledMAE)
+			logger.info("%s scaled MAE %f" % (phase,scaledMAE))
 			
 		if(showImages):
 			for r in range(num2show):
