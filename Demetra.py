@@ -354,7 +354,7 @@ class EpisodedTimeSeries():
 			if(imgTitle is None):
 				name = str(uuid.uuid4())
 			else:
-				name = imgTitle
+				name = imgTitle +"_"+str(uuid.uuid4())
 			plt.savefig(os.path.join(self.episodeImageFolder,name), bbox_inches='tight')
 			plt.close()
 	
