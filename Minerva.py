@@ -14,10 +14,12 @@ from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger
 from keras.preprocessing.sequence import pad_sequences
+# Ex: xpad = pad_sequences(xout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
 #sklearn
 from sklearn.model_selection import train_test_split
 from sklearn import preprocessing
 from sklearn.model_selection import KFold
+from sklearn.metrics import mean_absolute_error
 #
 #KERAS ENV GPU
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -35,35 +37,111 @@ logger.addHandler(consoleHandler)
 def main():
 	
 	mode = "swab2swab" #"swabCleanDischarge"
-	minerva = Minerva()
-	minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset
-	########################
-	#Month by month prediction
-	#minerva.train4month(0)
-	#minerva.predict4month(3,"Month_Conv1D",plot2video = False)
-	########################
+	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5)
+	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
+	plotMode = "server" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
+	if(plotMode == "server" ):
+		plt.switch_backend('agg')
+		if not os.path.exists(minerva.ets.episodeImageFolder):
+			os.makedirs(minerva.ets.episodeImageFolder)
 	
-	########################
-	# All dataset
-	batteries = minerva.ets.loadBlowDataSet()
-	minerva.crossTrain(batteries) # Model train and cross validate
-	########################
 
+	#from keras.utils import plot_model
+	#model2load = "Month_" + minerva.modelName + "_5_5_5_5"
+	#model = load_model(os.path.join( minerva.ets.rootResultFolder ,model2load+minerva.modelExt))
+	#plot_model(model, to_file='model.png',show_shapes=True, show_layer_names=True)
+	
+	######################### 
+	# show the histogram of resistance distribution month by month for every battery
+	#logger.info("Battery resistance distribution - start")
+	#minerva.ets.resistanceDistribution(batteries,join=True,mode=plotMode)
+	#logger.info("Battery resistance distribution - end")
+	########################
+	#logger.info("Autoencoder trained on month 0 - start")
+	### Train the model on first month data for all batteris
+	#minerva.train4month(0,forceTrain=False)
+	### Month by month prediction
+	scaleDataset = True
+	xscaler,yscaler = None, None
+	if(scaleDataset):
+		logger.info("Loading dataset")
+		allDataset = minerva.ets.loadDataSet()
+		minerva.dropDatasetLabel(allDataset)
+		logger.info("Compute scaler")
+		xscaler,yscaler = minerva.getXYscaler(allDataset)
+		logger.info("Scaler loaded")
+	#### predict for every other months
+	#minerva.decode4month(1,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	#minerva.decode4month(2,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	logger.info("Autoencoder trained on month 0 - end")
+	########################
+	## Train on all batteries and all months
+	########################
+	#logger.info("Autoencoder trained all months - start")
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#minerva.crossTrain(batteries,forceTrain=False) #  cross train the model
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#minerva.crossValidate(batteries,plotMode=plotMode,showImages=False) 	# cross validate the model
+	#logger.info("Autoencoder trained all months - end")
+	
+	#######################
+	## Anomaly detection
+	#######################
+	#logger.info("Loading the dataset")
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#logger.info("Anomlay detection - start")
+	#model2load = "Fold_2_" + minerva.modelName + "_5_5_5_5"
+	#minerva.anomalyDetect(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#logger.info("Anomlay detection - end")
+	
+	
+	##Show encoded plot
+	#model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#encodedSize =8
+	#minerva.plotEncoded(batteries,model2load,scaleDataset=True,plotMode=plotMode,encodedSize=encodedSize)
+	
+	
+	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	#model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	
+	
+	#print("Month 1")
+	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[1])
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#print("Month 2")
+	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[2])
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	#print("Month 3")
+	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[3])
+	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
+	
 class Minerva():
 	
 	logFolder = "./logs"
-	modelName = "Conv1D"
-	#modelName = "LSTM"
+	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
-	epochs = 500
+	epochs = 1000
 	ets = None
+	eps1   = 5
+	eps2   = 5
+	alpha1 = 5
+	alpha2 = 5
 	
-	def __init__(self):
-		
+	
+	def __init__(self,eps1,eps2,alpha1,alpha2):
+		# 
 		# creates log folder
 		if not os.path.exists(self.logFolder):
 			os.makedirs(self.logFolder)
+		
+		self.eps1   = eps1
+		self.eps2   = eps2
+		self.alpha1 = alpha1
+		self.alpha2 = alpha2
 		
 		logFile = self.logFolder + "/Minerva.log"
 		hdlr = loghds.TimedRotatingFileHandler(logFile,
@@ -72,108 +150,256 @@ class Minerva():
                                        backupCount=30)
 		hdlr.setFormatter(formatter)
 		logger.addHandler(hdlr)
-		self.ets = EpisodedTimeSeries()
+		self.ets = EpisodedTimeSeries(self.eps1,self.eps2,self.alpha1,self.alpha2)
 	
 	
-	def predict4month(self,monthIndex,name4model,plot2video = False):
+	def decode4month(self,monthIndex,plotMode,showImages=False,xscaler=None,yscaler=None):
+		logger.info("Model trained on month 0, autoencoding for month %d" % monthIndex)
+		name4model = "Month_%s_%d_%d_%d_%d" % ( self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2 )
+		
+		model = load_model(os.path.join( self.ets.rootResultFolder ,name4model+self.modelExt))
+		
 		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex]) # blows
-		logger.info("Model trained on month 0, predicting month %d" % monthIndex)
-		self.__predict(batteries,name4model,plot2video)
+		self.dropDatasetLabel(batteries)
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		#self.__evaluateModel(x, y,name4model,plotMode,yscaler,showImages)
+		x = self.__batchCompatible(self.batchSize,x)
+		y = self.__batchCompatible(self.batchSize,y)
+		decoded = model.predict(x,batch_size=self.batchSize)
+		
+		from sklearn.metrics import mean_absolute_error
+		downScaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(y[i,:,0], decoded[i,:,0])
+			downScaledMAE[i] = mae
+		
+		wholeDownScaleMae = mean_absolute_error(y[:,:,0], decoded[:,:,0])
+		print("Full MAE downscale %f" % wholeDownScaleMae)
+		
+		inscaleDecoded = self.__skScaleBack(decoded,yscaler)
+		inscaleReal = self.__skScaleBack(y,yscaler)
+		inscaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(inscaleReal[i,:,0], inscaleDecoded[i,:,0])
+			inscaledMAE[i] = mae
+		
+		wholeInscaleMae = mean_absolute_error(inscaleReal[:,:,0], inscaleDecoded[:,:,0])
+		print("Full MAE inscale %f" % wholeInscaleMae)
+		
+		anomaltTh = 0.03
+		anomaliesIdx = np.where( downScaledMAE > anomaltTh )   #np.where( downScaledMAE > anomaltTh ) 
+		anomalies = downScaledMAE[ anomaliesIdx ]
+		
+		
+		print("Anomalies %d" % anomalies.shape[0])
+		toShowReal = y[ anomaliesIdx]
+		toShowDecoded = decoded[anomaliesIdx]
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Anomlaies_%d" % monthIndex)
+		
+		regularIdx =  np.where( downScaledMAE <= anomaltTh ) 
+		regulars = downScaledMAE[ regularIdx ]
+		print("Regulars %d" % regulars.shape[0])
+		toShowReal = y[ regularIdx]
+		toShowDecoded = decoded[regularIdx]
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Regular_%d" % monthIndex)
 	
 	
-	def train4month(self,monthIndex):
-		allDataset = self.ets.loadDataSet()
-		xscaler,yscaler = self.__getXYscaler(allDataset)
-		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex])
-		_,_ = self.__getXYscaler(batteries)
-		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+	def train4month(self,monthIndex,scaleDataset=True,forceTrain=False):
 		
-		
-		xtrain, xvalid, ytrain, yvalid = train_test_split( x, y, test_size=0.1, random_state=42)
-		
-		name4model = "Month_" + self.modelName
-		self.__trainlModel(xtrain, ytrain, xvalid, yvalid,name4model)
-		
-		
-		#this is for padding
-		#if(False)
-		#	maxLen = 20
-		#	maskVal = -1.0
-		#	xpad = pad_sequences(xout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
-		#	logger.info("X padded")
-		#	ypad = pad_sequences(yout, maxlen=maxLen, dtype='float32', padding='post', truncating='post', value=maskVal)
-		#	logger.info("Y padded")
-		
-		
-		
-	def crossTrain(self,batteries):
-		
-		xscaler,yscaler = self.__getXYscaler(batteries)
-		
-		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		name4model = "Month_%s_%d_%d_%d_%d" % ( self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2 )
+		if not forceTrain and os.path.exists(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )):
+			logger.info("Model %s already exists, skip training" % name4model)
+			return
 
+		allDataset = self.ets.loadDataSet()
+		self.dropDatasetLabel(allDataset)
+		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex])
+		self.dropDatasetLabel(batteries)
+		xscaler,yscaler = None,None
+		if(scaleDataset):
+			xscaler,yscaler = self.getXYscaler(allDataset)
+		
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		xtrain, xvalid, ytrain, yvalid = train_test_split( x, y, test_size=0.1, random_state=42)
+		self.__trainlModel(xtrain, ytrain, xvalid, yvalid,name4model)
+
+	def crossTrain(self,batteries,plotMode="server",scaleDataset=True,forceTrain=False):
+		xscaler,yscaler = None, None
+		self.dropDatasetLabel(batteries)
+		if(scaleDataset):
+			xscaler,yscaler = self.getXYscaler(batteries)
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		foldCounter = 0
 		kf = KFold(n_splits=5, random_state=42, shuffle=True)
 		for train_index, test_index in kf.split(x):
-			
-			
+			name4model = "Fold_%d_%s_%d_%d_%d_%d" % (foldCounter,self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2)
+			if not forceTrain and os.path.exists(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )):
+				logger.info("Model %s already exists, skip training" % name4model)
+				continue
+				
 			trainX, testX = x[train_index], x[test_index]
 			trainY, testY = y[train_index], y[test_index]
-			
 			# validation set
 			validPerc = 0.1
 			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
-			
-			name4model = "Fold_%d_%s" % (foldCounter,self.modelName)
-			
 			self.__trainlModel(trainX, trainY, validX, validY,name4model)
-			self.__evaluateModel(testX, testY,name4model,yscaler,False)
+			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,False)
 			foldCounter += 1
 
-
-	def __evaluateModel(self,testX,testY,model2load,scaler = None, plot2video = False):
-		
-		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
-		
-		
-		
-		testX = self.__batchCompatible(self.batchSize,testX)
-		testY = self.__batchCompatible(self.batchSize,testY)
-		
-		logger.info("Testing model %s with test %s" % (model2load,testX.shape))
-		
-		tt = time.clock()
-		mse, mae = model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
-		logger.info("Test MSE %f - MAE %f Elapsed %f" % (mse,mae,(time.clock() - tt)))
-
-		if(plot2video):
-			logger.info("Predicting")
-			tt = time.clock()
-			y_pred = model.predict(testX,  batch_size=self.batchSize)
-			logger.info("Elapsed %f" % (time.clock() - tt))
-			if(scaler is not None):
-				y_pred = self.__skScaleBack(y_pred,scaler)
-				testY = self.__skScaleBack(testY,scaler)
-			for r in range(25):
-				plt.figure()
-				toPlot = np.random.randint(y_pred.shape[0])
-				i = 1
-				sid = 14
-				for col in range(y_pred.shape[2]):
-					plt.subplot(y_pred.shape[2], 1, i)
-					plt.plot(y_pred[toPlot][:, col],color="navy",label="Prediction")
-					plt.plot(testY[toPlot][:, col],color="orange",label="Real")
-					plt.legend()
-					i += 1
-				
-				plt.show()
-	
-	def __predict(self,batteries,name4model,plot2video = False):
-		allDataset = self.ets.loadDataSet()
-		xscaler,yscaler = self.__getXYscaler(allDataset)
-		_,_ = self.__getXYscaler(batteries)
+	def crossValidate(self,batteries,showImages=True,plotMode="server",scaleDataset=True):
+		xscaler,yscaler = None, None
+		self.dropDatasetLabel(batteries)
+		if(scaleDataset):
+			xscaler,yscaler = self.getXYscaler(batteries)
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
-		self.__evaluateModel(x, y,name4model,yscaler,plot2video)
+		foldCounter = 0
+		kf = KFold(n_splits=5, random_state=42, shuffle=True)
+		for train_index, test_index in kf.split(x):
+			testX = x[test_index]
+			testY = y[test_index]
+			name4model = "Fold_%d_%s_%d_%d_%d_%d" % (foldCounter,self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2)
+			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,showImages)
+			validPerc = 0.1
+			trainX = x[train_index]
+			trainY = y[train_index]
+			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
+			self.__evaluateModel(trainX, trainY,name4model,plotMode,yscaler,showImages,phase="Train")
+			self.__evaluateModel(validX, validY,name4model,plotMode,yscaler,showImages,phase="Valid")
+			
+			foldCounter += 1
+	
+	
+	def plotEncoded(self,batteries,model2load,scaleDataset=True,plotMode="server",encodedSize=2):
+		from mpl_toolkits.mplot3d import Axes3D
+		logger.info("Plot encoded")
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		encoder = Model(inputs=model.input, outputs=model.get_layer("ENC").output)
+	
+		xscaler,yscaler = None, None
+		self.dropDatasetLabel(batteries)
+		if(scaleDataset):
+			xscaler,yscaler = self.getXYscaler(batteries)
+		x,_ = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		
+		
+		x = self.__batchCompatible(self.batchSize,x)
+		encoded = encoder.predict(x,batch_size=self.batchSize)
+		print(encoded.shape)
+		if(False):
+			fig = plt.figure()
+			x = encoded[:,0]
+			y = encoded[:,1]
+			
+			if(encodedSize > 2):
+				z = encoded[:,2]
+				ax = fig.add_subplot(111, projection='3d')
+				ax.scatter(x, y, z, c='r', marker='o')
+			else:
+				plt.scatter(x, y, c='r', marker='o')
+
+			plt.show()
+		
+		bins = [-50,-30,-20,-10,-5,-2,-1,-0.5,0,0.5,1,2,5,10,20,30,50]
+		for i in range(encoded.shape[0]):
+			if(encoded[i][0] >= 3):
+				resistance = x[i,:,-1] / x[i,:,-2]
+				self.ets.plotResistanceDistro(resistance,bins,"Anomaly Resistance %d" % i,plotMode)
+	
+	def decodeAndShow(self,batteries,model2load,scaleDataset=True,plotMode="server"):
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		xscaler,yscaler = None, None
+		self.dropDatasetLabel(batteries)
+		if(scaleDataset):
+			xscaler,yscaler = self.getXYscaler(batteries)
+		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
+		
+		x = self.__batchCompatible(self.batchSize,x)
+		y = self.__batchCompatible(self.batchSize,y)
+		decoded = model.predict(x,batch_size=self.batchSize)
+		
+		from sklearn.metrics import mean_absolute_error
+		downScaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(y[i,:,0], decoded[i,:,0])
+			downScaledMAE[i] = mae
+		
+		wholeDownScaleMae = mean_absolute_error(y[:,:,0], decoded[:,:,0])
+		print("Full MAE downscale %f" % wholeDownScaleMae)
+		
+		inscaleDecoded = self.__skScaleBack(decoded,yscaler)
+		inscaleReal = self.__skScaleBack(y,yscaler)
+		inscaledMAE = np.zeros(y.shape[0])
+		for i in range(y.shape[0]):
+			mae = mean_absolute_error(inscaleReal[i,:,0], inscaleDecoded[i,:,0])
+			inscaledMAE[i] = mae
+		
+		wholeInscaleMae = mean_absolute_error(inscaleReal[:,:,0], inscaleDecoded[:,:,0])
+		print("Full MAE inscale %f" % wholeInscaleMae)
+		
+		anomaltTh = 0.03
+		anomaliesIdx = np.where( downScaledMAE > anomaltTh )   #np.where( downScaledMAE > anomaltTh ) 
+		anomalies = downScaledMAE[ anomaliesIdx ]
+		
+		
+		print("Anomalies %d" % anomalies.shape[0])
+		toShowReal = y[ anomaliesIdx]
+		toShowDecoded = decoded[anomaliesIdx]
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Anomlaies")
+		
+		
+		#########
+		regularIdx =  np.where( downScaledMAE <= anomaltTh ) 
+		regulars = downScaledMAE[ regularIdx ]
+		print("Regulars %d" % regulars.shape[0])
+		toShowReal = y[ regularIdx]
+		toShowDecoded = decoded[regularIdx]
+		toShowReal = self.__skScaleBack(toShowReal,yscaler)
+		toShowDecoded = self.__skScaleBack(toShowDecoded,yscaler)
+		self.__plotRealVsDecodedVsResistance(toShowReal,toShowDecoded,30,plotMode=plotMode,random=True,title="Regular")
+		
+	
+	
+	def __plotRealVsDecodedVsResistance(self,toShowReal,toShowDecoded,num2shw,plotMode="server",random=False,title=None):
+		my_dpi = 120
+		max2show = min(num2shw,toShowReal.shape[0])
+		for r in range(max2show):
+			if(random):
+				i = np.random.randint(toShowReal.shape[0])
+			else:
+				i = r
+			plt.figure(figsize=(1600/my_dpi, 800/my_dpi), dpi=my_dpi)
+			plt.subplot(3, 1, 1)
+			plt.plot(toShowReal[i,:,0],color="orange",label="Real A")
+			plt.plot(toShowDecoded[i,:,0],color="navy",label="Decoded A")
+			plt.legend()
+			
+			plt.subplot(3, 1, 2)
+			plt.plot(toShowReal[i,:,1],color="orange",label="Real V")
+			plt.plot(toShowDecoded[i,:,1],color="navy",label="Decoded V")
+			plt.legend()
+			
+			resistance = toShowReal[i,:,1] / toShowReal[i,:,0]
+			resistance[resistance == -np.inf] = 0
+			resistance[resistance == np.inf] = 0
+			weights = np.ones_like(resistance)/float(len(resistance)) # array with all 1 / len(r)
+			
+			plt.subplot(3, 2, 5)
+			plt.plot(resistance,color="orange",label="Real V / A")
+			plt.legend()
+			
+			plt.subplot(3, 2, 6)
+			bins = np.arange(-5,5,.5)
+			plt.hist(resistance, bins=bins,weights=weights,color="orange",label="Distr. V / A")
+			plt.xticks(bins)
+			plt.xticks(rotation=90)
+			plt.legend()
+			self.ets.plotMode(plotMode,title)
 	
 	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
 		
@@ -190,19 +416,15 @@ class Minerva():
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
-
-		model = self.__functionalModel(inputFeatures,outputFeatures,x_train)	
+		encodedSize = 8
 		
-		adam = optimizers.Adam(lr=0.000005)		
-		model.compile(loss='mean_squared_error', optimizer=adam,metrics=['mae'])
+		model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 		
-		
-		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=10, verbose=0, mode='min')
-		
+		adam = optimizers.Adam()		
+		model.compile(loss='mae', optimizer=adam,metrics=['logcosh'])
+		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=25, verbose=1, mode='min')	
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
-		
 		csv_logger = CSVLogger(cvsLogFile)
-		
 		model.fit(x_train, y_train,
 			verbose = 0,
 			batch_size=self.batchSize,
@@ -217,97 +439,160 @@ class Minerva():
 		logger.debug("Model saved")
 		
 		trainMse, trainMae = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
-		logger.info("Train MSE %f - MAE %f" % (trainMse,trainMae))
+		logger.info("Train MAE %f - LCH %f" % (trainMse,trainMae))
 		validMse, validMae = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
-		logger.info("Valid MSE %f - MAE %f" % (validMse,validMae))
+		logger.info("Valid MAE %f - LCH %f" % (validMse,validMae))
 		logger.debug("__trainlModel - end - %f" % (time.clock() - tt) )
-
-	def __functionalModel(self,inputFeatures,outputFeatures,data):
 	
-		timesteps = data.shape[1]
-		signals   = data.shape[2]
-		inputs = Input(shape=(timesteps,signals))
+	
+	
+	def __evaluateModel(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=10,phase="Test"):
 		
-		# OK CONV2D
-		width  = 10
-		heigth = 10
-		deepth = timesteps * signals
-		mask = (3,3)
-		mask2 = (2,2)
-		poolMask = (2,2)
-		initParams = 2
-		outParams = 256
-		enlarge  = Dense(width*heigth*signals,activation='relu')(inputs)
-		reshape1 = Reshape((width, heigth,deepth))(enlarge)
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		
+		testX = self.__batchCompatible(self.batchSize,testX)
+		testY = self.__batchCompatible(self.batchSize,testY)
+		
+		logger.info("Validating model %s with test %s" % (model2load,testX.shape))
+		
+		tt = time.clock()
+		mse, mae = model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
+		logger.info("%s MAE %f - LCH %f Elapsed %f" % (phase,mse,mae,(time.clock() - tt)))
+		
+		
+		logger.info("Autoencoding")
+		tt = time.clock()
+		ydecoded = model.predict(testX,  batch_size=self.batchSize)
+		logger.info("Elapsed %f" % (time.clock() - tt))
+		if(scaler is not None):
+			ydecoded = self.__skScaleBack(ydecoded,scaler)
+			testY = self.__skScaleBack(testY,scaler)
+			scaledMAE = self.__skMAE(testY,ydecoded)
+			logger.info("%s scaled MAE %f" % (phase,scaledMAE))
+			
+		if(showImages):
+			for r in range(num2show):
+				plt.figure()
+				toPlot = np.random.randint(ydecoded.shape[0])
+				i = 1
+				sid = 14
+				for col in range(ydecoded.shape[2]):
+					plt.subplot(ydecoded.shape[2], 1, i)
+					plt.plot(ydecoded[toPlot][:, col],color="navy",label="Decoded")
+					plt.plot(testY[toPlot][:, col],color="orange",label="Real")
+					plt.legend()
+					i += 1	
+				title = str(toPlot) +"_"+str(uuid.uuid4())
+				self.ets.plotMode(plotMode,title)
+
+
+
+	def __functionalDeepDenseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+			
+		inputs = Input(shape=(timesteps,inputFeatures))
+		
+		#OK CONV1D
+		#d1 = Dense(1024,activation='relu',name="D1")(inputs)
+		#d2 = Dense(512,activation='relu',name="D2")(d1)
+		#d3 = Dense(256,activation='relu',name="D3")(inputs) #(d2)
+		d4 = Dense(128,activation='relu',name="D4")(inputs)  #(d3)
+		d5 = Dense(64,activation='relu',name="D5")(d4)
+		d6 = Dense(32,activation='relu',name="D6")(d5)
+		
+		f1 = Flatten(name="F1")(d6) 
+		enc = Dense(encodedSize,activation='relu',name="ENC")(f1)
+		
+		d7 = Dense(32*timesteps,activation='relu',name="D7")(enc)
+		r1 = Reshape((timesteps, 32),name="R1")(d7)
+		d8 = Dense(64,activation='relu',name="D8")(r1)
+		d9 = Dense(128,activation='relu',name="D9")(d8)
+		#d10 = Dense(256,activation='relu',name="D10")(d9)
+		#d11 = Dense(512,activation='relu',name="D11")(d10)
+		out = Dense(outputFeatures,activation='linear',name="OUT")(d9) #(d11)
+		
+		
+		#encoderFilter = 128
+		#encoderKernel = 4
+		#encoderPool = 2
+		#kernel_initializer='glorot_uniform', bias_initializer='zeros',
+		#conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV1")(inputs)
+		#maxpool1 = MaxPooling1D(pool_size=encoderPool,name="MP1")(conv1)
+		#
+		#conv2 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV2")(maxpool1)
+		#maxpool2 = MaxPooling1D(pool_size=encoderPool,name="MP2")(conv2)
+		#
+		#flat1 = Flatten(name="FT1")(maxpool2) 
+		#encoded = Dense(encodedSize,activation='relu',name="encoder")(flat1)
+		#
+		#dec1 = Dense(encodedSize*4,activation='relu',name="DC1")(encoded)
+		#decoded = Dense(timesteps*outputFeatures, activation='tanh',name="DC2")(dec1)
+		#out = Reshape((timesteps, outputFeatures),name="decoder")(decoded)
+		
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		print(autoencoderModel.summary())
+		return autoencoderModel
+	
+	def __functionalModelConv2D(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+		
+		inputs = Input(shape=(timesteps,inputFeatures))
+		width  = 15
+		heigth = 15
+		deepth = timesteps * inputFeatures
+		mask = (5,5)
+		mask2 = (3,3)
+		poolMask = (3,3)
+		initParams = 16
+		outParams = 512
+		
+		enlarge1  = Dense(width*heigth*inputFeatures,activation='relu')(inputs)
+		reshape1 = Reshape((width, heigth,deepth))(enlarge1)
 		conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
 		conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
 		maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
 		conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
-		#maxpool2 = MaxPooling2D(pool_size=poolMask)(conv3)
-		encoded = Flatten()(conv3) 
-		dec1 = Dense(outParams,activation='relu')(encoded)
-		decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec1)
+		
+		flat1 = Flatten()(conv3)
+		enlarge2  = Dense(width*heigth*deepth,activation='relu')(flat1)
+		reshape2 = Reshape((width, heigth,deepth))(enlarge2)
+		conv4 =    Conv2D(initParams*8,mask, activation='relu')(reshape2)
+		conv5 =    Conv2D(initParams*4,mask2, activation='relu')(conv4)
+		maxpool2 = MaxPooling2D(pool_size=poolMask)(conv5)
+		conv6 =    Conv2D(initParams,mask2, activation='relu')(maxpool2)
+		
+		flat2 = Flatten()(conv6) 
+		encoded = Dense(encodedSize,activation='relu',name="encoder")(flat2)
+		
+		decenlarge2  = Dense(width*heigth*deepth,activation='relu')(encoded)
+		decreshape2 = Reshape((width, heigth,deepth))(decenlarge2)
+		decconv4 =    Conv2D(initParams*8,mask, activation='relu')(decreshape2)
+		decconv5 =    Conv2D(initParams*4,mask2, activation='relu')(decconv4)
+		decmaxpool2 = MaxPooling2D(pool_size=poolMask)(decconv5)
+		decconv6 =    Conv2D(initParams,mask2, activation='relu')(decmaxpool2)
+		
+		flat3 = Flatten()(decconv6) 
+		dec1 = Dense(outParams,activation='relu')(flat3)
+		decoded = Dense(timesteps*outputFeatures, activation='linear')(dec1)
 		out = Reshape((timesteps, outputFeatures))(decoded)
 		
-		# OK CONV1D 7308
-		#encoderFilter = 32
-		#encoderKernel = 8
-		#encoderPool = 2
-		#encodedSize = 8
-		#conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu')(inputs)
-		#maxpool2 = MaxPooling1D(pool_size=encoderPool)(conv1)
-		#flat1 = Flatten()(maxpool2) 
-		#encoded = Dense(encodedSize,activation='relu')(flat1)
-		#dec2 = Dense(encodedSize*4,activation='relu')(encoded)
-		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec2)
-		#out = Reshape((timesteps, outputFeatures))(decoded)
-		
-		# OK LSTM
-		#latent_dim = 16
-		#encodedSize = 8
-		#encoder1 = LSTM(latent_dim,return_sequences=True,activation='relu')(inputs)
-		#encoder2 = LSTM(8,return_sequences=True,activation='relu')(encoder1)
-		#encoder3 = LSTM(4,return_sequences=True,activation='relu')(encoder2)
-		#flat1 = Flatten()(encoder3) 
-		#encoded = Dense(encodedSize,activation='relu')(flat1)	
-		#dec1 = Dense(encodedSize*2,activation='relu')(encoded)
-		#dec2 = Dense(encodedSize*4,activation='relu')(dec1)
-		#decoded = Dense(timesteps*outputFeatures, activation='tanh')(dec2)
-		#out = Reshape((timesteps, outputFeatures))(decoded)
-		
-		
-		model = Model(inputs=inputs, outputs=out)
-		print(model.summary())
-		
-		return model
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		print(autoencoderModel.summary())
+		return autoencoderModel
 	
-	def __getXYscaler(self,batteries):
+	
+	def getXYscaler(self,batteries):
 		"""
 		Creates the xscaler and y scaler for the dataset
 		batteries: 3 layer list of dataframe [battery][month][episode] = dataframe
 		"""
 		tt = time.clock()
-		logger.debug("__getXYscaler - start")
+		logger.debug("getXYscaler - start")
 		x,y = self.__datasetAs2DArray(batteries)
 		xscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
 		xscaler.fit(x)
 		yscaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
 		yscaler.fit(y)
-		logger.debug("__getXYscaler - end - %f" % (time.clock() - tt) )
+		logger.debug("getXYscaler - end - %f" % (time.clock() - tt) )
 		return xscaler,yscaler
-	
-	def __showNumpyArray(self,data):
-		plt.figure()
-		#toPlot = np.random.randint(data.shape[0])
-		toPlot = 0
-		i = 1
-		for col in range(data.shape[2]):
-			plt.subplot(data.shape[2], 1, i)
-			plt.plot(data[toPlot][:, col],color="orange",label="Real")
-			plt.legend()
-			i += 1
-		
-		plt.show()
 	
 	def __batchCompatible(self,batch_size,data):
 		"""
@@ -330,7 +615,6 @@ class Minerva():
 		for battery in batteries:
 			for month in battery:
 				for episode in month:
-					episode.drop(columns=self.ets.dropX,inplace=True)
 					ydf = episode[self.ets.keepY]
 					for t in range(0,episode.shape[0]):
 						x.append(episode.values[t])
@@ -340,6 +624,18 @@ class Minerva():
 		tt = time.clock()
 		logger.debug("__datasetAs2DArray - end - %f" % (time.clock() - tt) )
 		return outX,outY
+	
+	def dropDatasetLabel(self,batteries):
+		"""
+		Drop labels column and timestamp from the dataset
+		"""
+		tt = time.clock()
+		logger.debug("dropDatasetLabel - start")
+		for battery in batteries:
+			for month in battery:
+				for episode in month:
+					episode.drop(columns=self.ets.dropX,inplace=True)
+		logger.debug("dropDatasetLabel - end - %f" % (time.clock() - tt) )
 	
 	def __datasetAs3DArray(self,batteries,xscaler=None,yscaler=None):
 		"""
@@ -385,5 +681,13 @@ class Minerva():
 		xnorm = scaler.inverse_transform(xnorm)
 		return xnorm.reshape(samples,timesteps,features)
 
+	def __skMAE(self,real,decoded):
+		samples = real.shape[0]
+		timesteps = real.shape[1]
+		features = real.shape[2]
+		
+		skReal = real.reshape(samples*timesteps,features)
+		skDecoded = decoded.reshape(samples*timesteps,features)
+		return mean_absolute_error(skReal,skDecoded)
 
 main()		

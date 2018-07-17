@@ -8,11 +8,11 @@ Module for handling data loading
 Requires: 
 	pandas 	(https://pandas.pydata.org/)
 	numpy	(http://www.numpy.org/)
+	seaborn (https://seaborn.pydata.org/)
 """
 #Imports
 import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt, glob
 from datetime import datetime
-
 from logging import handlers as loghds
 
 #Module logging
@@ -60,12 +60,28 @@ class EpisodedTimeSeries():
 	rootResultFolder = os.path.join(root,"results")
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	espisodePath = os.path.join(rootResultFolder,"episodes")
-		
+	
+	chargeThreshold = 10 # specify current threshold for the battery to be considered in charge state
+	dischargeThreshold = -10 # specify current threshold for the battery to be considered in discharge state
+	swabThreshold = 5 # current between -swabThreshold and +swabThreshold will considered in SWAB state
+	
+	eps1 = 10
+	eps2 = 10
+	alpha1 = 15
+	alpha2 = 15
+	
 	#Constructor
-	def __init__(self):
+	def __init__(self,eps1,eps2,alpha1,alpha2):
 		""" 
 		Create, if not exists, the result path for storing the episoded dataset
 		"""
+		self.eps1   = eps1
+		self.eps2   = eps2
+		self.alpha1 = alpha1
+		self.alpha2 = alpha2
+		
+		self.espisodePath = os.path.join(self.rootResultFolder,"episodes_%d_%d_%d_%d" % (self.eps1,self.eps2,self.alpha1,self.alpha2))
+		
 		# creates log folder
 		if not os.path.exists(self.logFolder):
 			os.makedirs(self.logFolder)
@@ -85,20 +101,23 @@ class EpisodedTimeSeries():
 		# used for determining when an episode start in charge or discharge
 		self.currentIndex = self.dataHeader[16]
 		self.voltageIndex = self.dataHeader[17]
+		
 		logger.debug("Indexes: Current %s Volt %s " % (self.currentIndex,self.voltageIndex))
 		
 	
 	# public methods
 	def buildDataSet(self,dataFolder,mode="swab2swab",force=False):
 		""" 
-		dataFolder: folder thet contains the raw dataset, every file in folder will be treated as indipendent thing
-		force: if True entire results will be created even if already exists
+		dataFolder: folder that contains the raw dataset, every file in folder will be treated as independent thing;
+		force: if True entire results will be created even if already exists;
+		mode: specify episode to extract:  swab2swab or swabCleanDischarge
+		
 		return None, the dataset will be saved in one file per battery, every file contains a list with the following structure
 		[monthIndex][episodeInMonthIndex] = dataframe
 		"""
 		tt = time.clock()
 		logger.debug("buildDataSet - start")
-		self.__buildDataSetFromFolder(dataFolder,mode,force)
+		self.__buildDataSetFromFolder(dataFolder,mode,force,self.eps1,self.eps2,self.alpha1,self.alpha2)
 		logger.debug("buildDataSet - end - %f" % (time.clock() - tt))
 
 	def loadDataSet(self):
@@ -129,7 +148,9 @@ class EpisodedTimeSeries():
 		"""
 		Load data from the files created with buildDataSet.
 		For every episode in battery seek the blow and create a dataframe with discharge blow and charge blow
-		monthIndex: if specified build blows dataset only for the specified month
+		monthIndexes: if specified build blows dataset only for the specified months
+		join: if True the result is just a dataframe paired discharge and charge blow, otherwise a tuple [dischargeBlow,chargeBlow]
+		
 		return: list of dataframes for all the batteries with the following structure
 		[batteryIndex][monthIndex][episodeInMonthIndex] = [dischargeBlowDataframe,chargeBlowDataframe]
 		
@@ -141,11 +162,11 @@ class EpisodedTimeSeries():
 		if(join == False)
 			print(e[0][0][0][0].shape) #discharge blow
 			print(e[0][0][0][1].shape) #charge blow
-			self.plot(e[0][0][0][0],mode="GUI",name=None) # plot discharge blow
-			self.plot(e[0][0][0][1],mode="GUI",name=None) # plot charge blow
+			self.plotDataFrame(e[0][0][0][0],mode="GUI",name=None) # plot discharge blow
+			self.plotDataFrame(e[0][0][0][1],mode="GUI",name=None) # plot charge blow
 		else:
 			print(e[0][0][0].shape) #join blow
-			self.plot(e[0][0][0],mode="GUI",name=None) # plot join blow
+			self.plotDataFrame(e[0][0][0],mode="GUI",name=None) # plot join blow
 		"""
 		tt = time.clock()
 		logger.debug("loadBlowDataSet - start")
@@ -153,14 +174,48 @@ class EpisodedTimeSeries():
 		episodes = [] # three level list, [battery][month][episode]
 		for f in os.listdir(loadPath):
 			batteryEpisodes = self.__loadZip(loadPath,f)
-			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndexes,join)
+			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndexes,join,self.eps1,self.alpha1,self.alpha2)
 			episodes.append(batteryBlows)
 				
 		logger.debug("loadBlowDataSet - end - %f" % (time.clock() - tt))
 		return episodes 
 	
-	def dataSetSummary(self,showDistro=False):
-		batteries = self.loadDataSet()
+	
+	def resistanceDistribution(self,batteries,join=True,mode="server"):	
+		bins = [-50,-30,-20,-10,-5,-2,-1,-0.5,0,0.5,1,2,5,10,20,30,50]
+		nameIndex = self.dataHeader.index(self.nameIndex)
+		for battery in batteries:
+			month = 0
+			batteryName = ""
+			for episodeInMonth in battery:
+				batteryR = np.empty(0)
+				batteryDischargeR = np.empty(0)
+				batteryChargeR = np.empty(0)
+				for episode in episodeInMonth:
+					if(join == True):
+						batteryName =  episode.values[:, nameIndex][0]
+						episodeResistance = self.__getEpisodeResistance(episode)
+						batteryR = np.concatenate([batteryR,episodeResistance])
+					else:
+						batteryName =  episode[0].values[:, nameIndex][0]
+						dischargeResistance = self.__getEpisodeResistance(episode[0])
+						chargeResistance = self.__getEpisodeResistance(episode[1])
+						batteryDischargeR = np.concatenate([batteryDischargeR,dischargeResistance])
+						batteryChargeR = np.concatenate([batteryChargeR,chargeResistance]) 
+				if(join == True):			
+					self.plotResistanceDistro(batteryR,bins,"Battery %s blow episode resistance Month %d" % (batteryName,month ),mode)
+				else:
+					self.plotResistanceDistro(batteryDischargeR,bins,"Battery %s Discharge Blow resistance Month %d" % (batteryName,month))
+					self.plotResistanceDistro(batteryChargeR,bins,"Battery %s  Charge Blow resistance Month %d" %(batteryName,month))
+				month += 1
+				
+	def plotResistanceDistro(self,batteryR,bins,title,mode):
+		weights = np.ones_like(batteryR)/float(len(batteryR)) # array with all 1 / len(r)
+		plt.hist(batteryR, bins=bins,weights=weights)
+		plt.title(title)
+		self.plotMode(mode,imgTitle=title,autoClose=False)
+			
+	def dataSetSummary(self,batteries):
 		logger.info("Data from %d different batteries" % len(batteries))
 		logger.info("Every battery has %d month of data" % len(batteries[0]))
 		monthlyEpisodes = np.zeros(len(batteries[0]))
@@ -194,23 +249,27 @@ class EpisodedTimeSeries():
 						minMonth = episode.shape[0]
 					if(episode.shape[0] > maxMonth):
 						maxMonth = episode.shape[0]
+
 				meanEpisodeTimeSteps = 0
 				if(len(episodeInMonth) > 0):
 					meanEpisodeTimeSteps = float(monthTotalTimeSteps) / float(len(episodeInMonth))
 				logger.info("Month: %d Mean: %f Min: %g Max %g" %  (month,meanEpisodeTimeSteps,minMonth,maxMonth))
 				month += 1
 			logger.info("Min: %g Max: %g" % (min,max))
-			if(showDistro):
-				histog,_ = np.histogram(distribution,bins=max)
-				plt.plot(histog)
-				plt.show()
-				
-			
 			batt +=1
 		
 		logger.info(self.SEP)
 		for month in range(len(batteries[0])):
 			logger.info("There are %d episodes in month %d" % (monthlyEpisodes[month], month))
+		
+	def __getEpisodeResistance(self,episode):
+		"""
+		Get the values for battery resistance in given episode, Inf and Nan are replaced with 0
+		"""
+		resistance = episode[self.voltageIndex] / episode[self.currentIndex]
+		resistance.replace([np.inf,-np.inf], 0, inplace = True)
+		resistance.fillna(0, inplace = True)
+		return resistance.values
 		
 	def showEpisodes(self,monthIndex=0,limit=1,mode="server"):
 		"""
@@ -232,18 +291,19 @@ class EpisodedTimeSeries():
 			if(limit is not None):
 				max2show = min(limit,len(batteryEpisodes[monthIndex]))
 			for e in range(max2show):
-				self.plot(batteryEpisodes[monthIndex][e],mode=mode)
+				self.plotDataFrame(batteryEpisodes[monthIndex][e],mode=mode)
 		logger.info("Total %d" % total)
 
 	
 	
-	def plot(self,data,mode="server",name=None):
+	def plotDataFrame(self,data,mode="server",name=None):
 		"""
 		Plot the input dataframe as is
 		mode: in server mode, images will be saved on disk, shown otherwise
 		name: in server mode if specified save the image with the provided name
 		"""
 		if(mode == "server"):
+			plt.switch_backend('agg')
 			if not os.path.exists(self.episodeImageFolder):
 				os.makedirs(self.episodeImageFolder)
 		
@@ -274,16 +334,29 @@ class EpisodedTimeSeries():
 		frequency = int(len(timeLabel) / 4)
 		plt.xticks(xs[::frequency], timeLabel[::frequency])
 		plt.xticks(rotation=45)
-		if(mode != "server"):
-			plt.show()
+		
+		imgTitle = ""
+		if(name is None):
+			imgTitle = batteryName +"_"+str(uuid.uuid4())
 		else:
-			if(name is None):
-				name = batteryName +"_"+str(uuid.uuid4())
+			imgTitle = batteryName +"_"+name 
+		self.plotMode(mode,imgTitle)
+		
+	def plotMode(self,mode,imgTitle=None,autoClose=False):
+		if(mode != "server"):
+			blk = True
+			if(autoClose == True):
+				blk = False
+			plt.show(block=blk)
+			if(autoClose == True):
+				plt.close()
+		else:
+			if(imgTitle is None):
+				name = str(uuid.uuid4())
 			else:
-				name = batteryName +"_"+name 
+				name = imgTitle +"_"+str(uuid.uuid4())
 			plt.savefig(os.path.join(self.episodeImageFolder,name), bbox_inches='tight')
 			plt.close()
-			
 	
 	
 	# private methods
@@ -321,7 +394,7 @@ class EpisodedTimeSeries():
 		logger.debug("__readFileAsDataframe - end - %f" % (time.clock() - tt))
 		return data
 
-	def __buildDataSetFromFolder(self,dataFolder,mode,force):
+	def __buildDataSetFromFolder(self,dataFolder,mode,force,eps1,eps2,alpha1,alpha2):
 		""" 
 		Read all files in folder and save as episode dataframe 
 		Return: None
@@ -344,7 +417,7 @@ class EpisodedTimeSeries():
 					logger.info("Processing file %d of %d" % (count,totalFiles))
 					loaded = self.__readFileAsDataframe(os.path.join(dataFolder,fileName))
 					if(loaded is not None and loaded.shape[0] > 0):
-						self.__seekEpisodes(loaded,fileName,mode)
+						self.__seekEpisodes(loaded,fileName,mode,eps1,eps2,alpha1,alpha2)
 					else:
 						logger.warning("File %s is invalid as dataframe" % fileName)
 				else:
@@ -353,9 +426,9 @@ class EpisodedTimeSeries():
 				logger.debug("Not a file: %s " % file)
 		logger.debug("__buildDataSetFromFolder - end - %f" %  (time.clock() - tt))
 	
-	def __seekEpisodes(self,df,fileName,mode):
+	def __seekEpisodes(self,df,fileName,mode,eps1,eps2,alpha1,alpha2):
 		"""
-		Build list of espisodes starting and ending in swab status
+		Build list of episodes starting and ending in swab status
 		df: Dataframe of a battery
 		Return: list of dataframe, every dataframe is an episode starting in swab and ending in swab. Episodes may have different time length
 		"""
@@ -368,12 +441,12 @@ class EpisodedTimeSeries():
 		inconsistent = 0
 		incomplete = 0
 		
-		# first of all group by month
+		# group battery data by month
 		groups = [g[1] for g in df.groupby([df.index.year, df.index.month])]
 		
 		for grp in groups:
 			month = grp.index.month[0]
-			monthEpisodes,monthSwabDiscarded,monthNoiseDiscarded,monthInconsistent,monthIncomplete = self.__seekInGroup(grp,mode=mode)
+			monthEpisodes,monthSwabDiscarded,monthNoiseDiscarded,monthInconsistent,monthIncomplete = self.__seekInGroup(grp,mode,eps1,eps2,alpha1,alpha2)
 			logger.debug("%s: found %d episodes in month %d" % (fileName,len(monthEpisodes),month))
 			episodes.append(monthEpisodes)
 			valid            += len(monthEpisodes)
@@ -396,19 +469,11 @@ class EpisodedTimeSeries():
 		
 		logger.debug("__seekEpisodes - end - %f" %  (time.clock() - tt))
 	
-	def __seekInGroup(self,dataframe,mode):
+	def __seekInGroup(self,dataframe,mode,eps1,eps2,alpha1,alpha2):
 		"""
 		mode: 	swabCleanDischarge - search clean discharges, starting in swab
 				swab2swab - search continuous swab to swab episodes
 		"""
-		# parameter - start
-		minimumDischargeDuration = 5 # minimun seconds of discharge after swab, lesser will be discarded as noisy episode
-		dischargeThreshold = -10 # current must be lower of this to consider the battery in discharge
-		swabThreshold = 5 # current between -th and +th will be valid swab
-		swabLength = 5  # timesteps of swab to be considered a valid begin and end of a swab episode
-		# parameter - end
-	
-	
 		contextDiscarded = 0
 		noiseDiscarded = 0
 		inconsistent = 0
@@ -417,10 +482,10 @@ class EpisodedTimeSeries():
 		
 		# for every day seek episodes thtat starts and ends with the Swab condition
 		
-		# select all timestemps where the battery is in discharge
+		# select all time-temps where the battery is in discharge
 		dischargeIndex =  ( 
 			dataframe[
-			(dataframe[self.currentIndex] <= dischargeThreshold)
+			(dataframe[self.currentIndex] <= self.dischargeThreshold)
 			].index
 		)
 		if(dischargeIndex.shape[0] == 0):
@@ -445,27 +510,27 @@ class EpisodedTimeSeries():
 			
 			rowsInEpisode = nextRow - startRow # this is the maximun number of row in episode
 			
-			context = dataframe.iloc[startRow-swabLength:startRow,:]
+			context = dataframe.iloc[startRow-eps1:startRow,:]
 			
 			swabContext = context[ 
-				(context[self.currentIndex] >= -swabThreshold ) 
+				(context[self.currentIndex] >= -self.swabThreshold ) 
 				&
-				(context[self.currentIndex] <= swabThreshold)
+				(context[self.currentIndex] <= self.swabThreshold)
 
 			].shape[0]
 								
-			#if swab is lesser than swabLength, then discard
-			if(swabContext != swabLength):
+			#if swab is lesser than eps1, then discard
+			if(swabContext != eps1):
 				contextDiscarded += 1
 				continue
 			
 			# avoid noise
-			dischargeContext =  dataframe.iloc[startRow:startRow+minimumDischargeDuration,:]
+			dischargeContext =  dataframe.iloc[startRow:startRow+alpha1,:]
 			dischargeCount = dischargeContext[ 
-				(dischargeContext[self.currentIndex] <= dischargeThreshold)
+				(dischargeContext[self.currentIndex] <= self.dischargeThreshold)
 
 			].shape[0]
-			if(dischargeCount != minimumDischargeDuration):
+			if(dischargeCount != alpha1):
 				noiseDiscarded += 1
 				continue
 			# end noise avoidance
@@ -473,18 +538,18 @@ class EpisodedTimeSeries():
 			#seek valid episode
 			endIndex = -1
 			if(mode=="swab2swab"):
-				seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
-				endIndex = self.__seekSwab2Swab(seekStartIndex,dataframe,swabLength,nextRow,swabThreshold)
+				seekStartIndex = startRow + alpha1 # the first alpha1 are for sure in discharge. no need to check swab here
+				endIndex = self.__seekSwabEnd(seekStartIndex,dataframe,eps2,alpha2,nextRow)
 			elif(mode=="swabCleanDischarge"):
-				endIndex = self.__seekSwabCleanDischarge(startRow,dataframe,nextRow,dischargeThreshold)
+				endIndex = self.__seekCleanDischarge(startRow,dataframe,nextRow,self.dischargeThreshold)
 			else:
 				# default is swab2swab
 				logger.warning("%s is not a valid mode, swab2swab will be used" % mode)
-				seekStartIndex = startRow + minimumDischargeDuration # the first minimumDischargeDuration are for sure in discharge. no need to check swab here
-				endIndex = self.__seekSwab2Swab(seekStartIndex,dataframe,swabLength,nextRow,swabThreshold)
+				seekStartIndex = startRow + alpha1 # the first alpha1 are for sure in discharge. no need to check swab here
+				endIndex = self.__seekSwabEnd(seekStartIndex,dataframe,eps2,alpha2,nextRow)
 			
 			#include swab context in episode
-			startIndex = startRow-swabLength
+			startIndex = startRow-eps1
 			
 			if(endIndex != -1):
 				s = dataframe.index.values[startIndex]
@@ -504,29 +569,44 @@ class EpisodedTimeSeries():
 		
 		return groupEpisodes,contextDiscarded,noiseDiscarded,inconsistent,incomplete
 	
-	def __seekSwab2Swab(self,seekStartIndex,dataframe,swabLength,nextRow,swabThreshold):
+	def __seekSwabEnd(self,seekStartIndex,dataframe,eps2,alpha2,nextRow):
+		"""
+		Starting from startIndex, look in dataframe for the next swab state untill nextRow
+		"""
+	
 		endIndex = -1
 		terminate = False
 		stepCount = 0 # counter in seek
+		chargeAlpah2 = False
 		while not terminate and (seekStartIndex + stepCount) < nextRow:
 			stepCount = stepCount + 1
 			startInterval = seekStartIndex + stepCount
-			endIntetval = startInterval + swabLength
+			endIntetval = startInterval + eps2
+			
+			#search inside the episode for charge greater than alpha2
+			if not chargeAlpah2:
+				episodeInterval = dataframe.iloc[seekStartIndex:startInterval,:]
+				chargeCount = episodeInterval[
+					(episodeInterval[self.currentIndex] >= self.chargeThreshold)
+				].shape[0]
+				if( chargeCount >= alpha2 ):
+					chargeAlpah2 = True
 			
 			interval = dataframe.iloc[startInterval:endIntetval,:]
 			swabCount = interval[
-				(interval[self.currentIndex] >= -swabThreshold ) 
+				(interval[self.currentIndex] >= -self.swabThreshold ) 
 				&
-				(interval[self.currentIndex] <= swabThreshold)
+				(interval[self.currentIndex] <= self.swabThreshold)
 			].shape[0]
-			if(swabCount == swabLength):
+			
+			if(swabCount == eps2 and chargeAlpah2):
 				terminate = True
 				endIndex = endIntetval
 		
 		logger.debug("Swabfound: %s count: %d" % (terminate ,stepCount ))
 		return endIndex
 	
-	def __seekSwabCleanDischarge(self,seekStartIndex,dataframe,nextRow,dischargeThreshold):
+	def __seekCleanDischarge(self,seekStartIndex,dataframe,nextRow):
 		endIndex = -1
 		terminate = False
 		stepCount = 0 # counter in seek
@@ -538,7 +618,7 @@ class EpisodedTimeSeries():
 			
 			interval = dataframe.iloc[startInterval:endIntetval,:]
 			endDischargeCount = interval[
-				(interval[self.currentIndex] > dischargeThreshold)
+				(interval[self.currentIndex] > self.dischargeThreshold)
 			].shape[0]
 			if(endDischargeCount > 0):
 				terminate = True
@@ -552,10 +632,15 @@ class EpisodedTimeSeries():
 	
 	
 	
-	def __seekEpisodesBlow(self,episodes,monthIndexes,join,blowInterval = 5):
+	def __seekEpisodesBlow(self,episodes,monthIndexes,join,eps1,alpha1,alpha2):
 		"""
 		episodes: list of list of dataframe, outer index is the month, inner index is the episode
 		monthIndexes: indexes of the month(s) of interest, if empty all available month will be returned
+		join: if True the result is just a dataframe paired discharge and charge blow, otherwise a tuple [dischargeBlow,chargeBlow]
+		eps1: starting swab duration (sec)
+		alpha1: minimum discharge duration (sec) after swab
+		alpha2: minimum charge duration (sec) after discharge
+		
 		return a list of tuples of dataframe.
 		The first element in the tuple is the discharge blow dataframe
 		The second element in the tuple is the charge blow dataframe
@@ -567,7 +652,7 @@ class EpisodedTimeSeries():
 			for month in episodes:
 				monthlyBlow = []
 				for episode in month:
-					b = self.__getBlow(episode,blowInterval,join)
+					b = self.__getBlow(episode,join,eps1,alpha1,alpha2)
 					if(b is not None):
 						monthlyBlow.append(b)
 				blowsEpisodes.append(monthlyBlow)
@@ -576,7 +661,7 @@ class EpisodedTimeSeries():
 				month = episodes[m]
 				monthlyBlow = []
 				for episode in month:
-					b = self.__getBlow(episode,blowInterval,join)
+					b = self.__getBlow(episode,join,eps1,alpha1,alpha2)
 					if(b is not None):
 						monthlyBlow.append(b)
 				blowsEpisodes.append(monthlyBlow)
@@ -585,23 +670,22 @@ class EpisodedTimeSeries():
 		return blowsEpisodes
 	
 	
-	def __getBlow(self,episode,blowInterval,join):
+	def __getBlow(self,episode,join,eps1,alpha1,alpha2):
 		"""
 		episode: to search blow in
 		blowInterval: how much timestep to get before and after the blow
-		join: if True the result is just a timeseries, otherwise a tuple [dischargeBlow,chargeBlow]
+		join: if True the result is just a dataframe paired discharge and charge blow, otherwise a tuple [dischargeBlow,chargeBlow]
+		eps1: starting swab duration (sec)
+		alpha1: minimum discharge duration (sec) after swab
+		alpha2: minimum charge duration (sec) after discharge
 		"""
-
-		dischargeThreshold = -10
-		chargeThreshold = 10
-	
 		firstBlow = None
 		lastBlow = None
 		
 		# select all time-step where the battery is in discharge
 		dischargeIndex =  ( 
 			episode[
-			(episode[self.currentIndex] <= dischargeThreshold)
+			(episode[self.currentIndex] <= self.dischargeThreshold)
 			].index
 		)
 		if(dischargeIndex.shape[0] == 0):
@@ -610,7 +694,7 @@ class EpisodedTimeSeries():
 		# select all time-step where the battery is in charge
 		chargeIndex =  ( 
 			episode[
-			(episode[self.currentIndex] >= chargeThreshold)
+			(episode[self.currentIndex] >= self.chargeThreshold)
 			].index
 		)
 		if(chargeIndex.shape[0] == 0):
@@ -626,16 +710,14 @@ class EpisodedTimeSeries():
 		lastBlow = chargeIndex[0]
 		
 	
-		logger.debug("First blow: %s - Last blow: %s" % (firstBlow,lastBlow))
-		#self.plot(episode)
+		#logger.debug("First blow: %s - Last blow: %s" % (firstBlow,lastBlow))
+		#self.plotDataFrame(episode)
 		
 		dischargeBlowIdx = episode.index.get_loc(firstBlow)
-		dischargeBlowCtx = episode.iloc[dischargeBlowIdx-blowInterval:dischargeBlowIdx+blowInterval,:]
-		
-		
+		dischargeBlowCtx = episode.iloc[dischargeBlowIdx-eps1:dischargeBlowIdx+alpha1,:]
 		
 		chargeBlowIdx = episode.index.get_loc(lastBlow)
-		chargeBlowCtx = episode.iloc[chargeBlowIdx-blowInterval:chargeBlowIdx+blowInterval,:]
+		chargeBlowCtx = episode.iloc[chargeBlowIdx-alpha1:chargeBlowIdx+alpha2,:]
 		
 		if(chargeBlowCtx.shape[0] > 0 and dischargeBlowCtx.shape[0] > 0):
 			if join:
