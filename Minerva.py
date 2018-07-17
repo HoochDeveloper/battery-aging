@@ -39,7 +39,7 @@ def main():
 	mode = "swab2swab" #"swabCleanDischarge"
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5)
 	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
-	plotMode = "server" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
+	plotMode = "GUI" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
 	if(plotMode == "server" ):
 		plt.switch_backend('agg')
 		if not os.path.exists(minerva.ets.episodeImageFolder):
@@ -61,29 +61,29 @@ def main():
 	### Train the model on first month data for all batteris
 	#minerva.train4month(0,forceTrain=False)
 	### Month by month prediction
-	scaleDataset = True
-	xscaler,yscaler = None, None
-	if(scaleDataset):
-		logger.info("Loading dataset")
-		allDataset = minerva.ets.loadDataSet()
-		minerva.dropDatasetLabel(allDataset)
-		logger.info("Compute scaler")
-		xscaler,yscaler = minerva.getXYscaler(allDataset)
-		logger.info("Scaler loaded")
+	#scaleDataset = True
+	#xscaler,yscaler = None, None
+	#if(scaleDataset):
+	#	logger.info("Loading dataset")
+	#	allDataset = minerva.ets.loadDataSet()
+	#	minerva.dropDatasetLabel(allDataset)
+	#	logger.info("Compute scaler")
+	#	xscaler,yscaler = minerva.getXYscaler(allDataset)
+	#	logger.info("Scaler loaded")
 	#### predict for every other months
 	#minerva.decode4month(1,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
 	#minerva.decode4month(2,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	logger.info("Autoencoder trained on month 0 - end")
+	#minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
+	#logger.info("Autoencoder trained on month 0 - end")
 	########################
 	## Train on all batteries and all months
 	########################
-	#logger.info("Autoencoder trained all months - start")
+	logger.info("Autoencoder trained all months - start")
 	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
 	#minerva.crossTrain(batteries,forceTrain=False) #  cross train the model
-	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#minerva.crossValidate(batteries,plotMode=plotMode,showImages=False) 	# cross validate the model
-	#logger.info("Autoencoder trained all months - end")
+	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
+	minerva.crossValidate(batteries,plotMode=plotMode,showImages=True) 	# cross validate the model
+	logger.info("Autoencoder trained all months - end")
 	
 	#######################
 	## Anomaly detection
