@@ -352,7 +352,7 @@ class Minerva():
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		csv_logger = CSVLogger(cvsLogFile)
 		model.fit(x_train, [y_train,y_train],
-			verbose = 1,
+			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,[y_valid,y_valid]),
@@ -367,7 +367,7 @@ class Minerva():
 		_ , trainMae, ptrainMae, trainLch, ptrainLch = model.evaluate( x=x_train, y=[y_train,y_train], batch_size=self.batchSize, verbose=0)
 		logger.info("Train MAE %f - LCH %f" % (trainMae,trainLch))
 		logger.info("Train Probe MAE %f - LCH %f" % (ptrainMae,ptrainLch))
-		_ , valMae, pvalMae, valLch, valLch = model.evaluate( x=x_valid, y=[y_valid,y_valid], batch_size=self.batchSize, verbose=0)
+		_ , valMae, pvalMae, valLch, pvalLch = model.evaluate( x=x_valid, y=[y_valid,y_valid], batch_size=self.batchSize, verbose=0)
 		logger.info("Valid MAE %f - LCH %f" % (valMae,valLch))
 		logger.info("Valid Probe MAE %f - LCH %f" % (pvalMae,pvalLch))
 		logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
@@ -429,7 +429,8 @@ class Minerva():
 		r1 = Reshape((timesteps, 64),name="R1")(d2)
 		
 		### PROBE ###
-		dprobe = Dense(32,activation='relu',name="DPROBE")(r1)
+		dprobe = Dense(32,activation='relu',name="DPROBE1")(r1)
+		dprobe = Dense(16,activation='relu',name="DPROBE2")(dprobe)
 		frpobe = Flatten(name="frpobe")(dprobe)
 		probe = Dense(outputFeatures*timesteps,activation='linear',name="P1")(frpobe)
 		outProbe = Reshape((timesteps, outputFeatures),name="OUT_P1")(probe)
@@ -439,7 +440,6 @@ class Minerva():
 		c4 = self.__getDeepCell(c3,"C4")
 
 		f2 = Flatten(name="F2")(c4)
-		
 		d3 = Dense(outputFeatures*timesteps,activation='linear',name="D3")(f2)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d3)
 	
