@@ -6,6 +6,7 @@ from logging import handlers as loghds
 #Project module import
 from Demetra import EpisodedTimeSeries
 
+
 #KERAS
 from keras.models import Sequential, Model
 from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation, Masking, Lambda
@@ -34,89 +35,6 @@ consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
-def main():
-	
-	mode = "swab2swab" #"swabCleanDischarge"
-	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5)
-	#minerva.ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
-	plotMode = "GUI" #"GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
-	if(plotMode == "server" ):
-		plt.switch_backend('agg')
-		if not os.path.exists(minerva.ets.episodeImageFolder):
-			os.makedirs(minerva.ets.episodeImageFolder)
-	
-
-	#from keras.utils import plot_model
-	#model2load = "Month_" + minerva.modelName + "_5_5_5_5"
-	#model = load_model(os.path.join( minerva.ets.rootResultFolder ,model2load+minerva.modelExt))
-	#plot_model(model, to_file='model.png',show_shapes=True, show_layer_names=True)
-	
-	######################### 
-	# show the histogram of resistance distribution month by month for every battery
-	#logger.info("Battery resistance distribution - start")
-	#minerva.ets.resistanceDistribution(batteries,join=True,mode=plotMode)
-	#logger.info("Battery resistance distribution - end")
-	########################
-	#logger.info("Autoencoder trained on month 0 - start")
-	### Train the model on first month data for all batteris
-	#minerva.train4month(0,forceTrain=False)
-	### Month by month prediction
-	#scaleDataset = True
-	#xscaler,yscaler = None, None
-	#if(scaleDataset):
-	#	logger.info("Loading dataset")
-	#	allDataset = minerva.ets.loadDataSet()
-	#	minerva.dropDatasetLabel(allDataset)
-	#	logger.info("Compute scaler")
-	#	xscaler,yscaler = minerva.getXYscaler(allDataset)
-	#	logger.info("Scaler loaded")
-	#### predict for every other months
-	#minerva.decode4month(1,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	#minerva.decode4month(2,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	#minerva.decode4month(3,plotMode,showImages=True,xscaler=xscaler,yscaler=yscaler)
-	#logger.info("Autoencoder trained on month 0 - end")
-	########################
-	## Train on all batteries and all months
-	########################
-	logger.info("Autoencoder trained all months - start")
-	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#minerva.crossTrain(batteries,forceTrain=False) #  cross train the model
-	batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	minerva.crossValidate(batteries,plotMode=plotMode,showImages=True) 	# cross validate the model
-	logger.info("Autoencoder trained all months - end")
-	
-	#######################
-	## Anomaly detection
-	#######################
-	#logger.info("Loading the dataset")
-	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#logger.info("Anomlay detection - start")
-	#model2load = "Fold_2_" + minerva.modelName + "_5_5_5_5"
-	#minerva.anomalyDetect(batteries,model2load,scaleDataset=True,plotMode=plotMode)
-	#logger.info("Anomlay detection - end")
-	
-	
-	##Show encoded plot
-	#model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
-	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#encodedSize =8
-	#minerva.plotEncoded(batteries,model2load,scaleDataset=True,plotMode=plotMode,encodedSize=encodedSize)
-	
-	
-	#batteries = minerva.ets.loadBlowDataSet(join=True) # load the dataset
-	#model2load = "Fold_1_" + minerva.modelName + "_5_5_5_5"
-	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
-	
-	
-	#print("Month 1")
-	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[1])
-	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
-	#print("Month 2")
-	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[2])
-	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
-	#print("Month 3")
-	#batteries = minerva.ets.loadBlowDataSet(monthIndexes=[3])
-	#minerva.decodeAndShow(batteries,model2load,scaleDataset=True,plotMode=plotMode)
 	
 class Minerva():
 	
@@ -132,8 +50,9 @@ class Minerva():
 	alpha2 = 5
 	
 	
-	def __init__(self,eps1,eps2,alpha1,alpha2):
-		# 
+	def __init__(self,eps1,eps2,alpha1,alpha2,plotMode = "server"):
+		
+		# plotMode "GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
 		# creates log folder
 		if not os.path.exists(self.logFolder):
 			os.makedirs(self.logFolder)
@@ -151,6 +70,11 @@ class Minerva():
 		hdlr.setFormatter(formatter)
 		logger.addHandler(hdlr)
 		self.ets = EpisodedTimeSeries(self.eps1,self.eps2,self.alpha1,self.alpha2)
+		
+		if(plotMode == "server" ):
+			plt.switch_backend('agg')
+			if not os.path.exists(self.ets.episodeImageFolder):
+				os.makedirs(self.ets.episodeImageFolder)
 	
 	
 	def decode4month(self,monthIndex,plotMode,showImages=False,xscaler=None,yscaler=None):
@@ -162,7 +86,7 @@ class Minerva():
 		batteries = self.ets.loadBlowDataSet(monthIndexes=[monthIndex]) # blows
 		self.dropDatasetLabel(batteries)
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
-		#self.__evaluateModel(x, y,name4model,plotMode,yscaler,showImages)
+		#self.evaluateModelOnArray(x, y,name4model,plotMode,yscaler,showImages)
 		x = self.__batchCompatible(self.batchSize,x)
 		y = self.__batchCompatible(self.batchSize,y)
 		decoded = model.predict(x,batch_size=self.batchSize)
@@ -225,7 +149,7 @@ class Minerva():
 		
 		x,y = self.__datasetAs3DArray(batteries,xscaler,yscaler)
 		xtrain, xvalid, ytrain, yvalid = train_test_split( x, y, test_size=0.1, random_state=42)
-		self.__trainlModel(xtrain, ytrain, xvalid, yvalid,name4model)
+		self.trainlModelOnArray(xtrain, ytrain, xvalid, yvalid,name4model)
 
 	def crossTrain(self,batteries,plotMode="server",scaleDataset=True,forceTrain=False):
 		xscaler,yscaler = None, None
@@ -246,8 +170,8 @@ class Minerva():
 			# validation set
 			validPerc = 0.1
 			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
-			self.__trainlModel(trainX, trainY, validX, validY,name4model)
-			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,False)
+			self.trainlModelOnArray(trainX, trainY, validX, validY,name4model)
+			self.evaluateModelOnArray(testX, testY,name4model,plotMode,yscaler,False)
 			foldCounter += 1
 
 	def crossValidate(self,batteries,showImages=True,plotMode="server",scaleDataset=True):
@@ -262,13 +186,13 @@ class Minerva():
 			testX = x[test_index]
 			testY = y[test_index]
 			name4model = "Fold_%d_%s_%d_%d_%d_%d" % (foldCounter,self.modelName,self.eps1,self.eps2,self.alpha1,self.alpha2)
-			self.__evaluateModel(testX, testY,name4model,plotMode,yscaler,showImages)
+			self.evaluateModelOnArray(testX, testY,name4model,plotMode,yscaler,showImages)
 			validPerc = 0.1
 			trainX = x[train_index]
 			trainY = y[train_index]
 			trainX, validX, trainY, validY = train_test_split( trainX, trainY, test_size=validPerc, random_state=42)
-			self.__evaluateModel(trainX, trainY,name4model,plotMode,yscaler,showImages,phase="Train")
-			self.__evaluateModel(validX, validY,name4model,plotMode,yscaler,showImages,phase="Valid")
+			self.evaluateModelOnArray(trainX, trainY,name4model,plotMode,yscaler,showImages,phase="Train")
+			self.evaluateModelOnArray(validX, validY,name4model,plotMode,yscaler,showImages,phase="Valid")
 			
 			foldCounter += 1
 	
@@ -401,10 +325,10 @@ class Minerva():
 			plt.legend()
 			self.ets.plotMode(plotMode,title)
 	
-	def __trainlModel(self,x_train, y_train, x_valid, y_valid,name4model):
+	def trainlModelOnArray(self,x_train, y_train, x_valid, y_valid,name4model,encodedSize = 8):
 		
 		tt = time.clock()
-		logger.debug("__trainlModel - start")
+		logger.debug("trainlModelOnArray - start")
 		
 		x_train = self.__batchCompatible(self.batchSize,x_train)
 		y_train = self.__batchCompatible(self.batchSize,y_train)
@@ -416,7 +340,7 @@ class Minerva():
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
-		encodedSize = 8
+		
 		
 		model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 		
@@ -426,7 +350,7 @@ class Minerva():
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		csv_logger = CSVLogger(cvsLogFile)
 		model.fit(x_train, y_train,
-			verbose = 0,
+			verbose = 1,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,y_valid),
@@ -442,11 +366,11 @@ class Minerva():
 		logger.info("Train MAE %f - LCH %f" % (trainMse,trainMae))
 		validMse, validMae = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
 		logger.info("Valid MAE %f - LCH %f" % (validMse,validMae))
-		logger.debug("__trainlModel - end - %f" % (time.clock() - tt) )
+		logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
 	
 	
 	
-	def __evaluateModel(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=10,phase="Test"):
+	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=10,phase="Test"):
 		
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
 		
@@ -491,11 +415,11 @@ class Minerva():
 			
 		inputs = Input(shape=(timesteps,inputFeatures))
 		
-		#OK CONV1D
-		#d1 = Dense(1024,activation='relu',name="D1")(inputs)
-		#d2 = Dense(512,activation='relu',name="D2")(d1)
-		#d3 = Dense(256,activation='relu',name="D3")(inputs) #(d2)
-		d4 = Dense(128,activation='relu',name="D4")(inputs)  #(d3)
+		#OK No CONV
+		d1 = Dense(1024,activation='relu',name="D1")(inputs)
+		d2 = Dense(512,activation='relu',name="D2")(d1)
+		d3 = Dense(256,activation='relu',name="D3")(d2)
+		d4 = Dense(128,activation='relu',name="D4")(d3)
 		d5 = Dense(64,activation='relu',name="D5")(d4)
 		d6 = Dense(32,activation='relu',name="D6")(d5)
 		
@@ -506,9 +430,9 @@ class Minerva():
 		r1 = Reshape((timesteps, 32),name="R1")(d7)
 		d8 = Dense(64,activation='relu',name="D8")(r1)
 		d9 = Dense(128,activation='relu',name="D9")(d8)
-		#d10 = Dense(256,activation='relu',name="D10")(d9)
-		#d11 = Dense(512,activation='relu',name="D11")(d10)
-		out = Dense(outputFeatures,activation='linear',name="OUT")(d9) #(d11)
+		d10 = Dense(256,activation='relu',name="D10")(d9)
+		d11 = Dense(512,activation='relu',name="D11")(d10)
+		out = Dense(outputFeatures,activation='linear',name="OUT")(d11)
 		
 		
 		#encoderFilter = 128
@@ -689,5 +613,4 @@ class Minerva():
 		skReal = real.reshape(samples*timesteps,features)
 		skDecoded = decoded.reshape(samples*timesteps,features)
 		return mean_absolute_error(skReal,skDecoded)
-
-main()		
+	
