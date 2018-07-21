@@ -57,10 +57,9 @@ def main():
 		
 		train,valid,_,_ = train_test_split( train, train, test_size=0.2, random_state=42)
 		
-		name4model = "TestModel_K_%d" % count
-		minerva.trainlModelOnArray(train, train, valid, valid,name4model,encodedSize = 4)
-		print(name4model)
-		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,True)
+		name4model = "L_InceptionModel_K_%d" % count
+		minerva.trainlModelOnArray(train, train, valid, valid,name4model,encodedSize = 8)
+		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
 	
 def __old():
 	from keras.utils import plot_model

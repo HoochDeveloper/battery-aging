@@ -9,8 +9,8 @@ from Demetra import EpisodedTimeSeries
 
 #KERAS
 from keras.models import Sequential, Model
-from keras.layers import LSTM, Dense, TimeDistributed, Bidirectional, RepeatVector, Input, Dropout, Activation, Masking, Lambda
-from keras.layers import Conv2D, MaxPooling2D, Flatten, UpSampling2D, Conv1D, UpSampling1D, MaxPooling1D,Reshape, Flatten
+from keras.layers import Dense, Input, concatenate, Flatten, Reshape
+from keras.layers import Conv1D, MaxPooling1D,AveragePooling1D
 from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger
@@ -41,8 +41,8 @@ class Minerva():
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
-	batchSize = 100
-	epochs = 1000
+	batchSize = 200
+	epochs = 500
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -342,30 +342,34 @@ class Minerva():
 		timesteps =  x_train.shape[1]
 		
 		
-		model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+		#model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+		
+		model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 		
 		adam = optimizers.Adam()		
 		model.compile(loss='mae', optimizer=adam,metrics=['logcosh'])
-		early = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=25, verbose=1, mode='min')	
+		early = EarlyStopping(monitor='val_OUT_loss', min_delta=0.0001, patience=50, verbose=1, mode='min')	
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		csv_logger = CSVLogger(cvsLogFile)
-		model.fit(x_train, y_train,
+		model.fit(x_train, [y_train,y_train],
 			verbose = 1,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
-			validation_data=(x_valid,y_valid),
+			validation_data=(x_valid,[y_valid,y_valid]),
 			callbacks=[early,csv_logger]
 		)
 		
-		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
+		logger.debug("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		logger.debug("Saving model...")
 		model.save(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )) 
 		logger.debug("Model saved")
 		
-		trainMse, trainMae = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
-		logger.info("Train MAE %f - LCH %f" % (trainMse,trainMae))
-		validMse, validMae = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
-		logger.info("Valid MAE %f - LCH %f" % (validMse,validMae))
+		_ , trainMae, ptrainMae, trainLch, ptrainLch = model.evaluate( x=x_train, y=[y_train,y_train], batch_size=self.batchSize, verbose=0)
+		logger.info("Train MAE %f - LCH %f" % (trainMae,trainLch))
+		logger.info("Train Probe MAE %f - LCH %f" % (ptrainMae,ptrainLch))
+		_ , valMae, pvalMae, valLch, valLch = model.evaluate( x=x_valid, y=[y_valid,y_valid], batch_size=self.batchSize, verbose=0)
+		logger.info("Valid MAE %f - LCH %f" % (valMae,valLch))
+		logger.info("Valid Probe MAE %f - LCH %f" % (pvalMae,pvalLch))
 		logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
 	
 	
@@ -377,17 +381,17 @@ class Minerva():
 		testX = self.__batchCompatible(self.batchSize,testX)
 		testY = self.__batchCompatible(self.batchSize,testY)
 		
-		logger.info("Validating model %s with test %s" % (model2load,testX.shape))
+		logger.debug("Validating model %s with test %s" % (model2load,testX.shape))
 		
 		tt = time.clock()
-		mse, mae = model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
-		logger.info("%s MAE %f - LCH %f Elapsed %f" % (phase,mse,mae,(time.clock() - tt)))
+		_ , mae, pMae, lch, pLch = model.evaluate( x=testX, y=[testY,testY], batch_size=self.batchSize, verbose=0)
+		logger.info("%s MAE %f - LCH %f Elapsed %f" % (phase,mae,lch,(time.clock() - tt)))
+		logger.info("%s Probe MAE %f - LCH %f Elapsed %f" % (phase,pMae,pLch,(time.clock() - tt)))
 		
-		
-		logger.info("Autoencoding")
+		logger.debug("Autoencoding")
 		tt = time.clock()
-		ydecoded = model.predict(testX,  batch_size=self.batchSize)
-		logger.info("Elapsed %f" % (time.clock() - tt))
+		ydecoded,pdecoded = model.predict(testX,  batch_size=self.batchSize)
+		logger.debug("Elapsed %f" % (time.clock() - tt))
 		if(scaler is not None):
 			ydecoded = self.__skScaleBack(ydecoded,scaler)
 			testY = self.__skScaleBack(testY,scaler)
@@ -410,97 +414,98 @@ class Minerva():
 				self.ets.plotMode(plotMode,title)
 
 
-
-	def __functionalDeepDenseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
-			
-		inputs = Input(shape=(timesteps,inputFeatures))
+	def __functionInceptionModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		
-		#OK No CONV
-		d1 = Dense(1024,activation='relu',name="D1")(inputs)
-		d2 = Dense(512,activation='relu',name="D2")(d1)
-		d3 = Dense(256,activation='relu',name="D3")(d2)
-		d4 = Dense(128,activation='relu',name="D4")(d3)
-		d5 = Dense(64,activation='relu',name="D5")(d4)
-		d6 = Dense(32,activation='relu',name="D6")(d5)
+		first = Dense(64,activation='relu',name="D1")(inputs)
 		
-		f1 = Flatten(name="F1")(d6) 
+		c1 = self.__getDeepCell(first,"C1")	
+		c2 = self.__getDeepCell(c1,"C2")
+		
+		f1 = Flatten(name="F1")(c2) 
 		enc = Dense(encodedSize,activation='relu',name="ENC")(f1)
 		
-		d7 = Dense(32*timesteps,activation='relu',name="D7")(enc)
-		r1 = Reshape((timesteps, 32),name="R1")(d7)
-		d8 = Dense(64,activation='relu',name="D8")(r1)
-		d9 = Dense(128,activation='relu',name="D9")(d8)
-		d10 = Dense(256,activation='relu',name="D10")(d9)
-		d11 = Dense(512,activation='relu',name="D11")(d10)
-		out = Dense(outputFeatures,activation='linear',name="OUT")(d11)
+		d2 = Dense(64*timesteps,activation='relu',name="D2")(enc)
+		r1 = Reshape((timesteps, 64),name="R1")(d2)
 		
+		### PROBE ###
+		dprobe = Dense(32,activation='relu',name="DPROBE")(r1)
+		frpobe = Flatten(name="frpobe")(dprobe)
+		probe = Dense(outputFeatures*timesteps,activation='linear',name="P1")(frpobe)
+		outProbe = Reshape((timesteps, outputFeatures),name="OUT_P1")(probe)
+		### END PROBE ###
 		
-		#encoderFilter = 128
-		#encoderKernel = 4
-		#encoderPool = 2
-		#kernel_initializer='glorot_uniform', bias_initializer='zeros',
-		#conv1 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV1")(inputs)
-		#maxpool1 = MaxPooling1D(pool_size=encoderPool,name="MP1")(conv1)
-		#
-		#conv2 = Conv1D(encoderFilter,encoderKernel,activation='relu',name="CV2")(maxpool1)
-		#maxpool2 = MaxPooling1D(pool_size=encoderPool,name="MP2")(conv2)
-		#
-		#flat1 = Flatten(name="FT1")(maxpool2) 
-		#encoded = Dense(encodedSize,activation='relu',name="encoder")(flat1)
-		#
-		#dec1 = Dense(encodedSize*4,activation='relu',name="DC1")(encoded)
-		#decoded = Dense(timesteps*outputFeatures, activation='tanh',name="DC2")(dec1)
-		#out = Reshape((timesteps, outputFeatures),name="decoder")(decoded)
+		c3 = self.__getDeepCell(r1,"C3")	
+		c4 = self.__getDeepCell(c3,"C4")
+
+		f2 = Flatten(name="F2")(c4)
 		
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		print(autoencoderModel.summary())
+		d3 = Dense(outputFeatures*timesteps,activation='linear',name="D3")(f2)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(d3)
+	
+		autoencoderModel = Model(inputs=inputs, outputs=[out,outProbe])
+		
+		#print(autoencoderModel.summary())
 		return autoencoderModel
 	
-	def __functionalModelConv2D(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+	
+	def __getDeepCell(self,input,prefix):
+		c = input
+		c = Dense(128,activation='relu',name="%s_D1" % prefix)(input)
+		c = Conv1D(64,2,activation='relu',name="%s_CV1" % prefix)(c)
+		c = MaxPooling1D(pool_size=2,name="%s_MP1" % prefix)(c)
+		#c = Dense(64,activation='relu',name="%s_D2" % prefix)(c)
+		c = Dense(32,activation='relu',name="%s_D3" % prefix)(c)
+		c = Dense(16,activation='relu',name="%s_D4" % prefix)(c)
+		c1 = Conv1D(16,4,activation='relu',name="%s_INCV1" % prefix)(c)
+		c2 = MaxPooling1D(pool_size=4,name="%s_INMP1" % prefix)(c)
+		c3 = Conv1D(16,4,activation='relu',name="%s_INCV2" % prefix)(c)
+		c4 = AveragePooling1D(pool_size=4,name="%s_INAV1" % prefix)(c)
+		c = concatenate([c1,c2,c3,c4], axis=1)
+		return c
+	
+	def __functionalDeepDenseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+			
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+
+		#OK No CONV
+		d3 = Dense(256,activation='relu',name="D3")(inputs)
 		
-		inputs = Input(shape=(timesteps,inputFeatures))
-		width  = 15
-		heigth = 15
-		deepth = timesteps * inputFeatures
-		mask = (5,5)
-		mask2 = (3,3)
-		poolMask = (3,3)
-		initParams = 16
-		outParams = 512
+		#d4 = Dense(128,activation='relu',name="D4")(d3)
+		conv1 = Conv1D(128,2,activation='relu',name="CV1")(d3)
+		maxpool1 = MaxPooling1D(pool_size=2,name="MP1")(conv1)
 		
-		enlarge1  = Dense(width*heigth*inputFeatures,activation='relu')(inputs)
-		reshape1 = Reshape((width, heigth,deepth))(enlarge1)
-		conv1 =    Conv2D(initParams*8,mask, activation='relu')(reshape1)
-		conv2 =    Conv2D(initParams*4,mask2, activation='relu')(conv1)
-		maxpool1 = MaxPooling2D(pool_size=poolMask)(conv2)
-		conv3 =    Conv2D(initParams,mask2, activation='relu')(maxpool1)
+		d5 = Dense(64,activation='relu',name="D5")(maxpool1)
+		d6 = Dense(32,activation='relu',name="D6")(d5)
 		
-		flat1 = Flatten()(conv3)
-		enlarge2  = Dense(width*heigth*deepth,activation='relu')(flat1)
-		reshape2 = Reshape((width, heigth,deepth))(enlarge2)
-		conv4 =    Conv2D(initParams*8,mask, activation='relu')(reshape2)
-		conv5 =    Conv2D(initParams*4,mask2, activation='relu')(conv4)
-		maxpool2 = MaxPooling2D(pool_size=poolMask)(conv5)
-		conv6 =    Conv2D(initParams,mask2, activation='relu')(maxpool2)
+		conv2 = Conv1D(16,2,activation='relu',name="CV2")(d6)
+		maxpool2 = MaxPooling1D(pool_size=2,name="MP2")(conv2)
 		
-		flat2 = Flatten()(conv6) 
-		encoded = Dense(encodedSize,activation='relu',name="encoder")(flat2)
+		f1 = Flatten(name="F1")(maxpool2) 
+		enc = Dense(encodedSize,activation='relu',name="ENC")(f1)
 		
-		decenlarge2  = Dense(width*heigth*deepth,activation='relu')(encoded)
-		decreshape2 = Reshape((width, heigth,deepth))(decenlarge2)
-		decconv4 =    Conv2D(initParams*8,mask, activation='relu')(decreshape2)
-		decconv5 =    Conv2D(initParams*4,mask2, activation='relu')(decconv4)
-		decmaxpool2 = MaxPooling2D(pool_size=poolMask)(decconv5)
-		decconv6 =    Conv2D(initParams,mask2, activation='relu')(decmaxpool2)
+		d7 = Dense(256*timesteps,activation='relu',name="D7")(enc)
+		r1 = Reshape((timesteps, 256),name="R1")(d7)
 		
-		flat3 = Flatten()(decconv6) 
-		dec1 = Dense(outParams,activation='relu')(flat3)
-		decoded = Dense(timesteps*outputFeatures, activation='linear')(dec1)
-		out = Reshape((timesteps, outputFeatures))(decoded)
+		
+		#d8 = Dense(128,activation='relu',name="D8")(r1)
+		conv3 = Conv1D(128,2,activation='relu',name="CV3")(r1)
+		maxpool3 = MaxPooling1D(pool_size=2,name="MP3")(conv3)
+		
+		d9 = Dense(64,activation='relu',name="D9")(maxpool3)
+		d10 = Dense(32,activation='relu',name="D10")(d9)
+		
+		conv4 = Conv1D(16,2,activation='relu',name="CV4")(d10)
+		maxpool4 = MaxPooling1D(pool_size=2,name="MP4")(conv4)
+		
+		f2 = Flatten(name="F2")(maxpool4)
+		d11 = Dense(outputFeatures*timesteps,activation='linear',name="D11")(f2)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(d11)
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		print(autoencoderModel.summary())
+		#print(autoencoderModel.summary())
 		return autoencoderModel
+	
 	
 	
 	def getXYscaler(self,batteries):
