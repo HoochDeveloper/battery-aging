@@ -119,7 +119,15 @@ class EpisodedTimeSeries():
 		logger.debug("buildDataSet - start")
 		self.__buildDataSetFromFolder(dataFolder,mode,force,self.eps1,self.eps2,self.alpha1,self.alpha2)
 		logger.debug("buildDataSet - end - %f" % (time.clock() - tt))
-
+	
+	def loadBatteryAsSingleEpisode(self,batteryName):
+		tt = time.clock()
+		logger.debug("loadBatteryEpisode - start")
+		batteryEpisodes = self.__loadZip(self.espisodePath,batteryName+".gz")
+		logger.debug("loadBatteryEpisode - end - %f" % (time.clock() - tt) )
+		# iterating over months
+		return batteryEpisodes
+	
 	def loadDataSet(self):
 		"""
 		Load from the files created with buildDataSet
@@ -357,8 +365,7 @@ class EpisodedTimeSeries():
 				name = imgTitle +"_"+str(uuid.uuid4())
 			plt.savefig(os.path.join(self.episodeImageFolder,name), bbox_inches='tight')
 			plt.close()
-	
-	
+		
 	# private methods
 	def __readFileAsDataframe(self,file):
 		""" 
@@ -727,6 +734,11 @@ class EpisodedTimeSeries():
 		else:
 			return None
 		
+	def saveZip(self,folder,fileName,data):
+		return self.__saveZip(folder,fileName,data)
+	
+	def loadZip(self,folder,fileName):
+		return self.__loadZip(folder,fileName)
 	
 	def __saveZip(self,folder,fileName,data):
 		saveFile = os.path.join(folder,fileName)
