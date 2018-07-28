@@ -3,9 +3,15 @@ import pandas as pd
 import os
 
 def main():
-	
+
 	root4save = os.path.join(".","csv")
 	ets = EpisodedTimeSeries(5,5,5,5)
+	
+	## Episode creation for real data- start
+	mode = "swab2swab"
+	ets.buildDataSet(os.path.join(".","dataset"),mode=mode,force=False) # creates dataset if does not exists
+	## Episode creation for real data - end
+
 	idxName = ets.dataHeader.index(ets.nameIndex)
 	batteries = ets.loadDataSet()
 	
