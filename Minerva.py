@@ -10,6 +10,7 @@ from keras.layers import Conv1D, MaxPooling1D,AveragePooling1D
 from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger
+import tensorflow as tf
 #Sklearn
 from sklearn.metrics import mean_absolute_error
 
@@ -26,6 +27,18 @@ consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
+
+'''
+ ' Huber loss.
+ ' https://jaromiru.com/2017/05/27/on-using-huber-loss-in-deep-q-learning/
+ ' https://en.wikipedia.org/wiki/Huber_loss
+'''
+def huber_loss(y_true, y_pred, clip_delta=1.0):
+	error = y_true - y_pred
+	cond  = tf.keras.backend.abs(error) < clip_delta
+	squared_loss = 0.5 * tf.keras.backend.square(error)
+	linear_loss  = clip_delta * (tf.keras.backend.abs(error) - 0.5 * clip_delta)
+	return tf.where(cond, squared_loss, linear_loss)
 	
 class Minerva():
 	
@@ -39,10 +52,10 @@ class Minerva():
 	eps2   = 5
 	alpha1 = 5
 	alpha2 = 5
-	
+	modelHasProbe = False
 	
 	def __init__(self,eps1,eps2,alpha1,alpha2,plotMode = "server"):
-		
+	
 		# plotMode "GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
 		# creates log folder
 		if not os.path.exists(self.logFolder):
@@ -83,21 +96,36 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 		
-		
-		#model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
-		
-		model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+		loss2monitor = 'val_loss'
+		if(self.modelHasProbe):
+			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			loss2monitor = 'val_OUT_loss'
+		else:
+			#model = self.__functionalDeepDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			#model = self.__inceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			#model = self.__functionalDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			model = self.__convModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			
 		
 		adam = optimizers.Adam()		
-		model.compile(loss='mae', optimizer=adam,metrics=['logcosh'])
-		early = EarlyStopping(monitor='val_OUT_loss', min_delta=0.0001, patience=50, verbose=1, mode='min')	
+		model.compile(loss='mae', optimizer=adam,metrics=[huber_loss])
+		early = EarlyStopping(monitor=loss2monitor, min_delta=0.0001, patience=50, verbose=1, mode='min')	
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		csv_logger = CSVLogger(cvsLogFile)
-		model.fit(x_train, [y_train,y_train],
+		
+		logger.info("There are %s parameters in model" % model.count_params()) 
+		
+		validY = y_valid
+		trainY = y_train
+		if(self.modelHasProbe):
+			validY = [y_valid,y_valid]
+			trainY = [y_train,y_train]
+		
+		model.fit(x_train, trainY,
 			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
-			validation_data=(x_valid,[y_valid,y_valid]),
+			validation_data=(x_valid,validY),
 			callbacks=[early,csv_logger]
 		)
 		
@@ -105,20 +133,33 @@ class Minerva():
 		logger.debug("Saving model...")
 		model.save(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )) 
 		logger.debug("Model saved")
+		if(self.modelHasProbe):
+			_ , trainMae, ptrainMae, trainHuber, ptrainHuber = model.evaluate( x=x_train, y=[y_train,y_train], batch_size=self.batchSize, verbose=0)
+			logger.info("Train Probe MAE %f - Huber %f" % (ptrainMae,ptrainHuber))
+		else:
+			trainMae, trainHuber = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
+			
 		
-		_ , trainMae, ptrainMae, trainLch, ptrainLch = model.evaluate( x=x_train, y=[y_train,y_train], batch_size=self.batchSize, verbose=0)
-		logger.info("Train MAE %f - LCH %f" % (trainMae,trainLch))
-		logger.info("Train Probe MAE %f - LCH %f" % (ptrainMae,ptrainLch))
-		_ , valMae, pvalMae, valLch, pvalLch = model.evaluate( x=x_valid, y=[y_valid,y_valid], batch_size=self.batchSize, verbose=0)
-		logger.info("Valid MAE %f - LCH %f" % (valMae,valLch))
-		logger.info("Valid Probe MAE %f - LCH %f" % (pvalMae,pvalLch))
+		logger.info("Train MAE %f - Huber %f" % (trainMae,trainHuber))
+		
+		if(self.modelHasProbe):
+			_ , valMae, pvalMae, valHuber, pvalHuber = model.evaluate( x=x_valid, y=[y_valid,y_valid], batch_size=self.batchSize, verbose=0)
+			logger.info("Valid Probe MAE %f - Huber %f" % (pvalMae,pvalHuber))
+		else:
+			valMae, valHuber = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
+		
+		logger.info("Valid MAE %f - Huber %f" % (valMae,valHuber))	
 		logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
 	
 	
 	
 	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test"):
 		
-		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		customLoss = {'huber_loss': huber_loss}
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
+			,custom_objects=customLoss)
+		
+		#logger.info("There are %s parameters in model" % model.count_params()) 
 		
 		testX = self.__batchCompatible(self.batchSize,testX)
 		testY = self.__batchCompatible(self.batchSize,testY)
@@ -126,21 +167,31 @@ class Minerva():
 		logger.debug("Validating model %s with test %s" % (model2load,testX.shape))
 		
 		tt = time.clock()
-		_ , mae, pMae, lch, pLch = model.evaluate( x=testX, y=[testY,testY], batch_size=self.batchSize, verbose=0)
-		logger.info("%s MAE %f - LCH %f Elapsed %f" % (phase,mae,lch,(time.clock() - tt)))
-		logger.debug("%s Probe MAE %f - LCH %f Elapsed %f" % (phase,pMae,pLch,(time.clock() - tt)))
+		if(self.modelHasProbe):
+			_ , mae, pMae, Huber, pHuber = model.evaluate( x=testX, y=[testY,testY], batch_size=self.batchSize, verbose=0)
+			logger.debug("%s Probe MAE %f - Huber %f Elapsed %f" % (phase,pMae,pHuber,(time.clock() - tt)))
+		else:
+			mae, Huber= model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
 		
-		logger.debug("Autoencoding")
-		tt = time.clock()
-		ydecoded,pdecoded = model.predict(testX,  batch_size=self.batchSize)
-		logger.debug("Elapsed %f" % (time.clock() - tt))
-		if(scaler is not None):
-			ydecoded = self.__skScaleBack(ydecoded,scaler)
-			testY = self.__skScaleBack(testY,scaler)
-			scaledMAE = self.__skMAE(testY,ydecoded)
-			logger.debug("%s scaled MAE %f" % (phase,scaledMAE))
+		logger.info("%s MAE %f - Huber %f Elapsed %f" % (phase,mae,Huber,(time.clock() - tt)))
 			
 		if(showImages):
+				
+			logger.debug("Autoencoding")
+			tt = time.clock()
+			
+			if(self.modelHasProbe):
+				ydecoded,pdecoded = model.predict(testX,  batch_size=self.batchSize)
+			else:
+				ydecoded = model.predict(testX,  batch_size=self.batchSize)
+			
+			logger.debug("Elapsed %f" % (time.clock() - tt))
+
+			if(scaler is not None):
+				ydecoded = self.__skScaleBack(ydecoded,scaler)
+				testY = self.__skScaleBack(testY,scaler)
+				scaledMAE = self.__skMAE(testY,ydecoded)
+				logger.debug("%s scaled MAE %f" % (phase,scaledMAE))
 			for r in range(num2show):
 				plt.figure()
 				toPlot = np.random.randint(ydecoded.shape[0])
@@ -161,8 +212,8 @@ class Minerva():
 		
 		first = Dense(64,activation='relu',name="D1")(inputs)
 		
-		c1 = self.__getDeepCell(first,"C1")	
-		c2 = self.__getDeepCell(c1,"C2")
+		c1 = self.__getInceptionCell(first,"C1")	
+		c2 = self.__getInceptionCell(c1,"C2")
 		
 		f1 = Flatten(name="F1")(c2) 
 		enc = Dense(encodedSize,activation='relu',name="ENC")(f1)
@@ -178,42 +229,128 @@ class Minerva():
 		outProbe = Reshape((timesteps, outputFeatures),name="OUT_P1")(probe)
 		### END PROBE ###
 		
-		c3 = self.__getDeepCell(r1,"C3")	
-		c4 = self.__getDeepCell(c3,"C4")
+		c3 = self.__getInceptionCell(r1,"C3")	
+		c4 = self.__getInceptionCell(c3,"C4")
 
 		f2 = Flatten(name="F2")(c4)
 		d3 = Dense(outputFeatures*timesteps,activation='linear',name="D3")(f2)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d3)
 	
 		autoencoderModel = Model(inputs=inputs, outputs=[out,outProbe])
-		
-		#print(autoencoderModel.summary())
 		return autoencoderModel
 	
 	
-	def __getDeepCell(self,input,prefix):
-		c = input
-		c = Dense(128,activation='relu',name="%s_D1" % prefix)(input)
-		c = Conv1D(64,2,activation='relu',name="%s_CV1" % prefix)(c)
-		c = MaxPooling1D(pool_size=2,name="%s_MP1" % prefix)(c)
-		#c = Dense(64,activation='relu',name="%s_D2" % prefix)(c)
-		c = Dense(32,activation='relu',name="%s_D3" % prefix)(c)
-		c = Dense(16,activation='relu',name="%s_D4" % prefix)(c)
-		c1 = Conv1D(16,4,activation='relu',name="%s_INCV1" % prefix)(c)
-		c2 = MaxPooling1D(pool_size=4,name="%s_INMP1" % prefix)(c)
-		c3 = Conv1D(16,4,activation='relu',name="%s_INCV2" % prefix)(c)
-		c4 = AveragePooling1D(pool_size=4,name="%s_INAV1" % prefix)(c)
-		c = concatenate([c1,c2,c3,c4], axis=1)
+	def __getConvCell(self,input,prefix):
+		
+		c = Dense(64,activation='relu',name="%s_S_D32" % prefix)(input)
+		c = Conv1D(64,5,activation='relu',name="%s_S_C5" % prefix)(c)
+		c = MaxPooling1D(pool_size=3,name="%s_I_MP3" % prefix)(c)
+		
 		return c
+	
+	
+	def __getInceptionCell(self,input,prefix):
+		
+		c = Dense(256,activation='relu',name="%s_S_D64" % prefix)(input)
+		c = Conv1D(128,7,activation='relu',name="%s_S_C7" % prefix)(c)
+		c = Dense(64,activation='relu',name="%s_S_D32" % prefix)(c)
+		c = Conv1D(32,5,activation='relu',name="%s_S_C5" % prefix)(c)
+		
+		c1 = Conv1D(32,5,activation='relu',name="%s_I_CV5" % prefix)(c)
+		c2 = MaxPooling1D(pool_size=3,name="%s_I_MP3" % prefix)(c)
+		c3 = Conv1D(32,3,activation='relu',name="%s_I_CV3" % prefix)(c)
+		c4 = MaxPooling1D(pool_size=5,name="%s_I_MP5" % prefix)(c)
+		
+		c = concatenate([c1,c2,c3,c4], axis=1,name = "%s_INCEPTION" % prefix)
+		
+		return c
+	
+	def __convModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		c = self.__getConvCell(inputs,"EC1")	
+		
+		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
+		enc = Dense(encodedSize,activation='relu',name="ENC")(preEncodeFlat)
+		
+		
+		c = Dense(encodedSize*timesteps,activation='relu',name="PRE_DC")(enc)
+		c = Reshape((timesteps, encodedSize),name="PRE_DC_R")(c)
+		
+		c = self.__getConvCell(c,"DC1")	
+		
+		preDecodeFlat = Flatten(name="PRE_DECODE")(c)
+		c = Dense(outputFeatures*timesteps,activation='linear',name="DECODED")(preDecodeFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		#print(autoencoderModel.summary())
+		return autoencoderModel
+	
+	def __inceptionModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		
+		c = self.__getInceptionCell(inputs,"EC1")	
+		#c = self.__getInceptionCell(c,"EC2")
+		#c = self.__getInceptionCell(c,"EC3")
+	
+		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
+		enc = Dense(encodedSize,activation='relu',name="ENC")(preEncodeFlat)
+		
+		c = Dense(encodedSize*timesteps,activation='relu',name="PRE_DC")(enc)
+		c = Reshape((timesteps, encodedSize),name="PRE_DC_R")(c)
+		
+		c = self.__getInceptionCell(c,"DC1")	
+		#c = self.__getInceptionCell(c,"DC2")
+		#c = self.__getInceptionCell(c,"DC3")
+		
+		preDecodeFlat = Flatten(name="PRE_DECODE")(c)
+		c = Dense(outputFeatures*timesteps,activation='linear',name="DECODED")(preDecodeFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		#print(autoencoderModel.summary())
+		return autoencoderModel
+		
+	def __functionalDenseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		
+		start = 512
+		
+		d = Dense(start,activation='relu',name="D1")(inputs)
+		d = Dense(int(start / 2),activation='relu',name="D2")(d)
+		d = Dense(int(start / 4),activation='relu',name="D3")(d)
+		d = Dense(int(start / 8),activation='relu',name="D4")(d)
+		d = Dense(int(start / 16),activation='relu',name="D5")(d)
+		
+		d = Flatten(name="F1")(d) 
+		enc = Dense(encodedSize,activation='relu',name="ENC")(d)
+		
+		d = Dense(start*timesteps,activation='relu',name="D6")(enc)
+		d = Reshape((timesteps, start),name="R1")(d)
+		
+		d = Dense(int(start / 2),activation='relu',name="D7")(d)
+		d = Dense(int(start / 4),activation='relu',name="D8")(d)
+		d = Dense(int(start / 8),activation='relu',name="D9")(d)
+		d = Dense(int(start / 16),activation='relu',name="D10")(d)
+		
+		
+		d = Flatten(name="F2")(d)
+		d = Dense(outputFeatures*timesteps,activation='linear',name="D11")(d)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
+		
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		return autoencoderModel
+		
 	
 	def __functionalDeepDenseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
 			
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 
-		#OK No CONV
+		#OK
 		d3 = Dense(256,activation='relu',name="D3")(inputs)
-		
-		#d4 = Dense(128,activation='relu',name="D4")(d3)
 		conv1 = Conv1D(128,2,activation='relu',name="CV1")(d3)
 		maxpool1 = MaxPooling1D(pool_size=2,name="MP1")(conv1)
 		
@@ -228,9 +365,7 @@ class Minerva():
 		
 		d7 = Dense(256*timesteps,activation='relu',name="D7")(enc)
 		r1 = Reshape((timesteps, 256),name="R1")(d7)
-		
-		
-		#d8 = Dense(128,activation='relu',name="D8")(r1)
+
 		conv3 = Conv1D(128,2,activation='relu',name="CV3")(r1)
 		maxpool3 = MaxPooling1D(pool_size=2,name="MP3")(conv3)
 		
@@ -245,7 +380,6 @@ class Minerva():
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d11)
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		#print(autoencoderModel.summary())
 		return autoencoderModel
 	
 	def __batchCompatible(self,batch_size,data):
