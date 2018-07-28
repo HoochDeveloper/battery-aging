@@ -22,8 +22,7 @@ def main():
 	ets = EpisodedTimeSeries(eps1,eps2,alpha1,alpha2)
 	
 	root4load = os.path.join(".","synthetic_data")
-	root4saveNoSOC = os.path.join(ets.rootResultFolder,"synthetic_%d_%d_%d_%d" 
-		% (eps1,eps2,alpha1,alpha2))
+	root4saveNoSOC = os.path.join(ets.synthetcBlowPath)
 	
 	socCol = "SOC_BAT"
 	for file in os.listdir(root4load):
@@ -44,14 +43,28 @@ def main():
 		battery = ets.loadBatteryAsSingleEpisode(batteryName)
 		for month in battery:
 			for episode in month:
-				ep = episode[ets.keepY]
+				ep = episode[ets.syntheticImport]
 				allBatteryEpisode.append(ep)
 		
 		dfHybrid = pd.concat(allBatteryEpisode)
 		dfHybrid[ets.dataHeader[17]] = dfSynthetic[ets.dataHeader[17]].values
 		dfHybrid[socCol] = dfSynthetic[socCol].values
 		
-		ets.saveZip(saveFolder,batteryName+".gz",dfHybrid)
+		# starting from the corresponding real blow, 
+		# creates the relative synthetic blows
+		realBlows = ets.seekEpisodesBlows(battery)
+		synthetic_months = []
+		for month in realBlows:
+			synthetic_blows = []
+			for blow in month:
+				hybridBlow = dfHybrid.ix[ blow.index ]
+				if(hybridBlow.shape[0] != 20):
+					print("Warning missing index for battery %s" % batteryName)
+					print(hybridBlow.shape)
+				else:
+					synthetic_blows.append(hybridBlow)
+			synthetic_months.append(synthetic_blows)
+		ets.saveZip(saveFolder,batteryName+".gz",synthetic_months)
 		
 def getBatteryNameAndSOCFromFile(fileName):
 	fileName = os.path.splitext(fileName)[0]
