@@ -3,7 +3,6 @@ from logging import handlers as loghds
 
 from sklearn import preprocessing
 
-
 #Module logging
 logger = logging.getLogger("Opi")
 logger.setLevel(logging.INFO)
