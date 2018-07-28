@@ -109,7 +109,7 @@ class Opi():
 		tt = time.clock()
 		logger.debug("__foldSplit - start")
 		
-		maxEpisodesForFold = int( episodesInDataset / k ) + 150
+		maxEpisodesForFold = int( episodesInDataset / k )
 		logger.debug("Max episodes for fold %d" % maxEpisodesForFold)
 		currentFold = 0
 		
@@ -120,7 +120,7 @@ class Opi():
 		
 		np.random.seed(42)
 		permutedIdx = np.random.permutation(len(batteries))
-		
+		assigned = 0
 		for idx in permutedIdx:
 			# iteration over batteries
 			battery = batteries[idx]
@@ -143,6 +143,7 @@ class Opi():
 			# check how many episodes are in the fold, it there are more than max, then switch fold
 			episodeInFold = len(foldIndex[currentFold])
 			if((episodeInFold + totalEpisodeInBattery) > maxEpisodesForFold and currentFold < (k - 1)):
+				assigned += episodeInFold
 				logger.info("End of fold %d, dimension %d" % (currentFold,len(foldIndex[currentFold])))
 				currentFold += 1
 				foldIndex.append([])
@@ -151,7 +152,8 @@ class Opi():
 			foldIndex[currentFold] += batteryIndex
 			foldData[currentFold] += batteryData
 			episodeInFold = len(foldIndex[currentFold])
-			#logger.debug("Current episode in fold are %d" % episodeInFold)
+		
+		logger.info("Last fold has %d episode" % (episodesInDataset - assigned))
 			
 		logger.debug("__foldSplit - end - %f" % (time.clock() - tt))
 		return foldIndex, foldData
