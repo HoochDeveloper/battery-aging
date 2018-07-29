@@ -17,4 +17,3 @@ Generate synthetic data with generate_all_synthetic_data([100,95,90,85,80])
 Convert back as dataframe with original timestamp the synthetic data with
 python Mercurio.py import
 **************************
-
