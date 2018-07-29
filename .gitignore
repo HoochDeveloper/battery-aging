@@ -2,7 +2,7 @@
 dataset/
 results/
 logs/
-csv/
+exportEpisodes/
 synthetic_data/
 # Byte-compiled / optimized / DLL files
 __pycache__/
