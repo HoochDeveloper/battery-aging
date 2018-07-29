@@ -59,7 +59,7 @@ class Astrea():
 			batteryName = self.__getBatteryName(battery)
 			logger.debug("There are %d episode in battery %s" % (totalEpisodeInBattery,batteryName))
 		
-		logger.info("There are %d episode in dataset." % (episodesInDataset))
+		logger.debug("There are %d episode in dataset." % (episodesInDataset))
 		indexes,datas = self.__foldSplit(batteries,episodesInDataset,k)
 		logger.debug("kfoldByKind - end - %f" % (time.clock() - tt))
 		return indexes,datas
@@ -71,6 +71,9 @@ class Astrea():
 			for episode in fold:
 				for t in range(0,episode.shape[0]):
 						data2dimension.append(episode.values[t])
+						#print(episode.values[t])
+		data2dimension.append([0, 30.0])
+		data2dimension.append([0, 32.0])
 		data2dimension = np.asarray(data2dimension)
 		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
 		scaler.fit(data2dimension)
@@ -144,7 +147,7 @@ class Astrea():
 			episodeInFold = len(foldIndex[currentFold])
 			if((episodeInFold + totalEpisodeInBattery) > maxEpisodesForFold and currentFold < (k - 1)):
 				assigned += episodeInFold
-				logger.info("End of fold %d, dimension %d" % (currentFold,len(foldIndex[currentFold])))
+				logger.debug("End of fold %d, dimension %d" % (currentFold,len(foldIndex[currentFold])))
 				currentFold += 1
 				foldIndex.append([])
 				foldData.append([])
@@ -153,7 +156,7 @@ class Astrea():
 			foldData[currentFold] += batteryData
 			episodeInFold = len(foldIndex[currentFold])
 		
-		logger.info("Last fold has %d episode" % (episodesInDataset - assigned))
+		logger.debug("Last fold has %d episode" % (episodesInDataset - assigned))
 			
 		logger.debug("__foldSplit - end - %f" % (time.clock() - tt))
 		return foldIndex, foldData
