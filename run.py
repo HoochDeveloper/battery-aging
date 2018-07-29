@@ -17,11 +17,11 @@ logger.addHandler(consoleHandler)
 
 
 plotMode="GUI"
-modelNameTemplate = "Enc_%d_Synthetic_%d_TESTModel_K_%d"
+modelNameTemplate = "Enc_%d_Synthetic_%d_ConvModel_K_%d"
 
 def execute(mustTrain):
 	K = 5
-	encSize = 2
+	encSize = 4
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)
 	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
