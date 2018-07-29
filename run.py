@@ -22,7 +22,7 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_ConvModel_K_%d"
 modelNameTemplate = "Enc_%d_Test_%d_ConvModel_K_%d"
 
 
-def main():
+def execute(mustTrain):
 	K = 5
 	encSize = 8
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)
@@ -31,8 +31,7 @@ def main():
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
-	#if(True):
-	if(False):
+	if(mustTrain):
 		train(minerva,astrea,K,encSize)
 	else:
 		print(100)
@@ -45,8 +44,6 @@ def main():
 		evaluate(minerva,astrea,K,85,encSize)
 		print(80)
 		evaluate(minerva,astrea,K,80,encSize)
-	
-	
 
 def evaluate(minerva,astrea,K,soc,encSize):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(soc)
@@ -96,5 +93,16 @@ def train(minerva,astrea,K,encSize):
 		minerva.trainlModelOnArray(train, train, valid, valid,name4model,encodedSize = encSize)
 		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
 
-
+def main():
+	if(len(sys.argv) != 2):
+		print("Expected train / evaluate")
+		return
+	action = sys.argv[1]
+	if(action == "train"):
+		execute(True)
+	elif(action=="evaluate"):
+		execute(False)
+	else:
+		print("Can't perform %s" % action)
+		
 main()
