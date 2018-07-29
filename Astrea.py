@@ -4,14 +4,14 @@ from logging import handlers as loghds
 from sklearn import preprocessing
 
 #Module logging
-logger = logging.getLogger("Opi")
+logger = logging.getLogger("Astrea")
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
-class Opi():
+class Astrea():
 	
 	idxTS = None
 	idxName = None
@@ -22,7 +22,7 @@ class Opi():
 		if not os.path.exists(logFolder):
 			os.makedirs(logFolder)
 		
-		logFile = logFolder + "/Opi.log"
+		logFile = logFolder + "/Astrea.log"
 		hdlr = loghds.TimedRotatingFileHandler(logFile,
                                        when="H",
                                        interval=1,

@@ -3,7 +3,7 @@ from logging import handlers as loghds
 
 #Project module import
 from Minerva import Minerva
-from Opi import Opi
+from Astrea import Astrea
 
 from sklearn.model_selection import train_test_split
 
@@ -29,37 +29,37 @@ def main():
 	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
-	opi = Opi(tsIndex,nameIndex,minerva.ets.keepY)	
+	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
 	#if(True):
 	if(False):
-		train(minerva,opi,K,encSize)
+		train(minerva,astrea,K,encSize)
 	else:
 		print(100)
-		evaluate(minerva,opi,K,100,encSize)
+		evaluate(minerva,astrea,K,100,encSize)
 		print(95)
-		evaluate(minerva,opi,K,95,encSize)
+		evaluate(minerva,astrea,K,95,encSize)
 		print(90)
-		evaluate(minerva,opi,K,90,encSize)
+		evaluate(minerva,astrea,K,90,encSize)
 		print(85)
-		evaluate(minerva,opi,K,85,encSize)
+		evaluate(minerva,astrea,K,85,encSize)
 		print(80)
-		evaluate(minerva,opi,K,80,encSize)
+		evaluate(minerva,astrea,K,80,encSize)
 	
 	
 
-def evaluate(minerva,opi,K,soc,encSize):
+def evaluate(minerva,astrea,K,soc,encSize):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(soc)
 	
-	k_idx,k_data = opi.kfoldByKind(batteries,K)
-	scaler = opi.getScaler(k_data)
+	k_idx,k_data = astrea.kfoldByKind(batteries,K)
+	scaler = astrea.getScaler(k_data)
 	folds4learn = []
 	for i in range(len(k_data)):
 		fold = k_data[i]
-		foldAs3d = opi.foldAs3DArray(fold,scaler)
+		foldAs3d = astrea.foldAs3DArray(fold,scaler)
 		folds4learn.append(foldAs3d)
 
-	trainIdx,testIdx = opi.leaveOneFoldOut(K)
+	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
 	count = 0
 	for train_index, test_index in zip(trainIdx,testIdx): 
 		count += 1
@@ -71,19 +71,19 @@ def evaluate(minerva,opi,K,soc,encSize):
 		name4model = modelNameTemplate % (encSize,100,count)
 		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
 	
-def train(minerva,opi,K,encSize):
+def train(minerva,astrea,K,encSize):
 	
 	train_soc = 100
 	batteries = minerva.ets.loadSyntheticBlowDataSet(train_soc)
-	k_idx,k_data = opi.kfoldByKind(batteries,K)
-	scaler = opi.getScaler(k_data)
+	k_idx,k_data = astrea.kfoldByKind(batteries,K)
+	scaler = astrea.getScaler(k_data)
 	folds4learn = []
 	for i in range(len(k_data)):
 		fold = k_data[i]
-		foldAs3d = opi.foldAs3DArray(fold,scaler)
+		foldAs3d = astrea.foldAs3DArray(fold,scaler)
 		folds4learn.append(foldAs3d)
 
-	trainIdx,testIdx = opi.leaveOneFoldOut(K)
+	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
 	count = 0
 	for train_index, test_index in zip(trainIdx,testIdx): 
 		count += 1
