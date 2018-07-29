@@ -92,9 +92,10 @@ class Mercurio():
 						dtype=({ self.ets.dataHeader[17] : np.float32}))
 					tempDf = dfReal.copy()
 					tempDf.loc[:,self.ets.dataHeader[17]] = dfSynthetic[self.ets.dataHeader[17]].values
-					syntheticMonthEpisode.append(tempDf)	
-				allSyntheticMonth = pd.concat(syntheticMonthEpisode)
-				syntheticBatteryEpisode.append(allSyntheticMonth)
+					syntheticMonthEpisode.append(tempDf)
+				if(len(syntheticMonthEpisode) > 0):
+					allSyntheticMonth = pd.concat(syntheticMonthEpisode)
+					syntheticBatteryEpisode.append(allSyntheticMonth)
 			
 			syntheticSingleEpisode = pd.concat(syntheticBatteryEpisode)
 			# starting from the corresponding real blow, 
