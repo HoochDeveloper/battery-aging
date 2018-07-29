@@ -17,14 +17,11 @@ logger.addHandler(consoleHandler)
 
 
 plotMode="GUI"
-modelNameTemplate = "Enc_%d_Synthetic_%d_ConvModel_K_%d"
-
-modelNameTemplate = "Enc_%d_Test_%d_ConvModel_K_%d"
-
+modelNameTemplate = "Enc_%d_Synthetic_%d_TESTModel_K_%d"
 
 def execute(mustTrain):
 	K = 5
-	encSize = 8
+	encSize = 2
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)
 	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
@@ -34,22 +31,23 @@ def execute(mustTrain):
 	if(mustTrain):
 		train(minerva,astrea,K,encSize)
 	else:
+		batteries = minerva.ets.loadSyntheticBlowDataSet(100)
+		k_idx,k_data = astrea.kfoldByKind(batteries,K)
+		scaler = astrea.getScaler(k_data)
 		print(100)
-		evaluate(minerva,astrea,K,100,encSize)
-		print(95)
-		evaluate(minerva,astrea,K,95,encSize)
+		evaluate(minerva,astrea,K,100,encSize,scaler)
+		#print(95)
+		#evaluate(minerva,astrea,K,95,encSize)
 		print(90)
-		evaluate(minerva,astrea,K,90,encSize)
-		print(85)
-		evaluate(minerva,astrea,K,85,encSize)
+		evaluate(minerva,astrea,K,90,encSize,scaler)
+		#print(85)
+		#evaluate(minerva,astrea,K,85,encSize)
 		print(80)
-		evaluate(minerva,astrea,K,80,encSize)
+		evaluate(minerva,astrea,K,80,encSize,scaler)
 
-def evaluate(minerva,astrea,K,soc,encSize):
+def evaluate(minerva,astrea,K,soc,encSize,scaler):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(soc)
-	
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
-	scaler = astrea.getScaler(k_data)
 	folds4learn = []
 	for i in range(len(k_data)):
 		fold = k_data[i]
@@ -60,11 +58,8 @@ def evaluate(minerva,astrea,K,soc,encSize):
 	count = 0
 	for train_index, test_index in zip(trainIdx,testIdx): 
 		count += 1
-		train = [folds4learn[i] for i in train_index]
-		train = np.concatenate(train)
 		test =  [folds4learn[i] for i in test_index]
 		test =  np.concatenate(test)
-		train,valid,_,_ = train_test_split( train, train, test_size=0.2, random_state=42)
 		name4model = modelNameTemplate % (encSize,100,count)
 		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
 	
@@ -88,7 +83,7 @@ def train(minerva,astrea,K,encSize):
 		train = np.concatenate(train)
 		test =  [folds4learn[i] for i in test_index]
 		test =  np.concatenate(test)
-		train,valid,_,_ = train_test_split( train, train, test_size=0.2, random_state=42)
+		train,valid,_,_ = train_test_split( train, train, test_size=0.1, random_state=42)
 		name4model = modelNameTemplate % (encSize,train_soc,count)
 		minerva.trainlModelOnArray(train, train, valid, valid,name4model,encodedSize = encSize)
 		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
