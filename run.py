@@ -22,11 +22,11 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_ConvModel2_K_%d"
 def execute(mustTrain):
 	
 	minAgeChargeScale = 75
-	maxAgeChargeScale = 100
+	maxAgeChargeScale = 125
 	step = 25
 	
 	
-	K = 5
+	K = 3
 	encSize = 4
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)
 	
@@ -34,7 +34,7 @@ def execute(mustTrain):
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
-	dataRange(minerva,astrea,K,minAgeChargeScale,maxAgeChargeScale,step)
+	#dataRange(minerva,astrea,K,minAgeChargeScale,maxAgeChargeScale,step)
 	
 	if(mustTrain):
 		train(minerva,astrea,K,encSize)
@@ -42,10 +42,10 @@ def execute(mustTrain):
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
 	for ageScale in range(minAgeChargeScale,maxAgeChargeScale,step):
-		evaluate(minerva,astrea,K,ageScale,encSize,scaler)
+		evaluate(minerva,astrea,K,ageScale,encSize,scaler,show=True)
 	
 
-def evaluate(minerva,astrea,K,ageScale,encSize,scaler):
+def evaluate(minerva,astrea,K,ageScale,encSize,scaler,show=False):
 	print("Evaluating age scale %d" % ageScale)
 	batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
@@ -62,7 +62,7 @@ def evaluate(minerva,astrea,K,ageScale,encSize,scaler):
 		test =  [folds4learn[i] for i in test_index]
 		test =  np.concatenate(test)
 		name4model = modelNameTemplate % (encSize,100,count)
-		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
+		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,show)
 	
 def train(minerva,astrea,K,encSize):
 	
@@ -84,7 +84,7 @@ def train(minerva,astrea,K,encSize):
 		train = np.concatenate(train)
 		test =  [folds4learn[i] for i in test_index]
 		test =  np.concatenate(test)
-		train,valid,_,_ = train_test_split( train, train, test_size=0.1, random_state=42)
+		train,valid,_,_ = train_test_split( train, train, test_size=0.2, random_state=42)
 		name4model = modelNameTemplate % (encSize,train_ageScale,count)
 		minerva.trainlModelOnArray(train, train, valid, valid,name4model,encodedSize = encSize)
 		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
@@ -92,7 +92,7 @@ def train(minerva,astrea,K,encSize):
 		
 def dataRange(minerva,astrea,K,min,max,step):
 	for ageScale in range(min,max,step):
-		batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
+		batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
 		k_idx,k_data = astrea.kfoldByKind(batteries,K)
 		scaler = astrea.getScaler(k_data)
 		print(ageScale)
