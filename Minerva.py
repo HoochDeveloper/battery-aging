@@ -45,7 +45,7 @@ class Minerva():
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
-	batchSize = 200
+	batchSize = 100
 	epochs = 500
 	ets = None
 	eps1   = 5
@@ -107,7 +107,7 @@ class Minerva():
 		
 		adam = optimizers.Adam()		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-		early = EarlyStopping(monitor=loss2monitor, min_delta=0.0001, patience=50, verbose=1, mode='min')	
+		early = EarlyStopping(monitor=loss2monitor, min_delta=0.000001, patience=50, verbose=1, mode='min')	
 		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		csv_logger = CSVLogger(cvsLogFile)
 		
@@ -189,14 +189,19 @@ class Minerva():
 				scaledMAE = self.__skMAE(testY,ydecoded)
 				logger.debug("%s scaled MAE %f" % (phase,scaledMAE))
 			for r in range(num2show):
-				plt.figure()
+				plt.figure(figsize=(8, 6), dpi=100)
 				toPlot = np.random.randint(ydecoded.shape[0])
 				i = 1
 				sid = 14
 				for col in range(ydecoded.shape[2]):
 					plt.subplot(ydecoded.shape[2], 1, i)
-					plt.plot(ydecoded[toPlot][:, col],color="navy",label="Decoded")
-					plt.plot(testY[toPlot][:, col],color="orange",label="Real")
+					plt.plot(ydecoded[toPlot][:, col],color="navy",label="Reconstructed")
+					plt.plot(testY[toPlot][:, col],color="orange",label="Target")
+					if(i == 1):
+						plt.title("Current (A) vs Time (s)",loc="right")
+					else:
+						plt.title("Voltage (V) vs Time (s)",loc="right")
+					plt.grid()
 					plt.legend()
 					i += 1	
 				title = str(toPlot) +"_"+str(uuid.uuid4())
