@@ -72,8 +72,8 @@ class Astrea():
 				for t in range(0,episode.shape[0]):
 						data2dimension.append(episode.values[t])
 						#print(episode.values[t])
-		data2dimension.append([0, 30.0])
-		data2dimension.append([0, 32.0])
+		data2dimension.append([0, 28.0])
+		data2dimension.append([0, 33.0])
 		data2dimension = np.asarray(data2dimension)
 		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
 		scaler.fit(data2dimension)
