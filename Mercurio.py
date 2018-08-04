@@ -57,24 +57,24 @@ class Mercurio():
 		Import the synthetic data generated from the file in csv 
 		with the MatExport.py
 		
-		All file will be in synthetic_eps1_eps2_alpha1_alpha2_SOC
+		All file will be in synthetic_eps1_eps2_alpha1_alpha2_AC
 		every file is a pandas dataframe zipped
 		One file for battery
 		"""
 
 		root4load = os.path.join(".","synthetic_data")
-		root4saveNoSOC = os.path.join(".",self.ets.synthetcBlowPath)
+		root4saveNoAC = os.path.join(".",self.ets.synthetcBlowPath)
 		
-		for batteryFoldeSOC in os.listdir(root4load):
+		for batteryFoldeAC in os.listdir(root4load):
 			
-			batteryName,soc = self.getBatteryNameAndSOCFromFile(batteryFoldeSOC);
-			print("Importing synthetic data for %s @ soc %s" % (batteryName,soc))
-			saveFolder = root4saveNoSOC + "_%s" % soc
+			batteryName,ac = self.getBatteryNameAndACFromFile(batteryFoldeAC);
+			print("Importing synthetic data for %s @ age charge %s" % (batteryName,ac))
+			saveFolder = root4saveNoAC + "_%s" % ac
 			if not os.path.exists(saveFolder):
 				os.makedirs(saveFolder)
 			
 			
-			socLoadFolder = os.path.join(root4load,batteryFoldeSOC)
+			acLoadFolder = os.path.join(root4load,batteryFoldeAC)
 
 			syntheticBatteryEpisode = []
 			battery = self.ets.loadBatteryAsSingleEpisode(batteryName)
@@ -86,7 +86,7 @@ class Mercurio():
 				for episode in month:
 					episodeCount += 1
 					dfReal = episode[self.ets.syntheticImport]
-					episode2load = os.path.join(socLoadFolder,"%d_%d.csv" % (monthCount,episodeCount))
+					episode2load = os.path.join(acLoadFolder,"%d_%d.csv" % (monthCount,episodeCount))
 					dfSynthetic = pd.read_csv(episode2load,sep=',', 
 						names=([ self.ets.dataHeader[17]]),
 						dtype=({ self.ets.dataHeader[17] : np.float32}))
@@ -121,11 +121,11 @@ class Mercurio():
 				batteryName = episodeInMonth[0].values[:, idxName][0]
 		return batteryName
 
-	def getBatteryNameAndSOCFromFile(self,fileName):
+	def getBatteryNameAndACFromFile(self,fileName):
 		fileName = os.path.splitext(fileName)[0]
 		batteryName = fileName.split("_")[0][1:]
-		soc = fileName.split("_")[1]
-		return batteryName,soc
+		ac = fileName.split("_")[1]
+		return batteryName,ac
 		
 def main():
 	if(len(sys.argv) != 2):
