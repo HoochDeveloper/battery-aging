@@ -1,5 +1,6 @@
 from Demetra import EpisodedTimeSeries
-import pandas as pd, numpy as np, os, sys
+import pandas as pd, numpy as np, os, sys, matplotlib.pyplot as plt
+from sklearn.metrics import mean_absolute_error as mae
 
 class Mercurio():
 	
@@ -19,7 +20,7 @@ class Mercurio():
 		In every folder there is one csv file for every espisodes
 			BattertName -> 1_1.csv, 1_2.csv, .... , 4_59.csv 
 		"""
-
+		
 		root4save = os.path.join(".","exportEpisodes")
 		if not os.path.exists(root4save):
 			os.makedirs(root4save)
@@ -34,7 +35,6 @@ class Mercurio():
 		batteries = self.ets.loadDataSet()
 		
 		for battery in batteries:
-			
 			batteryName = self.getBatteryName(battery,idxName)
 			print("Processing %s" %  batteryName)
 			batteryFolder = os.path.join(root4save,batteryName)
@@ -92,6 +92,11 @@ class Mercurio():
 						dtype=({ self.ets.dataHeader[17] : np.float32}))
 					tempDf = dfReal.copy()
 					tempDf.loc[:,self.ets.dataHeader[17]] = dfSynthetic[self.ets.dataHeader[17]].values
+					
+					if(False):
+						self.plotSyntheticVsReale(tempDf[self.ets.dataHeader[17]].values,dfReal[self.ets.dataHeader[17]].values)
+					
+					
 					syntheticMonthEpisode.append(tempDf)
 				if(len(syntheticMonthEpisode) > 0):
 					allSyntheticMonth = pd.concat(syntheticMonthEpisode)
@@ -106,6 +111,10 @@ class Mercurio():
 				synthetic_blows = []
 				for blow in month:
 					hybridBlow = syntheticSingleEpisode.ix[ blow.index ]
+					
+					if(False):
+						self.plotSyntheticVsReale(hybridBlow[self.ets.dataHeader[17]].values,blow[self.ets.dataHeader[17]].values)
+					
 					if(hybridBlow.shape[0] != 20):
 						print("Warning missing index for battery %s" % batteryName)
 						print(hybridBlow.shape)
@@ -126,7 +135,18 @@ class Mercurio():
 		batteryName = fileName.split("_")[0][1:]
 		ac = fileName.split("_")[1]
 		return batteryName,ac
+	
+	def plotSyntheticVsReale(self,synthetic,real):
+		print(mae(synthetic,real))
+		plt.figure()
+		plt.plot(synthetic,color="navy",label="Synthetic")
+		plt.plot(real,color="orange",label="Real")
+		plt.grid()
+		plt.legend()			
+		plt.show()
 		
+		
+	
 def main():
 	if(len(sys.argv) != 2):
 		print("Expected one argument: import / export")
