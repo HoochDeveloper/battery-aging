@@ -6,6 +6,7 @@ from Minerva import Minerva
 from Astrea import Astrea
 
 from sklearn.model_selection import train_test_split
+from scipy.stats import norm
 
 #Module logging
 logger = logging.getLogger("Main")
@@ -17,12 +18,12 @@ logger.addHandler(consoleHandler)
 
 
 plotMode="GUI"
-modelNameTemplate = "Enc_%d_Synthetic_%d_Conv_K_%d"
+modelNameTemplate = "Enc_%d_Synthetic_%d_Dense_K_%d"
 
 def execute(mustTrain):
 
 	K = 5
-	encSize = 4
+	encSize = 8
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)
 	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
@@ -39,11 +40,14 @@ def execute(mustTrain):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,[75,100],show=False,showScatter=True)
+	evaluate(minerva,astrea,K,encSize,scaler,[75,100],show=True,showScatter=False)
 	
 
 def evaluate(minerva,astrea,K,encSize,scaler,ageScales,show=False,showScatter=False):
+
+	x_axis = np.arange(-0.05, 0.05, 0.00001)
 	for s in range (0,K):
+		maes = []
 		for ageScale in ageScales:
 			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
 			k_idx,k_data = astrea.kfoldByKind(batteries,K)
@@ -53,7 +57,17 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,show=False,showScatter=Fa
 			test =  foldAs3d
 			print("Evaluating fold %d at scale %d" % (s+1,ageScale))
 			name4model = modelNameTemplate % (encSize,100,s+1)
-			minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,show,showScatter=showScatter)
+			maesAge = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,show,showScatter=showScatter)
+			maes.append(maesAge)
+		
+		for mae in maes:
+			mean = np.mean(mae)
+			std = np.std(mae)
+			print("Mean %f Std %f" % (mean,std))
+			plt.plot(x_axis, norm.pdf(x_axis,mean,std))
+		
+		plt.show()
+		
 	
 def train(minerva,astrea,K,encSize):
 	

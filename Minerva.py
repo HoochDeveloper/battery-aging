@@ -179,11 +179,12 @@ class Minerva():
 			ydecoded = model.predict(testX,  batch_size=self.batchSize)
 		logger.debug("Elapsed %f" % (time.clock() - tt))	
 		
+		
+		maes = np.zeros(ydecoded.shape[0], dtype='float32')
+		for sampleCount in range(0,ydecoded.shape[0]):
+			maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
+		
 		if(showScatter):
-			maes = np.zeros(ydecoded.shape[0], dtype='float32')
-			for sampleCount in range(0,ydecoded.shape[0]):
-				maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
-			
 			plt.figure(figsize=(8, 6), dpi=100)
 			plt.scatter(range(0,ydecoded.shape[0]), maes)
 			plt.hlines(mae,0,ydecoded.shape[0], color='r')
@@ -222,7 +223,8 @@ class Minerva():
 					i += 1	
 				title = str(toPlot) +"_"+str(uuid.uuid4())
 				self.ets.plotMode(plotMode,title)
-
+		
+		return maes
 
 				
 	def __functionInceptionModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
