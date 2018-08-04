@@ -103,7 +103,7 @@ class Minerva():
 		else:
 			model = self.__convModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			#print(model.summary())
-			
+			#__functionalDenseModel #__convModel
 		
 		adam = optimizers.Adam()		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
@@ -149,7 +149,7 @@ class Minerva():
 	
 	
 	
-	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test"):
+	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
 		
 		customLoss = {'huber_loss': huber_loss}
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
@@ -167,22 +167,34 @@ class Minerva():
 			_ , mae, pMae, Huber, pHuber = model.evaluate( x=testX, y=[testY,testY], batch_size=self.batchSize, verbose=0)
 			logger.debug("%s Probe HL %f - MAE %f Elapsed %f" % (phase,pMae,pHuber,(time.clock() - tt)))
 		else:
-			mae, Huber= model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
+			Huber, mae= model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
 		
-		logger.info("%s HL %f - MAE %f Elapsed %f" % (phase,mae,Huber,(time.clock() - tt)))
+		logger.info("%s HL %f - MAE %f Elapsed %f" % (phase,Huber,mae,(time.clock() - tt)))
+		
+		logger.debug("Reconstruction")
+		tt = time.clock()
+		if(self.modelHasProbe):
+			ydecoded,pdecoded = model.predict(testX,  batch_size=self.batchSize)
+		else:
+			ydecoded = model.predict(testX,  batch_size=self.batchSize)
+		logger.debug("Elapsed %f" % (time.clock() - tt))	
+		
+		if(showScatter):
+			maes = np.zeros(ydecoded.shape[0], dtype='float32')
+			for sampleCount in range(0,ydecoded.shape[0]):
+				maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
+			
+			plt.figure(figsize=(8, 6), dpi=100)
+			plt.scatter(range(0,ydecoded.shape[0]), maes)
+			plt.hlines(mae,0,ydecoded.shape[0], color='r')
+			self.ets.plotMode(plotMode,"Scatter")
 			
 		if(showImages):
 				
-			logger.debug("Autoencoding")
-			tt = time.clock()
 			
-			if(self.modelHasProbe):
-				ydecoded,pdecoded = model.predict(testX,  batch_size=self.batchSize)
-			else:
-				ydecoded = model.predict(testX,  batch_size=self.batchSize)
+			unscaledDecoded = ydecoded
+			unscaledTest = testY
 			
-			logger.debug("Elapsed %f" % (time.clock() - tt))
-
 			if(scaler is not None):
 				ydecoded = self.__skScaleBack(ydecoded,scaler)
 				testY = self.__skScaleBack(testY,scaler)
@@ -191,6 +203,9 @@ class Minerva():
 			for r in range(num2show):
 				plt.figure(figsize=(8, 6), dpi=100)
 				toPlot = np.random.randint(ydecoded.shape[0])
+				
+				episodeMAE = mean_absolute_error(unscaledTest[toPlot],unscaledDecoded[toPlot])
+				
 				i = 1
 				sid = 14
 				for col in range(ydecoded.shape[2]):
@@ -201,6 +216,7 @@ class Minerva():
 						plt.title("Current (A) vs Time (s)",loc="right")
 					else:
 						plt.title("Voltage (V) vs Time (s)",loc="right")
+					plt.suptitle("Episode MAE: %f" % episodeMAE, fontsize=16)
 					plt.grid()
 					plt.legend()
 					i += 1	
