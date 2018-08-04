@@ -105,16 +105,12 @@ class Mercurio():
 			for month in realBlows:
 				synthetic_blows = []
 				for blow in month:
-					#print(blow.head(10))
 					hybridBlow = syntheticSingleEpisode.ix[ blow.index ]
 					if(hybridBlow.shape[0] != 20):
 						print("Warning missing index for battery %s" % batteryName)
 						print(hybridBlow.shape)
 					else:
 						synthetic_blows.append(hybridBlow)
-					
-					#print(hybridBlow.head(10))
-						
 				synthetic_months.append(synthetic_blows)
 			self.ets.saveZip(saveFolder,batteryName+".gz",synthetic_months)
 			
