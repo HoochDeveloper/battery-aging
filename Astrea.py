@@ -168,5 +168,11 @@ class Astrea():
 				batteryName = episodeInMonth[0].values[:, self.idxName][0]
 		return batteryName
 		
-		
+#####
+#minAgeChargeScale = 50
+#maxAgeChargeScale = 105
+#step = 5
+#dataRange(minerva,astrea,K,minAgeChargeScale,maxAgeChargeScale,step)
+#return
+#####
 		
