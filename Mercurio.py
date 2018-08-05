@@ -107,22 +107,49 @@ class Mercurio():
 			# creates the relative synthetic blows
 			realBlows = self.ets.seekEpisodesBlows(battery)
 			synthetic_months = []
+			count = 0
 			for month in realBlows:
 				synthetic_blows = []
 				for blow in month:
+					count +=1
 					hybridBlow = syntheticSingleEpisode.ix[ blow.index ]
 					
-					if(False):
+					if(False and (count % 50 == 0)):
 						self.plotSyntheticVsReale(hybridBlow[self.ets.dataHeader[17]].values,blow[self.ets.dataHeader[17]].values)
 					
 					if(hybridBlow.shape[0] != 20):
 						print("Warning missing index for battery %s" % batteryName)
-						print(hybridBlow.shape)
+						#print(hybridBlow.shape)
 					else:
 						synthetic_blows.append(hybridBlow)
 				synthetic_months.append(synthetic_blows)
 			self.ets.saveZip(saveFolder,batteryName+".gz",synthetic_months)
-			
+	
+	def compareSyntheticAge(self):
+		root4load = os.path.join(".","synthetic_data")
+		batteryName = "E464001"
+		ages = [100,95,85,75,55]
+		folders = []
+		for age in ages:
+			folderName = "%s_%d" % (batteryName,age)
+			folders.append(os.path.join(root4load,folderName))
+		
+		count = 0
+		for episode in os.listdir(folders[0]):
+			count += 1
+			shouldPlot = (count % 30 == 0)
+			for folder in folders:
+				episode2load = os.path.join(folder,episode)
+				synthetic = pd.read_csv(episode2load,sep=',', 
+						names=([ self.ets.dataHeader[17]]),
+						dtype=({ self.ets.dataHeader[17] : np.float32}))
+				if(shouldPlot):
+					plt.plot(synthetic.values,label="%s_%s" % (folder,episode))
+			if(shouldPlot):
+				plt.grid()
+				plt.legend()
+				plt.show()
+	
 	def getBatteryName(self,battery,idxName):
 		batteryName = None
 		for episodeInMonth in battery:
@@ -159,6 +186,8 @@ def main():
 	elif(action == "export"):
 		print("Mercurio is going to synthetize data!")
 		mercurio.exportForSynthetic()
+	elif(action == "compare"):
+		mercurio.compareSyntheticAge()
 	else:
 		print("Mercurio does not want to perform %s!" % action)
 		
