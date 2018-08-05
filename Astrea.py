@@ -71,9 +71,10 @@ class Astrea():
 			for episode in fold:
 				for t in range(0,episode.shape[0]):
 						data2dimension.append(episode.values[t])
-						#print(episode.values[t])
-		data2dimension.append([0, 28.0])
-		data2dimension.append([0, 33.0])
+						
+		data2dimension.append([0, 28.0]) #should get this automatically
+		data2dimension.append([0, 36.0]) #should get this automatically
+		
 		data2dimension = np.asarray(data2dimension)
 		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
 		scaler.fit(data2dimension)
@@ -104,8 +105,7 @@ class Astrea():
 		train = [[ j for j in range(k) if j != i ] for i in range(k)] 
 		test = [[ j for j in range(k) if j == i ] for i in range(k)] 
 		return train,test
-		#return [[fold for fold in folds if not np.array_equal(fold,folds[i]) ] for i in range(len(folds))]
-	
+
 	
 	def __foldSplit(self,batteries,episodesInDataset,k):
 		
