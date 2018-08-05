@@ -40,6 +40,9 @@ def huber_loss(y_true, y_pred, clip_delta=1.0):
 	linear_loss  = clip_delta * (tf.keras.backend.abs(error) - 0.5 * clip_delta)
 	return tf.where(cond, squared_loss, linear_loss)
 	
+def huber_loss_mean(y_true, y_pred, clip_delta=1.0):
+	return tf.reduce_mean(huber_loss(y_true, y_pred, clip_delta))
+	
 class Minerva():
 	
 	logFolder = "./logs"
@@ -101,7 +104,7 @@ class Minerva():
 			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			loss2monitor = 'val_OUT_loss'
 		else:
-			model = self.__convModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			model = self.__functionalDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			#print(model.summary())
 			#__functionalDenseModel #__convModel
 		
@@ -183,7 +186,10 @@ class Minerva():
 		maes = np.zeros(ydecoded.shape[0], dtype='float32')
 		for sampleCount in range(0,ydecoded.shape[0]):
 			maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
-		
+			
+			
+			
+			
 		if(showScatter):
 			plt.figure(figsize=(8, 6), dpi=100)
 			plt.scatter(range(0,ydecoded.shape[0]), maes)

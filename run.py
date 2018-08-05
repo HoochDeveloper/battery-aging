@@ -8,6 +8,9 @@ from Astrea import Astrea
 from sklearn.model_selection import train_test_split
 from scipy.stats import norm
 
+import random
+from scipy import stats
+
 #Module logging
 logger = logging.getLogger("Main")
 logger.setLevel(logging.INFO)
@@ -20,55 +23,68 @@ logger.addHandler(consoleHandler)
 plotMode="GUI"
 modelNameTemplate = "Enc_%d_Synthetic_%d_Dense_K_%d"
 
-def execute(mustTrain):
+def execute(mustTrain,encSize = 8,K = 5):
 
-	K = 5
-	encSize = 8
-	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)
-	
+	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
-	#minAgeChargeScale = 75
-	#maxAgeChargeScale = 125
-	#step = 25
+	#minAgeChargeScale = 50
+	#maxAgeChargeScale = 105
+	#step = 5
 	#dataRange(minerva,astrea,K,minAgeChargeScale,maxAgeChargeScale,step)
+	#return
 	
 	if(mustTrain):
 		train(minerva,astrea,K,encSize)
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,[75,100],show=True,showScatter=False)
+	evaluate(minerva,astrea,K,encSize,scaler,[50,60,70,80,90,100],show=False,showScatter=False)
 	
+def evaluate(minerva,astrea,K,encSize,scaler,ageScales,show=False,showScatter=False,boxPlot=True):
 
-def evaluate(minerva,astrea,K,encSize,scaler,ageScales,show=False,showScatter=False):
-
-	x_axis = np.arange(-0.05, 0.05, 0.00001)
-	for s in range (0,K):
+	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
+	count = 0
+	for _, test_index in zip(trainIdx,testIdx): 
+		count += 1
+		print("Fold %d" % count)
+		name4model = modelNameTemplate % (encSize,100,count)
 		maes = []
+		labels = []
+	
 		for ageScale in ageScales:
 			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
-			k_idx,k_data = astrea.kfoldByKind(batteries,K)
+			_,k_data = astrea.kfoldByKind(batteries,K)
 			folds4learn = []
-			fold = k_data[s]
-			foldAs3d = astrea.foldAs3DArray(fold,scaler)
-			test =  foldAs3d
-			print("Evaluating fold %d at scale %d" % (s+1,ageScale))
-			name4model = modelNameTemplate % (encSize,100,s+1)
-			maesAge = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,show,showScatter=showScatter)
-			maes.append(maesAge)
+			for i in test_index:
+				fold = k_data[i]
+				foldAs3d = astrea.foldAs3DArray(fold,scaler)
+				folds4learn.append(foldAs3d)
+			
+			test =  np.concatenate(folds4learn)
+			
+			mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
+			maes.append(mae)
+			
+			labels.append("Age %d" % ageScale)
 		
-		for mae in maes:
-			mean = np.mean(mae)
-			std = np.std(mae)
-			print("Mean %f Std %f" % (mean,std))
-			plt.plot(x_axis, norm.pdf(x_axis,mean,std))
+		if(boxPlot):
+			tit = "MAE %s" % name4model 
+			errorBoxPlot(maes,labels,tit)
+			
 		
-		plt.show()
+def errorBoxPlot(errorList,labels,title):
+	fig = plt.figure()
+	plt.boxplot(errorList,0,'')
+	plt.xticks(range(1,len(labels)+1),labels)
+	plt.title(title)
+	plt.grid()
+	plt.savefig(title, bbox_inches='tight')
+	#plt.show()
 		
-	
+		
 def train(minerva,astrea,K,encSize):
 	
 	train_ageScale = 100
@@ -110,9 +126,9 @@ def main():
 		return
 	action = sys.argv[1]
 	if(action == "train"):
-		execute(True)
+		execute(True,16)
 	elif(action=="evaluate"):
-		execute(False)
+		execute(False,16)
 	else:
 		print("Can't perform %s" % action)
 		
