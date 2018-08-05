@@ -104,7 +104,7 @@ class Minerva():
 			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			loss2monitor = 'val_OUT_loss'
 		else:
-			model = self.__functionalDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			model = self.__convModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			#print(model.summary())
 			#__functionalDenseModel #__convModel
 		
@@ -231,7 +231,6 @@ class Minerva():
 				self.ets.plotMode(plotMode,title)
 		
 		return maes
-
 				
 	def __functionInceptionModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -375,44 +374,7 @@ class Minerva():
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
-		
-	
-	def __functionalDeepDenseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
-			
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 
-		#OK
-		d3 = Dense(256,activation='relu',name="D3")(inputs)
-		conv1 = Conv1D(128,2,activation='relu',name="CV1")(d3)
-		maxpool1 = MaxPooling1D(pool_size=2,name="MP1")(conv1)
-		
-		d5 = Dense(64,activation='relu',name="D5")(maxpool1)
-		d6 = Dense(32,activation='relu',name="D6")(d5)
-		
-		conv2 = Conv1D(16,2,activation='relu',name="CV2")(d6)
-		maxpool2 = MaxPooling1D(pool_size=2,name="MP2")(conv2)
-		
-		f1 = Flatten(name="F1")(maxpool2) 
-		enc = Dense(encodedSize,activation='relu',name="ENC")(f1)
-		
-		d7 = Dense(256*timesteps,activation='relu',name="D7")(enc)
-		r1 = Reshape((timesteps, 256),name="R1")(d7)
-
-		conv3 = Conv1D(128,2,activation='relu',name="CV3")(r1)
-		maxpool3 = MaxPooling1D(pool_size=2,name="MP3")(conv3)
-		
-		d9 = Dense(64,activation='relu',name="D9")(maxpool3)
-		d10 = Dense(32,activation='relu',name="D10")(d9)
-		
-		conv4 = Conv1D(16,2,activation='relu',name="CV4")(d10)
-		maxpool4 = MaxPooling1D(pool_size=2,name="MP4")(conv4)
-		
-		f2 = Flatten(name="F2")(maxpool4)
-		d11 = Dense(outputFeatures*timesteps,activation='linear',name="D11")(f2)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(d11)
-		
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
 	
 	def __batchCompatible(self,batch_size,data):
 		"""
