@@ -1,16 +1,10 @@
-import uuid,time,os,logging, numpy as np, sys, pandas as pd , matplotlib.pyplot as plt
+import uuid,time,os,logging, numpy as np, sys, matplotlib.pyplot as plt
 from logging import handlers as loghds
+from sklearn.model_selection import train_test_split
 
 #Project module import
-
 from Astrea import Astrea
 from Demetra import EpisodedTimeSeries
-
-from sklearn.model_selection import train_test_split
-from scipy.stats import norm
-
-import random
-from scipy import stats
 
 #Module logging
 logger = logging.getLogger("Main")
