@@ -89,7 +89,7 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		
 def errorBoxPlot(errorList,labels,title,save=True):
 	fig = plt.figure()
-	plt.boxplot(errorList,whis=[0, 99],sym='')
+	plt.boxplot(errorList,sym='') #whis=[0, 99]
 	plt.xticks(range(1,len(labels)+1),labels)
 	plt.title(title)
 	plt.grid()
