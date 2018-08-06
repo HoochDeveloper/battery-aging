@@ -104,7 +104,7 @@ class Minerva():
 			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			loss2monitor = 'val_OUT_loss'
 		else:
-			model = self.__convModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			model = self.__functionalDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			#print(model.summary())
 			#__functionalDenseModel #__convModel
 		

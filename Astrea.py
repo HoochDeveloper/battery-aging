@@ -34,7 +34,7 @@ class Astrea():
 		self.idxName = idxName
 		self.data2keep = data2keep
 	
-	def kfoldByKind(self,batteries,k):
+	def kfoldByKind(self,batteries,k,printFold=False):
 		"""
 		Build K fold for the input. It is granted that every episode of a battery are all in the
 		same fold.
@@ -60,7 +60,7 @@ class Astrea():
 			logger.debug("There are %d episode in battery %s" % (totalEpisodeInBattery,batteryName))
 		
 		logger.debug("There are %d episode in dataset." % (episodesInDataset))
-		indexes,datas = self.__foldSplit(batteries,episodesInDataset,k)
+		indexes,datas = self.__foldSplit(batteries,episodesInDataset,k,printFold)
 		logger.debug("kfoldByKind - end - %f" % (time.clock() - tt))
 		return indexes,datas
 	
@@ -107,7 +107,7 @@ class Astrea():
 		return train,test
 
 	
-	def __foldSplit(self,batteries,episodesInDataset,k):
+	def __foldSplit(self,batteries,episodesInDataset,k,printFold=False):
 		
 		tt = time.clock()
 		logger.debug("__foldSplit - start")
@@ -151,6 +151,8 @@ class Astrea():
 				currentFold += 1
 				foldIndex.append([])
 				foldData.append([])
+			if(printFold):
+				logger.info("Battery #%s is is in fold %d" % (idx,currentFold))
 			
 			foldIndex[currentFold] += batteryIndex
 			foldData[currentFold] += batteryData

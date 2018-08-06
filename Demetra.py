@@ -164,6 +164,28 @@ class EpisodedTimeSeries():
 		logger.debug("seekEpisodesBlows - end - %f" % (time.clock() - tt))
 		return batteryBlows 
 	
+	
+	def loadSyntheticMixedAgeBlowDataSet(self):
+		tt = time.clock()
+		logger.debug("loadSyntheticMixedAgeBlowDataSet - start")
+		helthStatus = 100
+		loadPath = self.synthetcBlowPath + "_%d" % helthStatus
+		syntheticBatteries = [] # three level list, [battery][month][episode]
+		fileCount = 0
+		rate = 16
+		for f in os.listdir(loadPath):
+			fileCount += 1
+			if(fileCount % rate == 0):
+				helthStatus -= 5
+				rate = int(rate/2)
+				loadPath = self.synthetcBlowPath + "_%d" % (helthStatus)
+			logger.info("Loading %s @ healt status %d" % (f,helthStatus))
+			syntheticBlows = self.__loadZip(loadPath,f)
+			syntheticBatteries.append(syntheticBlows)	
+		logger.debug("loadSyntheticMixedAgeBlowDataSet - end - %f" % (time.clock() - tt))
+		return syntheticBatteries 
+	
+	
 	def loadSyntheticBlowDataSet(self,soc,monthIndexes=[],join=True):
 		tt = time.clock()
 		logger.debug("loadSyntheticBlowDataSet - start")
