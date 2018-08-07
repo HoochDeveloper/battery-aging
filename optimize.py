@@ -100,7 +100,6 @@ def model(X_train, Y_train, X_test, Y_test):
 	
 	model = Model(inputs=inputs, outputs=out)
 	
-	
 	adam = optimizers.Adam()		
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 	
@@ -116,8 +115,58 @@ def model(X_train, Y_train, X_test, Y_test):
 	return {'loss': HL, 'status': STATUS_OK, 'model': model}
 
 
+def convModel(X_train, Y_train, X_test, Y_test):
+
+	from keras.models import Model
+	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
+	from keras import optimizers
+	from Minerva import huber_loss
+	from keras.layers import Conv2DTranspose, Conv2D
+
+
+	inputFeatures = 2
+	outputFeatures = 2
+	timesteps = 20
+	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+	
+	c = Reshape((5,4,2),name="Reshape2d")(inputs)
+	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C1")(c)
+	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C2")(c)
+	
+	preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
+	enc = Dense({{choice([2,4,8])}},activation='relu',name="ENC")(preEncodeFlat)
+	
+	dim1 = 3
+	dim2 = 2
+	c = Dense(dim1*dim2*4,name="D0")(enc)
+	c = Reshape((dim1,dim2,4),name="PRE_DC_R")(c)
+	c = Conv2DTranspose({{choice([16,32,64,128])}},2,activation='relu',name="CT2")(c)
+	c = Conv2DTranspose(outputFeatures,2,activation='relu',name="CT4")(c)
+	preDecFlat = Flatten(name="PRE_DECODE")(c) 
+	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+	model = Model(inputs=inputs, outputs=out)
+	adam = optimizers.Adam()		
+	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+	
+
+	
+	model.fit(X_train, Y_train,
+		verbose = 0,
+		batch_size=100,
+		epochs=100,
+		validation_data=(X_test, Y_test)
+		
+	)
+	HL, MAE = model.evaluate(X_test, Y_test, verbose=2)
+	print("HL: %f MAE: %f" % (HL, MAE))
+	return {'loss': HL, 'status': STATUS_OK, 'model': model}
+	
+	
+	
+	
 def main():
-	best_run, best_model = optim.minimize(model=model,
+	best_run, best_model = optim.minimize(model=convModel,
                                           data=data,
                                           algo=tpe.suggest,
                                           max_evals=5,

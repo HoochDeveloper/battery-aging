@@ -50,7 +50,7 @@ class Minerva():
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
-	epochs = 500
+	epochs = 100
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -105,9 +105,9 @@ class Minerva():
 			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			loss2monitor = 'val_OUT_loss'
 		else:
-			model = self.__denseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
-			#print(model.summary())
-			#__denseModel #__conv2DModel
+			model = self.__conv2DHyperas(inputFeatures,outputFeatures,timesteps,encodedSize)
+			print(model.summary())
+			#__denseModel #__conv2DModel #__hyperasModel #__conv2DHyperas
 		
 		adam = optimizers.Adam()		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
@@ -125,8 +125,8 @@ class Minerva():
 			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
-			validation_data=(x_valid,validY),
-			callbacks=[early,csv_logger]
+			validation_data=(x_valid,validY)
+			#,callbacks=[early,csv_logger]
 		)
 		
 		logger.debug("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
@@ -267,6 +267,50 @@ class Minerva():
 		return autoencoderModel
 	
 		
+	def __conv2DHyperas(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+	
+		c = Reshape((5,4,2),name="Reshape2d")(inputs)
+		c = Conv2D(64,2,activation='relu',name="C1")(c)
+		c = Conv2D(16,2,activation='relu',name="C2")(c)
+		
+		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
+		enc = Dense(8,activation='relu',name="ENC")(preEncodeFlat)
+		
+		dim1 = 3
+		dim2 = 2
+		c = Dense(dim1*dim2*4,name="D0")(enc)
+		c = Reshape((dim1,dim2,4),name="PRE_DC_R")(c)
+		c = Conv2DTranspose(32,2,activation='relu',name="CT2")(c)
+		c = Conv2DTranspose(outputFeatures,2,activation='relu',name="CT4")(c)
+		preDecFlat = Flatten(name="PRE_DECODE")(c) 
+		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		return autoencoderModel
+		
+	def __hyperasModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+	
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+	
+		d = Dense(256,activation='relu',name="D1")(inputs)
+		d = Dense(64,activation='relu',name="D2")(d)
+
+		d = Flatten(name="F1")(d) 
+		enc = Dense(8,activation='relu',name="ENC")(d)
+		
+		d = Dense(2*timesteps,activation='relu',name="D6")(enc)
+		d = Reshape((timesteps, 2),name="R1")(d)
+		
+		d = Dense(64,activation='relu',name="D7")(d)
+		d = Flatten(name="F2")(d)
+		d = Dense(outputFeatures*timesteps,activation='linear',name="D11")(d)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		return autoencoderModel
+		
+		
 	def __denseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -298,6 +342,9 @@ class Minerva():
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 
+	def	batchCompatible(self,batch_size,data):
+		return self.__batchCompatible(batch_size,data)
+		
 	
 	def __batchCompatible(self,batch_size,data):
 		"""
