@@ -152,7 +152,7 @@ class Astrea():
 				foldIndex.append([])
 				foldData.append([])
 			if(printFold):
-				logger.info("Battery #%s is is in fold %d" % (idx,currentFold))
+				logger.debug("Battery #%s is is in fold %d" % (idx,currentFold))
 			
 			foldIndex[currentFold] += batteryIndex
 			foldData[currentFold] += batteryData
