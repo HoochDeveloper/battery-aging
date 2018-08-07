@@ -121,7 +121,7 @@ class Astrea():
 		foldData  = []
 		foldData.append([])
 		
-		np.random.seed(42)
+		np.random.seed(19)
 		permutedIdx = np.random.permutation(len(batteries))
 		assigned = 0
 		for idx in permutedIdx:
