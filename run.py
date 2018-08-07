@@ -31,7 +31,7 @@ def execute(mustTrain,encSize = 8,K = 5,type="Dense"):
 		train(minerva,astrea,K,encSize,type=type)
 	
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
-	k_idx,k_data = astrea.kfoldByKind(batteries,K,True)
+	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
 	evaluate(minerva,astrea,K,encSize,scaler,range(50,105,5),show=False,showScatter=False,type=type)
 	
@@ -103,9 +103,9 @@ def errorBoxPlot(errorList,labels,title,save=True):
 def train(minerva,astrea,K,encSize,type="Dense"):
 	
 	train_ageScale = 100
-	#batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
+	batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
 	
-	batteries = minerva.ets.loadSyntheticMixedAgeBlowDataSet()
+	#batteries = minerva.ets.loadSyntheticMixedAgeBlowDataSet()
 	
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
