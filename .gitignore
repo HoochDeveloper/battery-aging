@@ -2,6 +2,10 @@
 dataset/
 results/
 logs/
+exportEpisodes/
+synthetic_data/
+evaluation/
+*.png
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -10,8 +10,8 @@ Requires:
 	numpy	(http://www.numpy.org/)
 	seaborn (https://seaborn.pydata.org/)
 """
-#Imports
-import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt, glob
+#Standard
+import uuid,time,os,logging, six.moves.cPickle as pickle, gzip, pandas as pd, numpy as np , matplotlib.pyplot as plt
 from datetime import datetime
 from logging import handlers as loghds
 
@@ -45,7 +45,8 @@ class EpisodedTimeSeries():
 	"S_ITOTCB1_CB1" : np.float32,"S_TBATCB2_CB2" : np.float32,"S_VBATCB1_CB1" : np.float32,
 	"S_VBATCB2_CB2" : np.float32,"S_VINCB1_CB1" : np.float32,"S_VINCB2_CB2" : np.float32,
 	"S_CORRBATT_FLG1" : np.float32,"S_TENSBATT_FLG1" : np.float32 })
-
+	
+	syntheticImport = [dataHeader[1],dataHeader[16],dataHeader[17]] # columns for synthetic import
 	dropX = [dataHeader[0],dataHeader[1]] # columns to drop for X
 	keepY = [dataHeader[16],dataHeader[17]] # columns to keep for Y
 	
@@ -60,6 +61,9 @@ class EpisodedTimeSeries():
 	rootResultFolder = os.path.join(root,"results")
 	episodeImageFolder =  os.path.join(rootResultFolder,"images")
 	espisodePath = os.path.join(rootResultFolder,"episodes")
+	
+	synthetcBlowPath = "synthetic_%d_%d_%d_%d"
+	
 	
 	chargeThreshold = 10 # specify current threshold for the battery to be considered in charge state
 	dischargeThreshold = -10 # specify current threshold for the battery to be considered in discharge state
@@ -81,6 +85,7 @@ class EpisodedTimeSeries():
 		self.alpha2 = alpha2
 		
 		self.espisodePath = os.path.join(self.rootResultFolder,"episodes_%d_%d_%d_%d" % (self.eps1,self.eps2,self.alpha1,self.alpha2))
+		self.synthetcBlowPath = os.path.join(self.rootResultFolder,self.synthetcBlowPath % (self.eps1,self.eps2,self.alpha1,self.alpha2))
 		
 		# creates log folder
 		if not os.path.exists(self.logFolder):
@@ -119,7 +124,15 @@ class EpisodedTimeSeries():
 		logger.debug("buildDataSet - start")
 		self.__buildDataSetFromFolder(dataFolder,mode,force,self.eps1,self.eps2,self.alpha1,self.alpha2)
 		logger.debug("buildDataSet - end - %f" % (time.clock() - tt))
-
+	
+	def loadBatteryAsSingleEpisode(self,batteryName):
+		tt = time.clock()
+		logger.debug("loadBatteryEpisode - start")
+		batteryEpisodes = self.__loadZip(self.espisodePath,batteryName+".gz")
+		logger.debug("loadBatteryEpisode - end - %f" % (time.clock() - tt) )
+		
+		return batteryEpisodes
+	
 	def loadDataSet(self):
 		"""
 		Load from the files created with buildDataSet
@@ -143,6 +156,46 @@ class EpisodedTimeSeries():
 			logger.debug("Loaded %d episodes" % len(episodes))
 		logger.debug("loadDataSet - end - %f" % (time.clock() - tt) )
 		return episodes
+	
+	def seekEpisodesBlows(self,batteryEpisodes,monthIndexes=[],join=True):
+		tt = time.clock()
+		logger.debug("seekEpisodesBlows - start")
+		batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndexes,join,self.eps1,self.alpha1,self.alpha2)
+		logger.debug("seekEpisodesBlows - end - %f" % (time.clock() - tt))
+		return batteryBlows 
+	
+	
+	def loadSyntheticMixedAgeBlowDataSet(self):
+		tt = time.clock()
+		logger.debug("loadSyntheticMixedAgeBlowDataSet - start")
+		helthStatus = 100
+		loadPath = self.synthetcBlowPath + "_%d" % helthStatus
+		syntheticBatteries = [] # three level list, [battery][month][episode]
+		fileCount = 0
+		rate = 16
+		for f in os.listdir(loadPath):
+			fileCount += 1
+			if(fileCount % rate == 0):
+				helthStatus -= 5
+				rate = int(rate/2)
+				loadPath = self.synthetcBlowPath + "_%d" % (helthStatus)
+			logger.info("Loading %s @ healt status %d" % (f,helthStatus))
+			syntheticBlows = self.__loadZip(loadPath,f)
+			syntheticBatteries.append(syntheticBlows)	
+		logger.debug("loadSyntheticMixedAgeBlowDataSet - end - %f" % (time.clock() - tt))
+		return syntheticBatteries 
+	
+	
+	def loadSyntheticBlowDataSet(self,soc,monthIndexes=[],join=True):
+		tt = time.clock()
+		logger.debug("loadSyntheticBlowDataSet - start")
+		loadPath = self.synthetcBlowPath + "_%d" % soc
+		syntheticBatteries = [] # three level list, [battery][month][episode]
+		for f in os.listdir(loadPath):
+			syntheticBlows = self.__loadZip(loadPath,f)
+			syntheticBatteries.append(syntheticBlows)	
+		logger.debug("loadSyntheticBlowDataSet - end - %f" % (time.clock() - tt))
+		return syntheticBatteries 
 	
 	def loadBlowDataSet(self,monthIndexes=[],join=True):
 		"""
@@ -175,45 +228,9 @@ class EpisodedTimeSeries():
 		for f in os.listdir(loadPath):
 			batteryEpisodes = self.__loadZip(loadPath,f)
 			batteryBlows = self.__seekEpisodesBlow(batteryEpisodes,monthIndexes,join,self.eps1,self.alpha1,self.alpha2)
-			episodes.append(batteryBlows)
-				
+			episodes.append(batteryBlows)	
 		logger.debug("loadBlowDataSet - end - %f" % (time.clock() - tt))
 		return episodes 
-	
-	
-	def resistanceDistribution(self,batteries,join=True,mode="server"):	
-		bins = [-50,-30,-20,-10,-5,-2,-1,-0.5,0,0.5,1,2,5,10,20,30,50]
-		nameIndex = self.dataHeader.index(self.nameIndex)
-		for battery in batteries:
-			month = 0
-			batteryName = ""
-			for episodeInMonth in battery:
-				batteryR = np.empty(0)
-				batteryDischargeR = np.empty(0)
-				batteryChargeR = np.empty(0)
-				for episode in episodeInMonth:
-					if(join == True):
-						batteryName =  episode.values[:, nameIndex][0]
-						episodeResistance = self.__getEpisodeResistance(episode)
-						batteryR = np.concatenate([batteryR,episodeResistance])
-					else:
-						batteryName =  episode[0].values[:, nameIndex][0]
-						dischargeResistance = self.__getEpisodeResistance(episode[0])
-						chargeResistance = self.__getEpisodeResistance(episode[1])
-						batteryDischargeR = np.concatenate([batteryDischargeR,dischargeResistance])
-						batteryChargeR = np.concatenate([batteryChargeR,chargeResistance]) 
-				if(join == True):			
-					self.plotResistanceDistro(batteryR,bins,"Battery %s blow episode resistance Month %d" % (batteryName,month ),mode)
-				else:
-					self.plotResistanceDistro(batteryDischargeR,bins,"Battery %s Discharge Blow resistance Month %d" % (batteryName,month))
-					self.plotResistanceDistro(batteryChargeR,bins,"Battery %s  Charge Blow resistance Month %d" %(batteryName,month))
-				month += 1
-				
-	def plotResistanceDistro(self,batteryR,bins,title,mode):
-		weights = np.ones_like(batteryR)/float(len(batteryR)) # array with all 1 / len(r)
-		plt.hist(batteryR, bins=bins,weights=weights)
-		plt.title(title)
-		self.plotMode(mode,imgTitle=title,autoClose=False)
 			
 	def dataSetSummary(self,batteries):
 		logger.info("Data from %d different batteries" % len(batteries))
@@ -261,15 +278,6 @@ class EpisodedTimeSeries():
 		logger.info(self.SEP)
 		for month in range(len(batteries[0])):
 			logger.info("There are %d episodes in month %d" % (monthlyEpisodes[month], month))
-		
-	def __getEpisodeResistance(self,episode):
-		"""
-		Get the values for battery resistance in given episode, Inf and Nan are replaced with 0
-		"""
-		resistance = episode[self.voltageIndex] / episode[self.currentIndex]
-		resistance.replace([np.inf,-np.inf], 0, inplace = True)
-		resistance.fillna(0, inplace = True)
-		return resistance.values
 		
 	def showEpisodes(self,monthIndex=0,limit=1,mode="server"):
 		"""
@@ -357,8 +365,7 @@ class EpisodedTimeSeries():
 				name = imgTitle +"_"+str(uuid.uuid4())
 			plt.savefig(os.path.join(self.episodeImageFolder,name), bbox_inches='tight')
 			plt.close()
-	
-	
+		
 	# private methods
 	def __readFileAsDataframe(self,file):
 		""" 
@@ -727,6 +734,11 @@ class EpisodedTimeSeries():
 		else:
 			return None
 		
+	def saveZip(self,folder,fileName,data):
+		return self.__saveZip(folder,fileName,data)
+	
+	def loadZip(self,folder,fileName):
+		return self.__loadZip(folder,fileName)
 	
 	def __saveZip(self,folder,fileName,data):
 		saveFile = os.path.join(folder,fileName)

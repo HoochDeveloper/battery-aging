@@ -3,16 +3,15 @@ from logging import handlers as loghds
 
 from sklearn import preprocessing
 
-
 #Module logging
-logger = logging.getLogger("Opi")
+logger = logging.getLogger("Astrea")
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] %(message)s')
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
-class Opi():
+class Astrea():
 	
 	idxTS = None
 	idxName = None
@@ -23,7 +22,7 @@ class Opi():
 		if not os.path.exists(logFolder):
 			os.makedirs(logFolder)
 		
-		logFile = logFolder + "/Opi.log"
+		logFile = logFolder + "/Astrea.log"
 		hdlr = loghds.TimedRotatingFileHandler(logFile,
                                        when="H",
                                        interval=1,
@@ -35,7 +34,7 @@ class Opi():
 		self.idxName = idxName
 		self.data2keep = data2keep
 	
-	def kfoldByKind(self,batteries,k):
+	def kfoldByKind(self,batteries,k,printFold=False):
 		"""
 		Build K fold for the input. It is granted that every episode of a battery are all in the
 		same fold.
@@ -60,8 +59,8 @@ class Opi():
 			batteryName = self.__getBatteryName(battery)
 			logger.debug("There are %d episode in battery %s" % (totalEpisodeInBattery,batteryName))
 		
-		logger.info("There are %d episode in dataset." % (episodesInDataset))
-		indexes,datas = self.__foldSplit(batteries,episodesInDataset,k)
+		logger.debug("There are %d episode in dataset." % (episodesInDataset))
+		indexes,datas = self.__foldSplit(batteries,episodesInDataset,k,printFold)
 		logger.debug("kfoldByKind - end - %f" % (time.clock() - tt))
 		return indexes,datas
 	
@@ -72,6 +71,10 @@ class Opi():
 			for episode in fold:
 				for t in range(0,episode.shape[0]):
 						data2dimension.append(episode.values[t])
+						
+		data2dimension.append([0, 28.0]) #should get this automatically
+		data2dimension.append([0, 36.0]) #should get this automatically
+		
 		data2dimension = np.asarray(data2dimension)
 		scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
 		scaler.fit(data2dimension)
@@ -102,15 +105,14 @@ class Opi():
 		train = [[ j for j in range(k) if j != i ] for i in range(k)] 
 		test = [[ j for j in range(k) if j == i ] for i in range(k)] 
 		return train,test
-		#return [[fold for fold in folds if not np.array_equal(fold,folds[i]) ] for i in range(len(folds))]
+
 	
-	
-	def __foldSplit(self,batteries,episodesInDataset,k):
+	def __foldSplit(self,batteries,episodesInDataset,k,printFold=False):
 		
 		tt = time.clock()
 		logger.debug("__foldSplit - start")
 		
-		maxEpisodesForFold = int( episodesInDataset / k ) + 150
+		maxEpisodesForFold = int( episodesInDataset / k )
 		logger.debug("Max episodes for fold %d" % maxEpisodesForFold)
 		currentFold = 0
 		
@@ -121,7 +123,7 @@ class Opi():
 		
 		np.random.seed(42)
 		permutedIdx = np.random.permutation(len(batteries))
-		
+		assigned = 0
 		for idx in permutedIdx:
 			# iteration over batteries
 			battery = batteries[idx]
@@ -144,15 +146,19 @@ class Opi():
 			# check how many episodes are in the fold, it there are more than max, then switch fold
 			episodeInFold = len(foldIndex[currentFold])
 			if((episodeInFold + totalEpisodeInBattery) > maxEpisodesForFold and currentFold < (k - 1)):
-				logger.info("End of fold %d, dimension %d" % (currentFold,len(foldIndex[currentFold])))
+				assigned += episodeInFold
+				logger.debug("End of fold %d, dimension %d" % (currentFold,len(foldIndex[currentFold])))
 				currentFold += 1
 				foldIndex.append([])
 				foldData.append([])
+			if(printFold):
+				logger.debug("Battery #%s is is in fold %d" % (idx,currentFold))
 			
 			foldIndex[currentFold] += batteryIndex
 			foldData[currentFold] += batteryData
 			episodeInFold = len(foldIndex[currentFold])
-			#logger.debug("Current episode in fold are %d" % episodeInFold)
+		
+		logger.debug("Last fold has %d episode" % (episodesInDataset - assigned))
 			
 		logger.debug("__foldSplit - end - %f" % (time.clock() - tt))
 		return foldIndex, foldData
@@ -164,5 +170,11 @@ class Opi():
 				batteryName = episodeInMonth[0].values[:, self.idxName][0]
 		return batteryName
 		
-		
+#####
+#minAgeChargeScale = 50
+#maxAgeChargeScale = 105
+#step = 5
+#dataRange(minerva,astrea,K,minAgeChargeScale,maxAgeChargeScale,step)
+#return
+#####
 		
