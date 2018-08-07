@@ -133,6 +133,9 @@ def convModel(X_train, Y_train, X_test, Y_test):
 	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C1")(c)
 	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C2")(c)
 	
+	if {{choice(['drop', 'noDrop'])}} == 'drop':
+		c = Dropout(.2)(c)
+	
 	preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
 	enc = Dense({{choice([2,4,8])}},activation='relu',name="ENC")(preEncodeFlat)
 	

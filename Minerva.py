@@ -7,7 +7,7 @@ from Demetra import EpisodedTimeSeries
 from keras.models import Sequential, Model
 from keras.layers import Dense, Input, concatenate, Flatten, Reshape, LSTM
 from keras.layers import Conv1D, MaxPooling1D,AveragePooling1D
-from keras.layers import Conv2DTranspose, Conv2D
+from keras.layers import Conv2DTranspose, Conv2D, Dropout
 from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger
@@ -271,9 +271,13 @@ class Minerva():
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	
+		
 		c = Reshape((5,4,2),name="Reshape2d")(inputs)
-		c = Conv2D(64,2,activation='relu',name="C1")(c)
-		c = Conv2D(16,2,activation='relu',name="C2")(c)
+		c = Conv2D(128,2,activation='relu',name="C1")(c)
+		c = Conv2D(64,2,activation='relu',name="C2")(c)
+		
+		
+		c = Dropout(.2)(c)
 		
 		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
 		enc = Dense(8,activation='relu',name="ENC")(preEncodeFlat)
@@ -287,6 +291,8 @@ class Minerva():
 		preDecFlat = Flatten(name="PRE_DECODE")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 		
