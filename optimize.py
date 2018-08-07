@@ -133,6 +133,9 @@ def convModel(X_train, Y_train, X_test, Y_test):
 	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C1")(c)
 	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C2")(c)
 	
+	if {{choice(['3', '4'])}} == '4':
+		c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C3")(c)
+	
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(.2)(c)
 	
@@ -141,9 +144,16 @@ def convModel(X_train, Y_train, X_test, Y_test):
 	
 	dim1 = 3
 	dim2 = 2
-	c = Dense(dim1*dim2*4,name="D0")(enc)
-	c = Reshape((dim1,dim2,4),name="PRE_DC_R")(c)
+	dim3 = 4
+	c = Dense(dim1*dim2*dim3,name="D0")(enc)
+	c = Reshape((dim1,dim2,dim3),name="PRE_DC_R")(c)
 	c = Conv2DTranspose({{choice([16,32,64,128])}},2,activation='relu',name="CT2")(c)
+	
+	
+	if {{choice(['3', '4'])}} == '4':
+		c = Conv2DTranspose({{choice([16,32,64,128])}},2,activation='relu',name="CT3")(c)
+		
+		
 	c = Conv2DTranspose(outputFeatures,2,activation='relu',name="CT4")(c)
 	preDecFlat = Flatten(name="PRE_DECODE")(c) 
 	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
@@ -152,12 +162,10 @@ def convModel(X_train, Y_train, X_test, Y_test):
 	adam = optimizers.Adam()		
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 	
-
-	
 	model.fit(X_train, Y_train,
 		verbose = 0,
 		batch_size=100,
-		epochs=100,
+		epochs=150,
 		validation_data=(X_test, Y_test)
 		
 	)
@@ -172,7 +180,7 @@ def main():
 	best_run, best_model = optim.minimize(model=convModel,
                                           data=data,
                                           algo=tpe.suggest,
-                                          max_evals=5,
+                                          max_evals=10,
                                           trials=Trials())
 	
 	X_train, Y_train, X_test, Y_test = data()

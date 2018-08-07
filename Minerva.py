@@ -50,7 +50,7 @@ class Minerva():
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
-	epochs = 100
+	epochs = 500
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -126,7 +126,7 @@ class Minerva():
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,validY)
-			#,callbacks=[early,csv_logger]
+			,callbacks=[early,csv_logger]
 		)
 		
 		logger.debug("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
@@ -271,11 +271,10 @@ class Minerva():
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	
-		
+
 		c = Reshape((5,4,2),name="Reshape2d")(inputs)
-		c = Conv2D(128,2,activation='relu',name="C1")(c)
-		c = Conv2D(64,2,activation='relu',name="C2")(c)
-		
+		c = Conv2D(64,2,activation='relu',name="C1")(c)
+		c = Conv2D(32,2,activation='relu',name="C2")(c)
 		
 		c = Dropout(.2)(c)
 		
@@ -284,9 +283,12 @@ class Minerva():
 		
 		dim1 = 3
 		dim2 = 2
-		c = Dense(dim1*dim2*4,name="D0")(enc)
-		c = Reshape((dim1,dim2,4),name="PRE_DC_R")(c)
+		dim3 = 4
+		c = Dense(dim1*dim2*dim3,name="D0")(enc)
+		c = Reshape((dim1,dim2,dim3),name="PRE_DC_R")(c)
 		c = Conv2DTranspose(32,2,activation='relu',name="CT2")(c)
+		c = Conv2DTranspose(32,2,activation='relu',name="CT3")(c)
+		
 		c = Conv2DTranspose(outputFeatures,2,activation='relu',name="CT4")(c)
 		preDecFlat = Flatten(name="PRE_DECODE")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
