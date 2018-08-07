@@ -7,6 +7,7 @@ from Demetra import EpisodedTimeSeries
 from keras.models import Sequential, Model
 from keras.layers import Dense, Input, concatenate, Flatten, Reshape, LSTM
 from keras.layers import Conv1D, MaxPooling1D,AveragePooling1D
+from keras.layers import Conv2DTranspose, Conv2D
 from keras.models import load_model
 from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger
@@ -104,9 +105,9 @@ class Minerva():
 			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			loss2monitor = 'val_OUT_loss'
 		else:
-			model = self.__functionalDenseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			model = self.__denseModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			#print(model.summary())
-			#__functionalDenseModel #__convModel
+			#__denseModel #__conv2DModel
 		
 		adam = optimizers.Adam()		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
@@ -231,124 +232,46 @@ class Minerva():
 				self.ets.plotMode(plotMode,title)
 		
 		return maes
-				
-	def __functionInceptionModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+	
+	
+	def __conv2DModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+		convDim = 256
+		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		
-		first = Dense(64,activation='relu',name="D1")(inputs)
+		c = Reshape((5,4,2),name="Reshape2d")(inputs)
 		
-		c1 = self.__getInceptionCell(first,"C1")	
-		c2 = self.__getInceptionCell(c1,"C2")
-		
-		f1 = Flatten(name="F1")(c2) 
-		enc = Dense(encodedSize,activation='relu',name="ENC")(f1)
-		
-		d2 = Dense(64*timesteps,activation='relu',name="D2")(enc)
-		r1 = Reshape((timesteps, 64),name="R1")(d2)
-		
-		### PROBE ###
-		dprobe = Dense(32,activation='relu',name="DPROBE1")(r1)
-		dprobe = Dense(16,activation='relu',name="DPROBE2")(dprobe)
-		frpobe = Flatten(name="frpobe")(dprobe)
-		probe = Dense(outputFeatures*timesteps,activation='linear',name="P1")(frpobe)
-		outProbe = Reshape((timesteps, outputFeatures),name="OUT_P1")(probe)
-		### END PROBE ###
-		
-		c3 = self.__getInceptionCell(r1,"C3")	
-		c4 = self.__getInceptionCell(c3,"C4")
-
-		f2 = Flatten(name="F2")(c4)
-		d3 = Dense(outputFeatures*timesteps,activation='linear',name="D3")(f2)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(d3)
-	
-		autoencoderModel = Model(inputs=inputs, outputs=[out,outProbe])
-		return autoencoderModel
-	
-	
-	def __getConvCell(self,input,prefix):
-		
-		convDim = 32
-		convTime = 40
-		
-		c = Flatten(name="%s_F" % prefix)(input)
-		c = Dense(convDim*convTime,activation='relu',name="%s_S_D32" % prefix)(c)
-		c = Reshape((convTime, convDim),name="%s_R" % prefix)(c)
-		c = Conv1D(convDim,9,activation='relu',name="%s_S_C5" % prefix)(c)
-		c = MaxPooling1D(pool_size=7,name="%s_I_MP3" % prefix)(c)
-		
-		return c
-	
-	
-	def __getInceptionCell(self,input,prefix):
-		
-		c = Dense(256,activation='relu',name="%s_S_D64" % prefix)(input)
-		c = Conv1D(128,7,activation='relu',name="%s_S_C7" % prefix)(c)
-		c = Dense(64,activation='relu',name="%s_S_D32" % prefix)(c)
-		c = Conv1D(32,5,activation='relu',name="%s_S_C5" % prefix)(c)
-		
-		c1 = Conv1D(32,5,activation='relu',name="%s_I_CV5" % prefix)(c)
-		c2 = MaxPooling1D(pool_size=3,name="%s_I_MP3" % prefix)(c)
-		c3 = Conv1D(32,3,activation='relu',name="%s_I_CV3" % prefix)(c)
-		c4 = MaxPooling1D(pool_size=5,name="%s_I_MP5" % prefix)(c)
-		
-		c = concatenate([c1,c2,c3,c4], axis=1,name = "%s_INCEPTION" % prefix)
-		
-		return c
-	
-	def __convModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
-		
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = self.__getConvCell(inputs,"EC1")
-		c = self.__getConvCell(inputs,"EC2")		
+		c = Conv2D(convDim,2,activation='relu',name="C1")(c)
+		c = Conv2D(int(convDim/2),2,activation='relu',name="C2")(c)
+		#c = Conv2D(int(convDim/4),2,activation='relu',name="C3")(c) # 2,1,4
 		
 		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
 		enc = Dense(encodedSize,activation='relu',name="ENC")(preEncodeFlat)
+		
+		dim1 = 3
+		dim2 = 2
+		
+		c = Dense(dim1*dim2*int(convDim/4),name="D0")(enc)
+		c = Reshape((dim1,dim2,int(convDim/4)),name="PRE_DC_R")(c)
 	
-		c = Dense(encodedSize*timesteps,activation='relu',name="PRE_DC")(enc)
-		c = Reshape((timesteps, encodedSize),name="PRE_DC_R")(c)
+		#c = Conv2DTranspose(int(convDim/2),2,activation='relu',name="CT1")(c)
+		c = Conv2DTranspose(int(convDim),2,activation='relu',name="CT2")(c)
+		c = Conv2DTranspose(outputFeatures,2,activation='relu',name="CT4")(c)
 		
-		c = self.__getConvCell(c,"DC1")	
-		c = self.__getConvCell(c,"DC2")	
-		
-		preDecodeFlat = Flatten(name="PRE_DECODE")(c)
-		c = Dense(outputFeatures*timesteps,activation='linear',name="DECODED")(preDecodeFlat)
+		#preDecodeFlat = Flatten(name="PRE_DECODE")(c)
+		c = Dense(outputFeatures,activation='linear',name="DECODED")(c)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		#print(autoencoderModel.summary())
 		return autoencoderModel
 	
-	def __inceptionModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+		
+	def __denseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		
-		c = self.__getInceptionCell(inputs,"EC1")	
-		c = self.__getInceptionCell(c,"EC2")
-		#c = self.__getInceptionCell(c,"EC3")
-	
-		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
-		enc = Dense(encodedSize,activation='relu',name="ENC")(preEncodeFlat)
-		
-		c = Dense(encodedSize*timesteps,activation='relu',name="PRE_DC")(enc)
-		c = Reshape((timesteps, encodedSize),name="PRE_DC_R")(c)
-		
-		c = self.__getInceptionCell(c,"DC1")	
-		c = self.__getInceptionCell(c,"DC2")
-		#c = self.__getInceptionCell(c,"DC3")
-		
-		preDecodeFlat = Flatten(name="PRE_DECODE")(c)
-		c = Dense(outputFeatures*timesteps,activation='linear',name="DECODED")(preDecodeFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		#print(autoencoderModel.summary())
-		return autoencoderModel
-		
-	def __functionalDenseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
-		
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		
-		start = 256
+		start = 16
 		
 		d = Dense(start,activation='relu',name="D1")(inputs)
 		d = Dense(int(start / 2),activation='relu',name="D2")(d)
