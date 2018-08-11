@@ -17,9 +17,6 @@ def batchCompatible(batch_size,data):
 		data = data[:-exceed]
 	return data
 
-
-	
-	
 def data():
 	from Astrea import Astrea
 	from Minerva import Minerva
@@ -168,48 +165,48 @@ def convModel(X_train, Y_train, X_test, Y_test):
 
 	ets = EpisodedTimeSeries(5,5,5,5)
 	
-	
 	inputFeatures = 2
 	outputFeatures = 2
 	timesteps = 20
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	
+	#encRange = [2,3,4,6,8,10,12]
+	#filterRange = [16,32,48,64,96,128,192,256]
+	
 	c = Reshape((5,4,2),name="Reshape2d")(inputs)
 	
-	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C1")(c)
+	c = Conv2D({{choice([16,32,48,64,96,128,192,256])}},2,activation='relu',name="C1")(c)
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(.2)(c)
 	
-	c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="C2")(c)
+	c = Conv2D({{choice([16,32,48,64,96,128,192,256])}},2,activation='relu',name="C2")(c)
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(.2)(c)
 	
-	if {{choice(['3', '4'])}} == '4':
-		c = Conv2D({{choice([16,32,64,128])}},2,activation='relu',name="CEx")(c)
+	if {{choice(['more', 'less'])}} == 'more':
+		c = Conv2D({{choice([16,32,48,64,96,128,192,256])}},2,activation='relu',name="CEx")(c)
 	
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(.2)(c)
 	
 	preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
-	enc = Dense({{choice([2,4,6,8])}},activation='relu',name="ENC")(preEncodeFlat)
+	enc = Dense({{choice([2,3,4,6,8,10,12])}},activation='relu',name="ENC")(preEncodeFlat)
 	
-	dim1 = 3
-	dim2 = 2
-	dim3 = 4
-	c = Dense(dim1*dim2*dim3,name="D0")(enc)
-	c = Reshape((dim1,dim2,dim3),name="PRE_DC_R")(c)
-	c = Conv2DTranspose({{choice([16,32,64,128])}},2,activation='relu',name="CT1")(c)
+	
+	c = Dense(2*2*16,name="D0")(enc)
+	c = Reshape((2,2,16),name="PRE_DC_R")(c)
+	
+	c = Conv2DTranspose({{choice([16,32,48,64,96,128,192,256])}},2,activation='relu',name="CT1")(c)
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(.2)(c)
-	c = Conv2DTranspose({{choice([16,32,64,128])}},2,activation='relu',name="CT2")(c)
+	c = Conv2DTranspose({{choice([16,32,48,64,96,128,192,256])}},2,activation='relu',name="CT2")(c)
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(.2)(c)
-	if {{choice(['3', '4'])}} == '4':
-		c = Conv2DTranspose({{choice([16,32,64,128])}},2,activation='relu',name="CTEx")(c)
+	if {{choice(['more', 'less'])}} == 'more':
+		c = Conv2DTranspose({{choice([16,32,48,64,96,128,192,256])}},2,activation='relu',name="CTEx")(c)
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(.2)(c)	
 	
-	#c = Conv2DTranspose(outputFeatures,2,activation='relu',name="CT4")(c)
 	preDecFlat = Flatten(name="PRE_DECODE")(c) 
 	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
@@ -235,16 +232,13 @@ def convModel(X_train, Y_train, X_test, Y_test):
 	
 	HL , MAE= model.evaluate(X_test, Y_test, verbose=2)
 	print("HL: %f MAE: %f" % (HL, MAE))
-	#_, _, ics, _ = ets.getDataAtAge(90)
-	#HLx, MAEx = model.evaluate(ics, ics, verbose=0)
-	#print("HLx: %f MAEx: %f" % (HLx, MAEx))
-	#print(MAE - MAEx)
-	#return {'loss': MAE - MAEx, 'status': STATUS_OK, 'model': model}
-	return {'loss': MAE, 'status': STATUS_OK, 'model': model}
+	return {'loss': HL, 'status': STATUS_OK, 'model': model}
 
 	
 def main():
-	best_run, best_model = optim.minimize(model=model,
+	best_run, best_model = optim.minimize(
+										  model = convModel,
+										  #model=model,
                                           data=data,
                                           algo=tpe.suggest,
                                           max_evals=20,
