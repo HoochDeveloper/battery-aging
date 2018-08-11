@@ -312,7 +312,12 @@ class Mercurio():
 		plt.legend()			
 		plt.show()
 		
-		
+def printPercentiles(data,age):
+	print("Percentiles for age %d" % age)
+	qo = np.percentile(data,25)
+	qw = np.percentile(data,50)
+	qt = np.percentile(data,75)
+	print("Q1: %f Q2: %f Q3: %f" % (qo,qw,qt))
 	
 def main():
 	if(len(sys.argv) != 2):
@@ -346,12 +351,16 @@ def main():
 		#_,cmae = mercurio.syntheticMaeDistro("464001",50,fullHealth)
 		
 		
+		printPercentiles(nmae,95)
+		printPercentiles(hmae,90)
+		printPercentiles(smae,85)
 		
-		fig = plt.figure()
-		plt.boxplot([nmae,hmae,smae],sym='')
-		plt.xticks(range(1,4),["95","90","85"])
-		plt.grid()
-		plt.show()
+		
+		#fig = plt.figure()
+		#plt.boxplot([nmae,hmae,smae],sym='')
+		#plt.xticks(range(1,4),["95","90","85"])
+		#plt.grid()
+		#plt.show()
 		
 		#mercurio.syntheticDistro()
 		#mercurio.realDataResolution()
