@@ -5,6 +5,7 @@ logs/
 exportEpisodes/
 synthetic_data/
 evaluation/
+optimizedModel.h5
 *.png
 # Byte-compiled / optimized / DLL files
 __pycache__/
