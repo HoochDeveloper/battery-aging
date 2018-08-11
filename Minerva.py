@@ -10,7 +10,7 @@ from keras.layers import Conv1D, MaxPooling1D,AveragePooling1D
 from keras.layers import Conv2DTranspose, Conv2D, Dropout
 from keras.models import load_model
 from keras import optimizers
-from keras.callbacks import EarlyStopping, CSVLogger
+from keras.callbacks import EarlyStopping, CSVLogger, ModelCheckpoint
 import tensorflow as tf
 #Sklearn
 from sklearn.metrics import mean_absolute_error
@@ -105,15 +105,19 @@ class Minerva():
 			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			loss2monitor = 'val_OUT_loss'
 		else:
-			model = self.__conv2DHyperas(inputFeatures,outputFeatures,timesteps,encodedSize)
-			print(model.summary())
+			model = self.__hyperasModel(inputFeatures,outputFeatures,timesteps,encodedSize)
+			#print(model.summary())
 			#__denseModel #__conv2DModel #__hyperasModel #__conv2DHyperas
 		
 		adam = optimizers.Adam()		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-		early = EarlyStopping(monitor=loss2monitor, min_delta=0.000001, patience=50, verbose=1, mode='min')	
-		cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
-		csv_logger = CSVLogger(cvsLogFile)
+		#early = EarlyStopping(monitor=loss2monitor, min_delta=0.0000027, patience=50, verbose=1, mode='min')	
+		#cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
+		#csv_logger = CSVLogger(cvsLogFile)
+		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
+		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
+			save_best_only=True, mode='min')
+
 		
 		validY = y_valid
 		trainY = y_train
@@ -121,18 +125,27 @@ class Minerva():
 			validY = [y_valid,y_valid]
 			trainY = [y_train,y_train]
 		
-		model.fit(x_train, trainY,
+		history  = model.fit(x_train, trainY,
 			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,validY)
-			,callbacks=[early,csv_logger]
+			,callbacks=[checkpoint]
 		)
 		
+		if(False):
+			plt.plot(history.history['loss'])
+			plt.plot(history.history['val_loss'])
+			plt.title('model loss')
+			plt.ylabel('loss')
+			plt.xlabel('epoch')
+			plt.legend(['train', 'test'], loc='upper left')
+			plt.show()
+		
 		logger.debug("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
-		logger.debug("Saving model...")
-		model.save(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )) 
-		logger.debug("Model saved")
+		#logger.debug("Saving model...")
+		#model.save(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )) 
+		#logger.debug("Model saved")
 		if(self.modelHasProbe):
 			_ , trainMae, ptrainMae, trainHuber, ptrainHuber = model.evaluate( x=x_train, y=[y_train,y_train], batch_size=self.batchSize, verbose=0)
 			logger.info("Train Probe HL %f - MAE %f" % (ptrainMae,ptrainHuber))
@@ -270,51 +283,79 @@ class Minerva():
 	def __conv2DHyperas(self,inputFeatures,outputFeatures,timesteps,encodedSize):
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	
-
 		c = Reshape((5,4,2),name="Reshape2d")(inputs)
-		c = Conv2D(64,2,activation='relu',name="C1")(c)
-		c = Conv2D(32,2,activation='relu',name="C2")(c)
+
+		c = Conv2D(128,2,activation='relu',name="C1")(c)
 		
 		c = Dropout(.2)(c)
+		c = Conv2D(128,2,activation='relu',name="C2")(c)
 		
+		c = Dropout(.2)(c)
+		c = Conv2D(32,2,activation='relu',name="CEx")(c)
+		
+		c = Dropout(.2)(c)
 		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
-		enc = Dense(8,activation='relu',name="ENC")(preEncodeFlat)
+		enc = Dense(6,activation='relu',name="ENC")(preEncodeFlat)
 		
 		dim1 = 3
 		dim2 = 2
 		dim3 = 4
 		c = Dense(dim1*dim2*dim3,name="D0")(enc)
 		c = Reshape((dim1,dim2,dim3),name="PRE_DC_R")(c)
-		c = Conv2DTranspose(32,2,activation='relu',name="CT2")(c)
-		c = Conv2DTranspose(32,2,activation='relu',name="CT3")(c)
+		c = Conv2DTranspose(128,2,activation='relu',name="CT1")(c)
 		
-		c = Conv2DTranspose(outputFeatures,2,activation='relu',name="CT4")(c)
+		c = Dropout(.2)(c)
+		c = Conv2DTranspose(64,2,activation='relu',name="CT2")(c)
+		
+		c = Dropout(.2)(c)
+		c = Conv2DTranspose(64,2,activation='relu',name="CTEx")(c)
+
 		preDecFlat = Flatten(name="PRE_DECODE")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		
+			
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 		
 	def __hyperasModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
 	
+		
+		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	
-		d = Dense(256,activation='relu',name="D1")(inputs)
-		d = Dense(64,activation='relu',name="D2")(d)
+		d = Dense(64,activation='relu',name="EA")(inputs)
+		
 
+		d = Dense(128,activation='relu',name="E1")(d)
+		
+
+		
+		
+		
+		d = Dense(32,activation='relu',name="EB")(d)
+
+		### s - encoding
 		d = Flatten(name="F1")(d) 
 		enc = Dense(8,activation='relu',name="ENC")(d)
-		
+		### e - encoding
 		d = Dense(2*timesteps,activation='relu',name="D6")(enc)
 		d = Reshape((timesteps, 2),name="R1")(d)
 		
-		d = Dense(64,activation='relu',name="D7")(d)
+		
+		d = Dense(32,activation='relu',name="DA")(d)
+		
+
+		d = Dense(128,activation='relu',name="D2")(d)
+		
+
+		d = Dense(256,activation='relu',name="D3")(d)
+
 		d = Flatten(name="F2")(d)
-		d = Dense(outputFeatures*timesteps,activation='linear',name="D11")(d)
+		d = Dense(outputFeatures*timesteps,activation='linear',name="DB")(d)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
+		
+		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 		
