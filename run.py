@@ -28,7 +28,7 @@ def execute(mustTrain,encSize = 8,K = 5,type="Dense"):
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
 	if(mustTrain):
-		train(minerva,astrea,K,encSize,type=type,denoise=True)
+		train(minerva,astrea,K,encSize,type=type,denoise=False)
 	
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
@@ -76,6 +76,8 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 			
 			test =  np.concatenate(folds4learn)
 			
+			
+			
 			mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
 			maes.append(mae)
 			labels.append("Age %d" % ageScale)
@@ -88,6 +90,12 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 			
 		
 def errorBoxPlot(errorList,labels,title,save=True):
+	
+	#for c in range(0,len(errorList)):
+	#	err = errorList[c]
+	#	prc = np.percentile(err,[25,50,75])
+	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
+	
 	fig = plt.figure()
 	plt.boxplot(errorList,sym='') #whis=[0, 99]
 	plt.xticks(range(1,len(labels)+1),labels)
@@ -106,7 +114,7 @@ def train(minerva,astrea,K,encSize,type="Dense",denoise=False):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
 	batteriesDenoise = None
 	if(denoise):
-		batteriesDenoise = minerva.ets.loadSyntheticBlowDataSet(95)
+		batteriesDenoise = minerva.ets.loadSyntheticBlowDataSet(100)
 	#batteries = minerva.ets.loadSyntheticMixedAgeBlowDataSet()
 	
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
@@ -123,6 +131,10 @@ def train(minerva,astrea,K,encSize,type="Dense",denoise=False):
 		if(d_data is not None):
 			fold = d_data[i]
 			foldAs3d = astrea.foldAs3DArray(fold,scaler)
+			#print(foldAs3d.shape)
+			noise = np.random.normal(0,0.02,foldAs3d.shape)
+			
+			foldAs3d += noise
 			foldsDenoise.append(foldAs3d)
 
 	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
@@ -173,17 +185,17 @@ def main():
 	if(len(sys.argv) != 4):
 		print("Expected train / evaluate")
 		return
+	K = 2
 	encSize = int(sys.argv[2])
 	type = sys.argv[3]
 	print("Encoded size %s type %s" % (encSize,type))
 	action = sys.argv[1]
 	if(action == "train"):
-		execute(True,encSize,type=type,K = 3)
+		execute(True,encSize,type=type,K = K)
 	elif(action=="evaluate"):
-		execute(False,encSize,type=type, K = 3)
+		execute(False,encSize,type=type, K = K)
 	elif(action=="show_evaluation"):
-		
-		loadEvaluation(encSize,type=type, K = 3)
+		loadEvaluation(encSize,type=type, K = K)
 	else:
 		print("Can't perform %s" % action)
 		

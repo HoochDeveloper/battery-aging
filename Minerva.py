@@ -36,11 +36,34 @@ logger.addHandler(consoleHandler)
  ' https://en.wikipedia.org/wiki/Huber_loss
 '''
 def huber_loss(y_true, y_pred, clip_delta=1.0):
-	error = y_true - y_pred
+	error = y_true - y_pred	
 	cond  = tf.keras.backend.abs(error) < clip_delta
 	squared_loss = 0.5 * tf.keras.backend.square(error)
 	linear_loss  = clip_delta * (tf.keras.backend.abs(error) - 0.5 * clip_delta)
 	return tf.where(cond, squared_loss, linear_loss)
+
+
+def rae_huber_loss(y_true, y_pred, clip_delta=1.0, alpha=0.3):
+	error = y_true - y_pred	
+	cond  = tf.keras.backend.abs(error) < clip_delta
+	squared_loss = 0.5 * tf.keras.backend.square(error)
+	linear_loss  = clip_delta * (tf.keras.backend.abs(error) - 0.5 * clip_delta)
+	loss = tf.where(cond, squared_loss, linear_loss)
+	
+	### REL ERROR
+	a = tf.matmul(y_true,y_true,transpose_b=True)
+	b = tf.matmul(y_pred,y_pred,transpose_b=True)
+	rel_error = a - b
+	
+	rel_cond  = tf.keras.backend.abs(rel_error) < clip_delta
+	rel_squared_loss = 0.5 * tf.keras.backend.square(rel_error)
+	rel_linear_loss  = clip_delta * (tf.keras.backend.abs(rel_error) - 0.5 * clip_delta)
+	rel_loss = tf.where(rel_cond, rel_squared_loss, rel_linear_loss)
+	### END
+	
+	return (1-alpha)*tf.reduce_mean(loss,axis=[1,2]) + alpha * tf.reduce_mean(rel_loss,axis=[1,2])
+	
+	#return tf.where(cond, squared_loss, linear_loss)
 	
 def huber_loss_mean(y_true, y_pred, clip_delta=1.0):
 	return tf.reduce_mean(huber_loss(y_true, y_pred, clip_delta))
@@ -106,8 +129,8 @@ class Minerva():
 			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
 			loss2monitor = 'val_OUT_loss'
 		else:
-			model = self.__yach(inputFeatures,outputFeatures,timesteps)
-			#print(model.summary())
+			model = self.__conv2DHyperas(inputFeatures,outputFeatures,timesteps)
+			#print(model.summary()) #__convOne
 			#__denseModel #__conv2DModel #__hyperasModel #__conv2DHyperas #__yach
 		
 		adam = optimizers.Adam()		
@@ -145,7 +168,7 @@ class Minerva():
 			plt.legend(['train', 'test'], loc='upper left')
 			plt.show()
 		
-		logger.debug("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
+		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		#logger.debug("Saving model...")
 		#model.save(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )) 
 		#logger.debug("Model saved")
@@ -174,6 +197,8 @@ class Minerva():
 		customLoss = {'huber_loss': huber_loss}
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
 			,custom_objects=customLoss)
+		
+		#print(model.summary())
 		
 		#logger.info("There are %s parameters in model" % model.count_params()) 
 		
@@ -204,8 +229,42 @@ class Minerva():
 		for sampleCount in range(0,ydecoded.shape[0]):
 			maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
 			
+		if(False):
+			layer_name = 'ENC'
+			intermediate_layer_model = Model(inputs=model.input,
+				outputs=model.get_layer(layer_name).output)
+			
+			coded = intermediate_layer_model.predict(testX,  batch_size=self.batchSize)
+			#n = 10
 			
 			
+			for k in range(0,2):
+				plt.figure(figsize=(20, 8))
+				i = np.random.randint(coded.shape[0])
+				ax = plt.subplot(1, 3, 1)
+				plt.imshow(testX[i].reshape(5,8).T)
+				plt.title("Original")
+				#plt.gray()
+				ax.get_xaxis().set_visible(False)
+				ax.get_yaxis().set_visible(False)
+				
+				ax = plt.subplot(1, 3, 2)
+				plt.imshow(coded[i].reshape(3,2).T)
+				plt.title("Coded")
+				#plt.gray()
+				ax.get_xaxis().set_visible(False)
+				ax.get_yaxis().set_visible(False)
+				
+				ax = plt.subplot(1, 3, 3)
+				plt.imshow(ydecoded[i].reshape(5,8).T)
+				#plt.gray()
+				plt.title("Reconstruced")
+				ax.get_xaxis().set_visible(False)
+				ax.get_yaxis().set_visible(False)
+				
+				
+				plt.suptitle('MAE %f' % maes[i], fontsize=16)
+				plt.show()
 			
 		if(showScatter):
 			plt.figure(figsize=(8, 6), dpi=100)
@@ -283,6 +342,39 @@ class Minerva():
 		return autoencoderModel
 	
 		
+	def __convOne(self,inputFeatures,outputFeatures,timesteps):
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		
+		c = inputs
+		c = Conv1D(256,2,activation='relu',padding='same',name="C1")(c)
+		
+		
+		c = Dropout(.2)(c)
+		
+
+		c = Conv1D(192,2,activation='relu',padding='same',name="C2")(c)
+			
+		
+		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
+		enc = Dense(10,activation='relu',name="ENC")(preEncodeFlat)
+		
+		c = Dense(10,name="D0")(enc)
+		c = Reshape((5,2),name="PRE_DC_R")(c)
+		
+		c = Dense(192,activation='relu',name="CT1")(c)
+		
+		c = Dropout(.2)(c)
+
+		c = Dense(192,activation='relu',name="CT2")(c)
+				
+		preDecFlat = Flatten(name="PRE_DECODE")(c) 
+		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		return autoencoderModel
+		
+		
 	def __yach(self,inputFeatures,outputFeatures,timesteps):
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	
@@ -310,32 +402,29 @@ class Minerva():
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 	
-	def __conv2DHyperas(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+	def __conv2DHyperas(self,inputFeatures,outputFeatures,timesteps):
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	
 		c = Reshape((5,4,2),name="Reshape2d")(inputs)
-		c = Conv2D(8,2,activation='relu',name="C1")(c)
-		c = Conv2D(16,2,activation='relu',name="C2")(c)
+		c = Conv2D(192,2,activation='relu',name="C1")(c)
+		c = Dropout(.2)(c)
+		
+		c = Conv2D(64,2,activation='relu',name="C2")(c)	
+		c = Dropout(.2)(c)
 		
 		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
-		#enc = Dense(16,activation='relu',name="ENC")(preEncodeFlat)
 		enc = Dense(8,activation='relu',name="ENC")(preEncodeFlat)
-		dim1 = 3
-		dim2 = 2
-		dim3 = 4
-		c = Dense(dim1*dim2*dim3,name="D0")(enc)
-		c = Reshape((dim1,dim2,dim3),name="PRE_DC_R")(c)
 		
+		postDec = 5
+		c = Dense(postDec*postDec*postDec,name="D0")(enc)
+		c = Reshape((postDec,postDec,postDec),name="PRE_DC_R")(c)
 		c = Conv2DTranspose(64,2,activation='relu',name="CT1")(c)
-		c = Dropout(.2)(c)
-		c = Conv2DTranspose(32,2,activation='relu',name="CT2")(c)
-
+		
 		preDecFlat = Flatten(name="PRE_DECODE")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-				
-		
+
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 		
