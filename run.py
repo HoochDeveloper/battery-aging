@@ -28,7 +28,7 @@ def execute(mustTrain,encSize = 8,K = 5,type="Dense"):
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
 	if(mustTrain):
-		train(minerva,astrea,K,encSize,type=type)
+		train(minerva,astrea,K,encSize,type=type,denoise=True)
 	
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
@@ -100,33 +100,64 @@ def errorBoxPlot(errorList,labels,title,save=True):
 		plt.show()
 		
 		
-def train(minerva,astrea,K,encSize,type="Dense"):
+def train(minerva,astrea,K,encSize,type="Dense",denoise=False):
 	
 	train_ageScale = 100
 	batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
-	
+	batteriesDenoise = None
+	if(denoise):
+		batteriesDenoise = minerva.ets.loadSyntheticBlowDataSet(95)
 	#batteries = minerva.ets.loadSyntheticMixedAgeBlowDataSet()
 	
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
+	d_data = None
+	if(batteriesDenoise is not None):
+		_,d_data = astrea.kfoldByKind(batteriesDenoise,K)
 	scaler = astrea.getScaler(k_data)
 	folds4learn = []
+	foldsDenoise = []
 	for i in range(len(k_data)):
 		fold = k_data[i]
 		foldAs3d = astrea.foldAs3DArray(fold,scaler)
 		folds4learn.append(foldAs3d)
+		if(d_data is not None):
+			fold = d_data[i]
+			foldAs3d = astrea.foldAs3DArray(fold,scaler)
+			foldsDenoise.append(foldAs3d)
 
 	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
 	count = 0
 	for train_index, test_index in zip(trainIdx,testIdx): 
 		count += 1
-		train = [folds4learn[i] for i in train_index]
-		train = np.concatenate(train)
-		test =  [folds4learn[i] for i in test_index]
-		test =  np.concatenate(test)
-		train,valid,_,_ = train_test_split( train, train, test_size=0.2, random_state=42)
+		# TRAIN X
+		trainX = None
+		if len(foldsDenoise) > 0:
+			trainX = [foldsDenoise[i] for i in train_index]
+		else:
+			trainX = [folds4learn[i] for i in train_index]
+		trainX = np.concatenate(trainX)
+		# TRAIN  Y
+		trainY = [folds4learn[i] for i in train_index]
+		trainY = np.concatenate(trainY)
+		#TEST X
+		testX = None
+		if len(foldsDenoise) > 0:
+			testX = [foldsDenoise[i] for i in test_index]
+		else:
+			testX = [folds4learn[i] for i in test_index]
+		testX =  np.concatenate(testX)
+		
+		# TEST Y
+		testY =  [folds4learn[i] for i in test_index]
+		testY =  np.concatenate(testY)
+		
+		trainX,validX,trainY,validY = train_test_split( trainX, trainY, test_size=0.2,
+			random_state=42)
+		
 		name4model = modelNameTemplate % (encSize,train_ageScale,type,count)
-		minerva.trainlModelOnArray(train, train, valid, valid,name4model,encodedSize = encSize)
-		minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
+		minerva.trainlModelOnArray(trainX, trainY, validX, validY,
+			name4model,encodedSize = encSize)
+		minerva.evaluateModelOnArray(testX, testY,name4model,plotMode,scaler,False)
 
 		
 def dataRange(minerva,astrea,K,min,max,step):

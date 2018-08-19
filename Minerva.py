@@ -15,6 +15,7 @@ import tensorflow as tf
 #Sklearn
 from sklearn.metrics import mean_absolute_error
 
+
 #KERAS ENV GPU
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['NUMBAPRO_NVVM']=r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\nvvm\bin\nvvm64_31_0.dll'
@@ -111,9 +112,11 @@ class Minerva():
 		
 		adam = optimizers.Adam()		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+
 		#early = EarlyStopping(monitor=loss2monitor, min_delta=0.0000027, patience=50, verbose=1, mode='min')	
 		#cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
 		#csv_logger = CSVLogger(cvsLogFile)
+		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min')
