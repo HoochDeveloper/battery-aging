@@ -186,7 +186,7 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	postDec = 5
 	dropPerc = 0.5
 	strideSize = 2
-	codeSize = {{choice([12,10,8,7,6,5,4])}}
+	codeSize = 8
 	
 	filt1 = {{choice([16,32,48,64,96,128,192,256])}}
 	
@@ -209,7 +209,7 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	drop6 = {{choice(['drop', 'noDrop'])}} 
 	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	c = Reshape((5,4,2),name="R2D")(inputs)
+	c = Reshape((5,4,2),name="R2E")(inputs)
 	c = Conv2D(filt1,strideSize,activation='relu',name="E1")(c)
 	
 	if more2 == 'more':
@@ -224,8 +224,7 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	
 	preEncodeFlat = Flatten(name="F1")(c) 
 	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-	c = Dense(codeSize*codeSize*codeSize,name="D0")(enc)
-	c = Reshape((codeSize,codeSize,codeSize),name="PRE_DC_R")(c)
+	c = Reshape((1,1,codeSize),name="R2D")(enc)
 	c = Conv2DTranspose(filt4,strideSize,activation='relu',name="D1")(c)
 
 	if more5 == 'more':
@@ -253,7 +252,7 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	model.fit(X_train, Y_train,
 		verbose = 0,
 		batch_size=100,
-		epochs=175,
+		epochs=100,
 		validation_data=(X_test, Y_test)
 		,callbacks=[checkpoint]
 	)
@@ -269,12 +268,10 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	
 def main():
 	best_run, best_model = optim.minimize(
-										  #model = conv2DModel,
-										  model = denseMoel,
+										  model = conv2DModel,
                                           data=data,
                                           algo=tpe.suggest,
-										  #algo=rand.suggest,
-                                          max_evals=25,
+                                          max_evals=20,
                                           trials=Trials())
 	
 	X_train, Y_train, X_test, Y_test = data()
