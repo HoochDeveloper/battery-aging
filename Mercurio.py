@@ -190,7 +190,7 @@ class Mercurio():
 				for episode in month:
 					episode_count += 1
 					#adding noise on current
-					noise = np.random.normal(0,0.01,episode.shape[0])
+					noise = np.random.normal(0,0.1,episode.shape[0])
 					episode[self.ets.currentIndex] += noise
 					ep = episode[self.ets.keepY]
 					fileName = "%d_%d.csv" % (month_count,episode_count)
@@ -231,17 +231,20 @@ class Mercurio():
 				episodeCount = 0
 				for episode in month:
 					episodeCount += 1
+					
 					dfReal = episode[self.ets.syntheticImport]
 					episode2load = os.path.join(acLoadFolder,"%d_%d.csv" % (monthCount,episodeCount))
+
 					dfSynthetic = pd.read_csv(episode2load,sep=',', 
-						names=([ self.ets.dataHeader[17]]),
-						dtype=({ self.ets.dataHeader[17] : np.float32}))
+						names=([self.ets.dataHeader[16], self.ets.dataHeader[17]]),
+						dtype=({self.ets.dataHeader[16] : np.float32, self.ets.dataHeader[17] : np.float32}))
+					
 					tempDf = dfReal.copy()
 					tempDf.loc[:,self.ets.dataHeader[17]] = dfSynthetic[self.ets.dataHeader[17]].values
-					
+					tempDf.loc[:,self.ets.dataHeader[16]] = dfSynthetic[self.ets.dataHeader[16]].values
 					if(False):
 						self.plotSyntheticVsReale(tempDf[self.ets.dataHeader[17]].values,dfReal[self.ets.dataHeader[17]].values)
-					
+						self.plotSyntheticVsReale(tempDf[self.ets.dataHeader[16]].values,dfReal[self.ets.dataHeader[16]].values)
 					
 					syntheticMonthEpisode.append(tempDf)
 				if(len(syntheticMonthEpisode) > 0):
@@ -311,7 +314,7 @@ class Mercurio():
 		return batteryName,ac
 	
 	def plotSyntheticVsReale(self,synthetic,real):
-		print(mae(synthetic,real))
+		#print(mae(synthetic,real))
 		plt.figure()
 		plt.plot(synthetic,color="navy",label="Synthetic")
 		plt.plot(real,color="orange",label="Real")
