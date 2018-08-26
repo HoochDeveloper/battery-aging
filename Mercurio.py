@@ -140,6 +140,7 @@ class Mercurio():
 		
 	def realDataResolution(self):
 		print(self.ets.dataHeader[17])
+		print(self.ets.dataHeader[16])
 		batteries = self.ets.loadDataSet()
 		all = []
 		for battery in batteries:			
@@ -149,8 +150,11 @@ class Mercurio():
 				
 		allDf = pd.concat(all)
 		print(allDf.shape)
-		print(allDf[self.ets.dataHeader[17]].unique())
+		#print(allDf[self.ets.dataHeader[17]].unique())
 		print(allDf[self.ets.dataHeader[17]].unique().shape)
+		
+		#print(allDf[self.ets.dataHeader[17]].unique())
+		print(allDf[self.ets.dataHeader[16]].unique().shape)
 		
 	def exportForSynthetic(self):
 		"""
@@ -185,6 +189,9 @@ class Mercurio():
 				episode_count = 0
 				for episode in month:
 					episode_count += 1
+					#adding noise on current
+					noise = np.random.normal(0,0.01,episode.shape[0])
+					episode[self.ets.currentIndex] += noise
 					ep = episode[self.ets.keepY]
 					fileName = "%d_%d.csv" % (month_count,episode_count)
 					ep.to_csv( os.path.join(batteryFolder,fileName), index=False)
@@ -334,7 +341,8 @@ def main():
 	elif(action == "compare"):
 		mercurio.compareSyntheticAge()
 	elif(action == "resolution"):
-	
+		mercurio.realDataResolution()
+		return
 	
 		batteries = mercurio.ets.loadSyntheticBlowDataSet(100)
 		k_idx,k_data = mercurio.astrea.kfoldByKind(batteries,3)
@@ -363,7 +371,7 @@ def main():
 		#plt.show()
 		
 		#mercurio.syntheticDistro()
-		#mercurio.realDataResolution()
+		#
 		#mercurio.syntheticDataResoltion()
 	else:
 		print("Mercurio does not want to perform %s!" % action)

@@ -185,7 +185,7 @@ def main():
 	if(len(sys.argv) != 4):
 		print("Expected train / evaluate")
 		return
-	K = 2
+	K = 3
 	encSize = int(sys.argv[2])
 	type = sys.argv[3]
 	print("Encoded size %s type %s" % (encSize,type))

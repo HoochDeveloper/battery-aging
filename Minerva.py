@@ -80,7 +80,7 @@ class Minerva():
 	eps2   = 5
 	alpha1 = 5
 	alpha2 = 5
-	modelHasProbe = False
+	
 	
 	def __init__(self,eps1,eps2,alpha1,alpha2,plotMode = "server"):
 	
@@ -119,37 +119,23 @@ class Minerva():
 		y_valid = self.__batchCompatible(self.batchSize,y_valid)
 		
 		logger.info("Training model %s with train %s and valid %s" % (name4model,x_train.shape,x_valid.shape))
-		
+
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 		
-		loss2monitor = 'val_loss'
-		if(self.modelHasProbe):
-			model = self.__functionInceptionModel(inputFeatures,outputFeatures,timesteps,encodedSize)
-			loss2monitor = 'val_OUT_loss'
-		else:
-			model = self.__conv2DHyperas(inputFeatures,outputFeatures,timesteps)
-			#print(model.summary()) #__convOne
-			#__denseModel #__conv2DModel #__hyperasModel #__conv2DHyperas #__yach
+		model = self.__conv2DHyperas(inputFeatures,outputFeatures,timesteps)
+		#__denseModel #__denseModelHyperas
+		#__conv2DModel #__conv2DHyperas
 		
 		adam = optimizers.Adam()		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-
-		#early = EarlyStopping(monitor=loss2monitor, min_delta=0.0000027, patience=50, verbose=1, mode='min')	
-		#cvsLogFile = os.path.join(self.logFolder,name4model+'.log')
-		#csv_logger = CSVLogger(cvsLogFile)
-		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min')
-
 		
 		validY = y_valid
 		trainY = y_train
-		if(self.modelHasProbe):
-			validY = [y_valid,y_valid]
-			trainY = [y_train,y_train]
 		
 		history  = model.fit(x_train, trainY,
 			verbose = 0,
@@ -158,7 +144,8 @@ class Minerva():
 			validation_data=(x_valid,validY)
 			,callbacks=[checkpoint]
 		)
-		
+		historySaveFile = name4model+"_history"
+		self.ets.saveZip(self.ets.rootResultFolder,historySaveFile,history.history)
 		if(False):
 			plt.plot(history.history['loss'])
 			plt.plot(history.history['val_loss'])
@@ -167,40 +154,24 @@ class Minerva():
 			plt.xlabel('epoch')
 			plt.legend(['train', 'test'], loc='upper left')
 			plt.show()
-		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
-		#logger.debug("Saving model...")
-		#model.save(os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )) 
-		#logger.debug("Model saved")
-		if(self.modelHasProbe):
-			_ , trainMae, ptrainMae, trainHuber, ptrainHuber = model.evaluate( x=x_train, y=[y_train,y_train], batch_size=self.batchSize, verbose=0)
-			logger.info("Train Probe HL %f - MAE %f" % (ptrainMae,ptrainHuber))
-		else:
-			trainMae, trainHuber = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
-			
 		
+		# loading the best model for evaluation
+		customLoss = {'huber_loss': huber_loss}
+		model = load_model(path4save,custom_objects=customLoss)
+		
+		trainMae, trainHuber = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
 		logger.info("Train HL %f - MAE %f" % (trainMae,trainHuber))
-		
-		if(self.modelHasProbe):
-			_ , valMae, pvalMae, valHuber, pvalHuber = model.evaluate( x=x_valid, y=[y_valid,y_valid], batch_size=self.batchSize, verbose=0)
-			logger.info("Valid Probe HL %f - MAE %f" % (pvalMae,pvalHuber))
-		else:
-			valMae, valHuber = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
-		
+		valMae, valHuber = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
 		logger.info("Valid HL %f - MAE %f" % (valMae,valHuber))	
 		logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
-	
-	
 	
 	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
 		
 		customLoss = {'huber_loss': huber_loss}
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
 			,custom_objects=customLoss)
-		
-		#print(model.summary())
-		
-		#logger.info("There are %s parameters in model" % model.count_params()) 
+		logger.info("There are %s parameters in model" % model.count_params()) 
 		
 		testX = self.__batchCompatible(self.batchSize,testX)
 		testY = self.__batchCompatible(self.batchSize,testY)
@@ -208,20 +179,14 @@ class Minerva():
 		logger.debug("Validating model %s with test %s" % (model2load,testX.shape))
 		
 		tt = time.clock()
-		if(self.modelHasProbe):
-			_ , mae, pMae, Huber, pHuber = model.evaluate( x=testX, y=[testY,testY], batch_size=self.batchSize, verbose=0)
-			logger.debug("%s Probe HL %f - MAE %f Elapsed %f" % (phase,pMae,pHuber,(time.clock() - tt)))
-		else:
-			Huber, mae= model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
+		
+		Huber, mae= model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
 		
 		logger.info("%s HL %f - MAE %f Elapsed %f" % (phase,Huber,mae,(time.clock() - tt)))
 		
 		logger.debug("Reconstruction")
 		tt = time.clock()
-		if(self.modelHasProbe):
-			ydecoded,pdecoded = model.predict(testX,  batch_size=self.batchSize)
-		else:
-			ydecoded = model.predict(testX,  batch_size=self.batchSize)
+		ydecoded = model.predict(testX,  batch_size=self.batchSize)
 		logger.debug("Elapsed %f" % (time.clock() - tt))	
 		
 		
@@ -340,162 +305,126 @@ class Minerva():
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		#print(autoencoderModel.summary())
 		return autoencoderModel
-	
-		
-	def __convOne(self,inputFeatures,outputFeatures,timesteps):
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		
-		c = inputs
-		c = Conv1D(256,2,activation='relu',padding='same',name="C1")(c)
-		
-		
-		c = Dropout(.2)(c)
-		
 
-		c = Conv1D(192,2,activation='relu',padding='same',name="C2")(c)
-			
-		
-		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
-		enc = Dense(10,activation='relu',name="ENC")(preEncodeFlat)
-		
-		c = Dense(10,name="D0")(enc)
-		c = Reshape((5,2),name="PRE_DC_R")(c)
-		
-		c = Dense(192,activation='relu',name="CT1")(c)
-		
-		c = Dropout(.2)(c)
-
-		c = Dense(192,activation='relu',name="CT2")(c)
-				
-		preDecFlat = Flatten(name="PRE_DECODE")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-		
-		
-	def __yach(self,inputFeatures,outputFeatures,timesteps):
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	
-		c = Reshape((5,4,2),name="Reshape2d")(inputs)
-		c = Conv2D(64,2,activation='relu',name="C1")(c)
-		c = Conv2D(16,2,activation='relu',name="C2")(c)
-		c = Conv2D(192,2,activation='relu',name="CEx")(c)
-		c = Dropout(.2)(c)
-		
-		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
-		enc = Dense(6,activation='relu',name="ENC")(preEncodeFlat)
-		
-		c = Dense(2*2*16,name="D0")(enc)
-		c = Reshape((2,2,16),name="PRE_DC_R")(c)
-		c = Conv2DTranspose(256,2,activation='relu',name="CT1")(c)
-		c = Dropout(.2)(c)
-		c = Conv2DTranspose(64,2,activation='relu',name="CT2")(c)
-		c = Dropout(.2)(c)
-		c = Conv2DTranspose(128,2,activation='relu',name="CTEx")(c)
-	
-		preDecFlat = Flatten(name="PRE_DECODE")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-	
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-	
 	def __conv2DHyperas(self,inputFeatures,outputFeatures,timesteps):
 
+		dropPerc = 0.5
+		strideSize = 2
+		codeSize = 12
+		
+		filt1 = 192
+		
+		filt2 =48
+		more2 =  'more'
+		drop2 = 'noDrop'
+		
+		filt3 = 32
+		more3 =  'more'
+		drop3 = 'noDrop'
+		
+		filt4 = 128
+		
+		filt5 = 32
+		more5 = 'less'
+		drop5 = 'noDrop'
+		
+		filt6 = 64
+		more6 =  'more'
+		drop6 = 'drop'
+		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	
-		c = Reshape((5,4,2),name="Reshape2d")(inputs)
-		c = Conv2D(192,2,activation='relu',name="C1")(c)
-		c = Dropout(.2)(c)
+		c = Reshape((5,4,2),name="R2D")(inputs)
+		c = Conv2D(filt1,strideSize,activation='relu',name="E1")(c)
 		
-		c = Conv2D(64,2,activation='relu',name="C2")(c)	
-		c = Dropout(.2)(c)
+		if more2 == 'more':
+			if drop2 == 'drop':
+				c = Dropout(dropPerc)(c)
+			c = Conv2D(filt2,strideSize,activation='relu',name="E2")(c)
 		
-		preEncodeFlat = Flatten(name="PRE_ENCODE")(c) 
-		enc = Dense(8,activation='relu',name="ENC")(preEncodeFlat)
+		if more3 == 'more':
+			if drop3 == 'drop':
+				c = Dropout(dropPerc)(c)
+			c = Conv2D(filt3,strideSize,activation='relu',name="E3")(c)
 		
-		postDec = 5
-		c = Dense(postDec*postDec*postDec,name="D0")(enc)
-		c = Reshape((postDec,postDec,postDec),name="PRE_DC_R")(c)
-		c = Conv2DTranspose(64,2,activation='relu',name="CT1")(c)
+		preEncodeFlat = Flatten(name="F1")(c) 
+		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+		c = Dense(codeSize*codeSize*codeSize,name="D0")(enc)
+		c = Reshape((codeSize,codeSize,codeSize),name="PRE_DC_R")(c)
+		c = Conv2DTranspose(filt4,strideSize,activation='relu',name="D1")(c)
+
+		if more5 == 'more':
+			if drop5 == 'drop':
+				c = Dropout(dropPerc)(c)
+			Conv2DTranspose(filt5,strideSize,activation='relu',name="D2")(c)
 		
-		preDecFlat = Flatten(name="PRE_DECODE")(c) 
+		if more6 == 'more':
+			if drop6 == 'drop':
+				c = Dropout(dropPerc)(c)
+			Conv2DTranspose(filt6,strideSize,activation='relu',name="D3")(c)
+		
+		
+		preDecFlat = Flatten(name="F2")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+	
 
 		autoencoderModel = Model(inputs=inputs, outputs=out)
+		#print(autoencoderModel.summary())
 		return autoencoderModel
-		
-	def __hyperasModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+			
+	def __denseModelHyperas(self,inputFeatures,outputFeatures,timesteps):
 	
-		
-		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	
-		d = Dense(64,activation='relu',name="EA")(inputs)
+		e1Size = 256
+		e3Size = 128
+		e4Size = 32
+		d1Size = 32
+		d5Size = 16
+		codeSize = 16
 		
-
-		d = Dense(128,activation='relu',name="E1")(d)
-		
-
-		
-		
-		
-		d = Dense(32,activation='relu',name="EB")(d)
-
+		# END HyperParameters
+		d = Dense(e1Size,activation='relu',name="E1")(inputs)
+		d = Dense(e3Size,activation='relu',name="E3")(d)
+		d = Dense(e4Size,activation='relu',name="E4")(d)
 		### s - encoding
 		d = Flatten(name="F1")(d) 
-		enc = Dense(8,activation='relu',name="ENC")(d)
+		enc = Dense(codeSize,activation='relu',name="ENC")(d)
 		### e - encoding
-		d = Dense(2*timesteps,activation='relu',name="D6")(enc)
-		d = Reshape((timesteps, 2),name="R1")(d)
-		
-		
-		d = Dense(32,activation='relu',name="DA")(d)
-		
-
-		d = Dense(128,activation='relu',name="D2")(d)
-		
-
-		d = Dense(256,activation='relu',name="D3")(d)
-
+		d = Dense(d1Size*timesteps,activation='relu',name="D1")(enc)
+		d = Reshape((timesteps, d1Size),name="R1")(d)
+		d = Dense(d5Size,activation='relu',name="D5")(d)
 		d = Flatten(name="F2")(d)
-		d = Dense(outputFeatures*timesteps,activation='linear',name="DB")(d)
+		d = Dense(outputFeatures*timesteps,activation='linear',name="D6")(d)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
-		
-		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
+	
+	
 		
-		
-	def __denseModel(self,inputFeatures,outputFeatures,timesteps,encodedSize):
+	def __denseModel(self,inputFeatures,outputFeatures,timesteps):
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		
-		start = 16
-		
-		d = Dense(start,activation='relu',name="D1")(inputs)
-		d = Dense(int(start / 2),activation='relu',name="D2")(d)
-		d = Dense(int(start / 4),activation='relu',name="D3")(d)
-		d = Dense(int(start / 8),activation='relu',name="D4")(d)
-		d = Dense(int(start / 16),activation='relu',name="D5")(d)
+		start = 128
+		d = Dense(start,activation='relu',name="E1")(inputs)
+		d = Dense(int(start / 2),activation='relu',name="E2")(d)
+		d = Dense(int(start / 4),activation='relu',name="E3")(d)
+		d = Dense(int(start / 8),activation='relu',name="E4")(d)
+		d = Dense(int(start / 16),activation='relu',name="E5")(d)
 		
 		d = Flatten(name="F1")(d) 
-		enc = Dense(encodedSize,activation='relu',name="ENC")(d)
+		enc = Dense(8,activation='relu',name="ENC")(d)
 		
-		d = Dense(start*timesteps,activation='relu',name="D6")(enc)
+		d = Dense(start*timesteps,activation='relu',name="D1")(enc)
 		d = Reshape((timesteps, start),name="R1")(d)
 		
-		d = Dense(int(start / 2),activation='relu',name="D7")(d)
-		d = Dense(int(start / 4),activation='relu',name="D8")(d)
-		d = Dense(int(start / 8),activation='relu',name="D9")(d)
-		d = Dense(int(start / 16),activation='relu',name="D10")(d)
+		d = Dense(int(start / 16),activation='relu',name="D2")(d)
+		d = Dense(int(start / 8),activation='relu',name="D")(d)
+		d = Dense(int(start / 4),activation='relu',name="D4")(d)
+		d = Dense(int(start / 2),activation='relu',name="D5")(d)
 		
 		
 		d = Flatten(name="F2")(d)
-		d = Dense(outputFeatures*timesteps,activation='linear',name="D11")(d)
+		d = Dense(outputFeatures*timesteps,activation='linear',name="D6")(d)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
