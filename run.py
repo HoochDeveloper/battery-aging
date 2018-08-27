@@ -20,7 +20,7 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
-def execute(mustTrain,encSize = 8,K = 5,type="Dense"):
+def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	from Minerva import Minerva
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
@@ -33,9 +33,9 @@ def execute(mustTrain,encSize = 8,K = 5,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(50,105,5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
-def loadEvaluation(encSize,K=5,type="Dense"):
+def loadEvaluation(encSize,K=3,type="Dense"):
 	
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
@@ -181,6 +181,20 @@ def dataRange(minerva,astrea,K,min,max,step):
 		print(scaler.data_min_)
 		print(scaler.data_max_)
 		
+		
+def learningCurve(encSize,type,K):
+	ets = EpisodedTimeSeries(5,5,5,5)
+	for k in range(1,K+1):
+		hfile = modelNameTemplate % (encSize,100,type,k)
+		history = ets.loadZip(ets.rootResultFolder,hfile+ "_history")
+		plt.plot(history['loss'])
+		plt.plot(history['val_loss'])
+		plt.title("Learning Curve for %s" % hfile)
+		plt.ylabel('loss')
+		plt.xlabel('epoch')
+		plt.legend(['train', 'test'], loc='upper left')
+		plt.show()
+
 def main():
 	if(len(sys.argv) != 4):
 		print("Expected train / evaluate")
@@ -196,6 +210,8 @@ def main():
 		execute(False,encSize,type=type, K = K)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
+	elif(action=="learning_curve"):
+		learningCurve(encSize,type,K)
 	else:
 		print("Can't perform %s" % action)
 		

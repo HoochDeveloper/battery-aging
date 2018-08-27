@@ -80,42 +80,20 @@ def denseMoel(X_train, Y_train, X_test, Y_test):
 	# START HyperParameters
 	
 	
-	learnRate =0.001
-	codeSize =6
-	
 	dropPerc = 0.5
-	
-	e1Size = {{choice([16,32,64,128,256])}}
-	e2Size = {{choice([16,32,64,128,256])}}
-	e3Size = {{choice([16,32,64,128,256])}}
-	
-	e2More = {{choice(['more','less'])}}
-	e2Drop = {{choice(['drop', 'noDrop'])}}
-	e3More = {{choice(['more','less'])}}
-	e3Drop = {{choice(['drop', 'noDrop'])}}
-	
-	
-	d1Size = {{choice([16,32,64,128,256])}}
-	d2Size = {{choice([16,32,64,128,256])}}
-	d3Size = {{choice([16,32,64,128,256])}}
-	
-	d2More = {{choice(['more','less'])}}
-	d2Drop = {{choice(['drop', 'noDrop'])}}
-	d3More = {{choice(['more','less'])}}
-	d3Drop = {{choice(['drop', 'noDrop'])}}
-	
+	codeSize = {{choice([5,7,9,12])}}
+	depth = {{choice(['more', 'less'])}}
+	drop = {{choice(['drop', 'noDrop'])}}
 	
 	# END HyperParameters
-	d = Dense(e1Size,activation='relu',name="E1")(inputs)
-	if e2More == 'more':
-		if e2Drop == 'drop':
+	d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E1")(inputs)
+	if depth == 'more':
+		if drop == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense(e2Size,activation='relu',name="E2")(d)
-	
-	if e3More == 'more':
-		if e3Drop == 'drop':
+		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E2")(d)
+		if drop == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense(e3Size,activation='relu',name="E3")(d)
+		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E3")(d)
 	
 	
 	
@@ -124,18 +102,17 @@ def denseMoel(X_train, Y_train, X_test, Y_test):
 	enc = Dense(codeSize,activation='relu',name="ENC")(d)
 	### e - encoding
 	
-	d = Dense(d1Size*timesteps,activation='relu',name="D1")(enc)
-	d = Reshape((timesteps, d1Size),name="R1")(d)
+	d = Dense(codeSize*timesteps,activation='relu',name="D1")(enc)
+	d = Reshape((timesteps, codeSize),name="R1")(d)
 	
-	if d2More == 'more':
-		if d2Drop == 'drop':
+	if depth == 'more':
+		if drop == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense(d2Size,activation='relu',name="D2")(d)
+		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D2")(d)
 	
-	if d3More == 'more':
-		if d3Drop == 'drop':
+		if drop == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense(d3Size,activation='relu',name="D3")(d)
+		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D3")(d)
 		
 	
 	d = Flatten(name="F2")(d)
@@ -143,7 +120,7 @@ def denseMoel(X_train, Y_train, X_test, Y_test):
 	out = Reshape((timesteps, outputFeatures),name="OUT")(d)
 	model = Model(inputs=inputs, outputs=out)
 	
-	adam = optimizers.Adam(lr=learnRate)		
+	adam = optimizers.Adam(lr={{choice([0.001,0.0005,0.002])}})		
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
@@ -151,8 +128,8 @@ def denseMoel(X_train, Y_train, X_test, Y_test):
 	
 	model.fit(X_train, Y_train,
 		verbose = 0,
-		batch_size=100,
-		epochs=175,
+		batch_size={{choice([50,100,150,200])}},
+		epochs=150,
 		validation_data=(X_test, Y_test)
 		,callbacks=[checkpoint]
 	)
@@ -183,66 +160,47 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	outputFeatures = 2
 	timesteps = 20
 	
-	postDec = 5
+
 	dropPerc = 0.5
 	strideSize = 2
-	codeSize = 8
-	
-	filt1 = {{choice([16,32,48,64,96,128,192,256])}}
-	
-	filt2 = {{choice([16,32,48,64,96,128,192,256])}}
-	more2 =  {{choice(['more', 'less'])}}
-	drop2 = {{choice(['drop', 'noDrop'])}} 
-	
-	filt3 = {{choice([16,32,48,64,96,128,192,256])}}
-	more3 =  {{choice(['more', 'less'])}}
-	drop3 = {{choice(['drop', 'noDrop'])}} 
-	
-	filt4 = {{choice([16,32,48,64,96,128,192,256])}}
-	
-	filt5 = {{choice([16,32,48,64,96,128,192,256])}}
-	more5 =  {{choice(['more', 'less'])}}
-	drop5 = {{choice(['drop', 'noDrop'])}} 
-	
-	filt6 = {{choice([16,32,48,64,96,128,192,256])}}
-	more6 =  {{choice(['more', 'less'])}}
-	drop6 = {{choice(['drop', 'noDrop'])}} 
+	codeSize = {{choice([5,7,9,12])}}
+	depth = {{choice(['more', 'less'])}}
+	drop = {{choice(['drop', 'noDrop'])}}
 	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	c = Reshape((5,4,2),name="R2E")(inputs)
-	c = Conv2D(filt1,strideSize,activation='relu',name="E1")(c)
+	c = Conv2D({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="E1")(c)
 	
-	if more2 == 'more':
-		if drop2 == 'drop':
+	if depth == 'more':
+		if drop  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv2D(filt2,strideSize,activation='relu',name="E2")(c)
-	
-	if more3 == 'more':
-		if drop3 == 'drop':
+		c = Conv2D({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="E2")(c)
+		if drop  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv2D(filt3,strideSize,activation='relu',name="E3")(c)
+		c = Conv2D({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="E3")(c)
 	
+
 	preEncodeFlat = Flatten(name="F1")(c) 
 	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
 	c = Reshape((1,1,codeSize),name="R2D")(enc)
-	c = Conv2DTranspose(filt4,strideSize,activation='relu',name="D1")(c)
+	c = Conv2DTranspose({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="D1")(c)
 
-	if more5 == 'more':
-		if drop5 == 'drop':
+	if depth == 'more':
+		if drop  == 'drop':
 			c = Dropout(dropPerc)(c)
-		Conv2DTranspose(filt5,strideSize,activation='relu',name="D2")(c)
-	
-	if more6 == 'more':
-		if drop6 == 'drop':
+		Conv2DTranspose({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="D2")(c)
+		if drop  == 'drop':
 			c = Dropout(dropPerc)(c)
-		Conv2DTranspose(filt6,strideSize,activation='relu',name="D3")(c)
-	
+		Conv2DTranspose({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="D2")(c)
 	
 	preDecFlat = Flatten(name="F2")(c) 
 	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 	model = Model(inputs=inputs, outputs=out)
-	adam = optimizers.Adam()		
+	adam = optimizers.Adam(
+		lr={{choice([0.001,0.0005,0.002])}}
+		,decay={{choice([0.00,0.01,0.005])}}
+	)	
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 	
 	path4save = "./optimizedModel.h5"
@@ -251,8 +209,8 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	
 	model.fit(X_train, Y_train,
 		verbose = 0,
-		batch_size=100,
-		epochs=100,
+		batch_size={{choice([50,100,150,200])}},
+		epochs=150,
 		validation_data=(X_test, Y_test)
 		,callbacks=[checkpoint]
 	)
@@ -268,10 +226,11 @@ def conv2DModel(X_train, Y_train, X_test, Y_test):
 	
 def main():
 	best_run, best_model = optim.minimize(
-										  model = conv2DModel,
+										  model = denseMoel,
                                           data=data,
                                           algo=tpe.suggest,
-                                          max_evals=20,
+										  #algo=rand.suggest,
+                                          max_evals=30,
                                           trials=Trials())
 	
 	X_train, Y_train, X_test, Y_test = data()

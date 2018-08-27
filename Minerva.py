@@ -73,7 +73,7 @@ class Minerva():
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
-	batchSize = 100
+	batchSize = 50
 	epochs = 500
 	ets = None
 	eps1   = 5
@@ -124,11 +124,11 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 		
-		model = self.__conv2DModel(inputFeatures,outputFeatures,timesteps)
+		model = self.__denseModelHyperas(inputFeatures,outputFeatures,timesteps)
 		#__denseModel #__denseModelHyperas
 		#__conv2DModel #__conv2DHyperas
 		
-		adam = optimizers.Adam()		
+		adam = optimizers.Adam(lr=0.0005)		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
@@ -146,14 +146,7 @@ class Minerva():
 		)
 		historySaveFile = name4model+"_history"
 		self.ets.saveZip(self.ets.rootResultFolder,historySaveFile,history.history)
-		if(False):
-			plt.plot(history.history['loss'])
-			plt.plot(history.history['val_loss'])
-			plt.title('model loss')
-			plt.ylabel('loss')
-			plt.xlabel('epoch')
-			plt.legend(['train', 'test'], loc='upper left')
-			plt.show()
+		
 		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		
 		# loading the best model for evaluation
@@ -276,7 +269,7 @@ class Minerva():
 	
 	def __conv2DModel(self,inputFeatures,outputFeatures,timesteps):
 		convDim = 128
-		encodedSize = 5
+		encodedSize = 16
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((5,4,2),name="RE")(inputs)
 		c = Conv2D(convDim,2,activation='relu',name="E1")(c)
@@ -284,8 +277,7 @@ class Minerva():
 		c = Conv2D(int(convDim/4),2,activation='relu',name="E3")(c) # 2,1,4
 		c = Flatten(name="F1")(c) 
 		enc = Dense(encodedSize,activation='relu',name="ENC")(c)
-		c = Dense(1*1*encodedSize,name="D0")(enc)
-		c = Reshape((1,1,encodedSize),name="RD")(c)
+		c = Reshape((1,1,encodedSize),name="RD")(enc)
 		c = Conv2DTranspose(int(convDim/4),2,activation='relu',name="D1")(c)
 		c = Conv2DTranspose(int(convDim/2),2,activation='relu',name="D2")(c)
 		c = Conv2DTranspose(convDim,2,activation='relu',name="D3")(c)
@@ -297,93 +289,47 @@ class Minerva():
 
 	def __conv2DHyperas(self,inputFeatures,outputFeatures,timesteps):
 
-		#8
-		#[5.432987069070805e-05, 0.00449461342766881]
-		#{'drop2': 1, 'drop2_1': 1, 'drop2_2': 0, 'drop2_3': 1, 'filt1': 3, 'filt1_1': 2, 'filt1_2': 2, 'filt1_3': 5, 'filt1_4': 1, 'filt1_5': 1, 'more2': 1, 'more2_1': 0, 'more2_2': 1, 'more2_3': 1}
-		
-		#16
-		#[2.8903926625692597e-05, 0.003140983252475659]
-		#{'drop2': 1, 'drop2_1': 1, 'drop2_2': 0, 'drop2_3': 1, 'filt1': 3, 'filt1_1': 2, 'filt1_2': 2, 'filt1_3': 5, 'filt1_4': 1, 'filt1_5': 1, 'more2': 1, 'more2_1': 0, 'more2_2': 1, 'more2_3': 1}
-	
 		postDec = 5
 		dropPerc = 0.5
 		strideSize = 2
-		codeSize = 8
+		codeSize = 12
 		
-		filt1 = 64
-		
-		filt2 =48
-		more2 =  'less'
-		drop2 = 'noDrop'
-		
-		filt3 = 48
-		more3 =  'more'
-		drop3 = 'noDrop'
-		
-		filt4 =128
-		
-		filt5 = 32
-		more5 = 'less'
-		drop5 = 'drop' 
-		
-		filt6 = 32
-		more6 = 'less'
-		drop6 = 'noDrop'
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((5,4,2),name="R2E")(inputs)
-		c = Conv2D(filt1,strideSize,activation='relu',name="E1")(c)
-		
-		if more2 == 'more':
-			if drop2 == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Conv2D(filt2,strideSize,activation='relu',name="E2")(c)
-		
-		if more3 == 'more':
-			if drop3 == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Conv2D(filt3,strideSize,activation='relu',name="E3")(c)
-		
+		c = Conv2D(32,strideSize,activation='relu',name="E1")(c)
 		preEncodeFlat = Flatten(name="F1")(c) 
 		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
 		c = Reshape((1,1,codeSize),name="R2D")(enc)
-		c = Conv2DTranspose(filt4,strideSize,activation='relu',name="D1")(c)
-
-		if more5 == 'more':
-			if drop5 == 'drop':
-				c = Dropout(dropPerc)(c)
-			Conv2DTranspose(filt5,strideSize,activation='relu',name="D2")(c)
-		
-		if more6 == 'more':
-			if drop6 == 'drop':
-				c = Dropout(dropPerc)(c)
-			Conv2DTranspose(filt6,strideSize,activation='relu',name="D3")(c)
-		
-		
+		c = Conv2DTranspose(96,strideSize,activation='relu',name="D1")(c)		
 		preDecFlat = Flatten(name="F2")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-	
+		
 
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		#print(autoencoderModel.summary())
 		return autoencoderModel
 			
 	def __denseModelHyperas(self,inputFeatures,outputFeatures,timesteps):
 	
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		codeSize =6
-		e1Size = 32
-		d1Size = 32
+		codeSize = 7
+	
 		# END HyperParameters
-		d = Dense(e1Size,activation='relu',name="E1")(inputs)
+		d = Dense(64,activation='relu',name="E1")(inputs)	
+		d = Dense(64,activation='relu',name="E2")(d)	
+		d = Dense(128,activation='relu',name="E3")(d)
+		
 		### s - encoding
 		d = Flatten(name="F1")(d) 
 		enc = Dense(codeSize,activation='relu',name="ENC")(d)
 		### e - encoding
-		d = Dense(d1Size*timesteps,activation='relu',name="D1")(enc)
-		d = Reshape((timesteps, d1Size),name="R1")(d)
-
+		
+		d = Dense(codeSize*timesteps,activation='relu',name="D1")(enc)
+		d = Reshape((timesteps, codeSize),name="R1")(d)
+		d = Dense(96,activation='relu',name="D2")(d)
+		d = Dense(128,activation='relu',name="D3")(d)
+			
 		d = Flatten(name="F2")(d)
 		d = Dense(outputFeatures*timesteps,activation='linear',name="D6")(d)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
@@ -403,7 +349,7 @@ class Minerva():
 		d = Dense(int(start / 16),activation='relu',name="E5")(d)
 		
 		d = Flatten(name="F1")(d) 
-		enc = Dense(8,activation='relu',name="ENC")(d)
+		enc = Dense(16,activation='relu',name="ENC")(d)
 		
 		d = Dense(start*timesteps,activation='relu',name="D1")(enc)
 		d = Reshape((timesteps, start),name="R1")(d)

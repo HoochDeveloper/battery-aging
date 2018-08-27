@@ -103,7 +103,7 @@ class Mercurio():
 		plt.xticks(range(1,len(labels)+1),labels)
 		plt.show()
 	
-	def syntheticDataResoltion(self):
+	def syntheticDataResolution(self):
 		root4load = os.path.join(".","synthetic_data")
 		print("Reading")
 		all = []
@@ -122,9 +122,10 @@ class Mercurio():
 					dfReal = episode[self.ets.syntheticImport]
 					episode2load = os.path.join(acLoadFolder,"%d_%d.csv" % (monthCount,episodeCount))
 					dfSynthetic = pd.read_csv(episode2load,sep=',', 
-						names=([ self.ets.dataHeader[17]]),
-						dtype=({ self.ets.dataHeader[17] : np.float32}))
+						names=([self.ets.dataHeader[16], self.ets.dataHeader[17]]),
+						dtype=({self.ets.dataHeader[16] : np.float32, self.ets.dataHeader[17] : np.float32}))
 					tempDf = dfReal.copy()
+					tempDf.loc[:,self.ets.dataHeader[16]] = dfSynthetic[self.ets.dataHeader[16]].values
 					tempDf.loc[:,self.ets.dataHeader[17]] = dfSynthetic[self.ets.dataHeader[17]].values
 					syntheticMonthEpisode.append(tempDf)
 				if(len(syntheticMonthEpisode) > 0):
@@ -136,7 +137,10 @@ class Mercurio():
 		allDf = pd.concat(all)
 		
 		print(allDf.shape)
+		print("Unique V")
 		print(allDf[self.ets.dataHeader[17]].unique().shape)
+		print("Unique A")
+		print(allDf[self.ets.dataHeader[16]].unique().shape)
 		
 	def realDataResolution(self):
 		print(self.ets.dataHeader[17])
@@ -278,7 +282,7 @@ class Mercurio():
 	def compareSyntheticAge(self):
 		root4load = os.path.join(".","synthetic_data")
 		batteryName = "E464001"
-		ages = [100,95,85,75,55]
+		ages = [100,95,85]
 		folders = []
 		for age in ages:
 			folderName = "%s_%d" % (batteryName,age)
@@ -344,7 +348,7 @@ def main():
 	elif(action == "compare"):
 		mercurio.compareSyntheticAge()
 	elif(action == "resolution"):
-		mercurio.realDataResolution()
+		mercurio.syntheticDataResolution()
 		return
 	
 		batteries = mercurio.ets.loadSyntheticBlowDataSet(100)
