@@ -32,7 +32,7 @@ function [ ] = generate_all_synthetic_data(batterySOCs )
         
         for k = 1:length(batterySOCs)
             
-            agedQ = int32(340 * batterySOCs(k) / 100);
+            agedQ = int32(350 * batterySOCs(k) / 100);
             nomQ2set = num2str(agedQ);
             set_param( strcat( mdl,'/battery'),'NomQ',nomQ2set);
          
@@ -50,7 +50,8 @@ function [ ] = generate_all_synthetic_data(batterySOCs )
                 
                 simOut = sim(in);
                 fileForSave = strcat(episodeSaveFolder,'/',episodes(e).name);
-                csvwrite(fileForSave,simOut.voltage.Data);
+                data4save = [simOut.current.Data, simOut.voltage.Data  ];
+                csvwrite(fileForSave,data4save);
             end
         end
     end
