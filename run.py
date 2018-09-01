@@ -33,7 +33,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,45,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -199,7 +199,7 @@ def main():
 	if(len(sys.argv) != 4):
 		print("Expected train / evaluate")
 		return
-	K = 3
+	K = 4
 	encSize = int(sys.argv[2])
 	type = sys.argv[3]
 	print("Encoded size %s type %s" % (encSize,type))

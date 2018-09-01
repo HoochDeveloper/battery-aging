@@ -348,7 +348,8 @@ def main():
 	elif(action == "compare"):
 		mercurio.compareSyntheticAge()
 	elif(action == "resolution"):
-		mercurio.syntheticDataResolution()
+		#mercurio.syntheticDataResolution()
+		mercurio.realDataResolution()
 		return
 	
 		batteries = mercurio.ets.loadSyntheticBlowDataSet(100)

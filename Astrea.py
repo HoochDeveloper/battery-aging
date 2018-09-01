@@ -72,7 +72,7 @@ class Astrea():
 				for t in range(0,episode.shape[0]):
 						data2dimension.append(episode.values[t])
 						
-		data2dimension.append([0, 28.0]) #should get this automatically
+		data2dimension.append([0, 22.0]) #should get this automatically
 		data2dimension.append([0, 36.0]) #should get this automatically
 		
 		data2dimension = np.asarray(data2dimension)
@@ -121,7 +121,7 @@ class Astrea():
 		foldData  = []
 		foldData.append([])
 		
-		np.random.seed(19)
+		np.random.seed(1710)
 		permutedIdx = np.random.permutation(len(batteries))
 		assigned = 0
 		for idx in permutedIdx:
