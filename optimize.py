@@ -273,7 +273,7 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	
 	return {'loss': HL_full, 'status': STATUS_OK, 'model': model}
 	
-def conv2DModel(train, valid, agedTrain, agedValid):
+def conv2DModelScore(train, valid, agedTrain, agedValid):
 	
 	from keras.models import load_model
 	from keras.callbacks import ModelCheckpoint
@@ -302,22 +302,22 @@ def conv2DModel(train, valid, agedTrain, agedValid):
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv2D({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="E2")(c)
+		c = Conv2D({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="E2")(c)
 
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		c = Dropout(dropPerc)(c)
-	c = Conv2D({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="E3")(c)
+	c = Conv2D({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="E3")(c)
 	
 	preEncodeFlat = Flatten(name="F1")(c) 
 	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
 	c = Reshape((1,1,codeSize),name="R2D")(enc)
 	
-	c = Conv2DTranspose({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="D1")(c)
+	c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D1")(c)
 
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		Conv2DTranspose({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="D2")(c)
+		Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D2")(c)
 	
 	preDecFlat = Flatten(name="F2")(c) 
 	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
@@ -327,7 +327,7 @@ def conv2DModel(train, valid, agedTrain, agedValid):
 		lr={{choice([0.001,0.0005,0.002])}}
 	)	
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-	
+	#print(model.summary())
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min')
@@ -344,17 +344,96 @@ def conv2DModel(train, valid, agedTrain, agedValid):
 	model = load_model(path4save
 			,custom_objects=customLoss)
 
-	HLthr, MAEthr = model.evaluate(agedValid, agedValid, verbose=0)
-	HLv, MAEv = model.evaluate(valid, valid, verbose=0)
 	
-	print("HLthr: %f MAE: %f" % (HLthr, MAEthr))
-	print("HLv: %f MAEv: %f" % (HLv, MAEv))
+	HL_aged, MAE_aged = model.evaluate(agedValid, agedValid, verbose=0)
+	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
+	score = MAE_full - MAE_aged
 	
-	score = MAEv - MAEthr
-	print("Score %f" % score)
+	print("HL_aged: %f HL_full: %f MAE_aged: %f MAE_full: %f Score: %f" 
+		% (HL_aged,HL_full, MAE_aged, MAE_full, score))
+	
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 
+def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	
+	from keras.models import load_model
+	from keras.callbacks import ModelCheckpoint
+	from keras.models import Model
+	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
+	from keras import optimizers
+	from Minerva import huber_loss
+	from keras.layers import Conv2DTranspose, Conv2D
+	from Demetra import EpisodedTimeSeries
+	#from keras.backend import constant as cnt
+	
+	ets = EpisodedTimeSeries(5,5,5,5)
+	
+	inputFeatures = 2
+	outputFeatures = 2
+	timesteps = 20
+	
+	dropPerc = 0.5
+	strideSize = 2
+	codeSize = {{choice([5,7,9,12])}}
+
+	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+	c = Reshape((5,4,2),name="R2E")(inputs)
+	c = Conv2D({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="E1")(c)
+	
+	if  {{choice(['more', 'less'])}} == 'more':
+		if {{choice(['drop', 'noDrop'])}}  == 'drop':
+			c = Dropout(dropPerc)(c)
+		c = Conv2D({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="E2")(c)
+
+	if {{choice(['drop', 'noDrop'])}} == 'drop':
+		c = Dropout(dropPerc)(c)
+	c = Conv2D({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="E3")(c)
+	
+	preEncodeFlat = Flatten(name="F1")(c) 
+	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+	c = Reshape((1,1,codeSize),name="R2D")(enc)
+	
+	c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D1")(c)
+
+	if  {{choice(['more', 'less'])}} == 'more':
+		if {{choice(['drop', 'noDrop'])}}  == 'drop':
+			c = Dropout(dropPerc)(c)
+		Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D2")(c)
+	
+	preDecFlat = Flatten(name="F2")(c) 
+	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+	model = Model(inputs=inputs, outputs=out)
+	adam = optimizers.Adam(
+		lr={{choice([0.001,0.0005,0.002])}}
+	)	
+	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+	print(model.summary())
+	path4save = "./optimizedModel.h5"
+	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
+			save_best_only=True, mode='min')
+	
+	model.fit(train, train,
+		verbose = 0,
+		batch_size=100,
+		epochs=200,
+		validation_data=(valid, valid)
+		,callbacks=[checkpoint]
+	)
+	# loading the best model
+	customLoss = {'huber_loss': huber_loss}
+	model = load_model(path4save
+			,custom_objects=customLoss)
+
+	
+	HL_aged, MAE_aged = model.evaluate(agedValid, agedValid, verbose=0)
+	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
+	score = MAE_full - MAE_aged
+	
+	print("HL_aged: %f HL_full: %f MAE_aged: %f MAE_full: %f Score: %f" 
+		% (HL_aged,HL_full, MAE_aged, MAE_full, score))
+	
+	return {'loss': HL_full, 'status': STATUS_OK, 'model': model}
 	
 def conv1DModel(X_train, Y_train, X_test, Y_test):
 	from keras.models import load_model
@@ -419,7 +498,7 @@ def main():
 	import time
 	start = time.clock()
 	best_run, best_model = optim.minimize(
-										  model = denseModelClassic,
+										  model = conv2DModelScore,
                                           data=data,
                                           algo=tpe.suggest,
                                           max_evals=20,
