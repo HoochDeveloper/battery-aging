@@ -91,10 +91,10 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		
 def errorBoxPlot(errorList,labels,title,save=True):
 	
-	#for c in range(0,len(errorList)):
-	#	err = errorList[c]
-	#	prc = np.percentile(err,[25,50,75])
-	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
+	for c in range(0,len(errorList)):
+		err = errorList[c]
+		prc = np.percentile(err,[25,50,75])
+		print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
 	
 	fig = plt.figure()
 	plt.boxplot(errorList,sym='') #whis=[0, 99]

@@ -317,7 +317,7 @@ def conv2DModelScore(train, valid, agedTrain, agedValid):
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D2")(c)
+		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D2")(c)
 	
 	preDecFlat = Flatten(name="F2")(c) 
 	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
@@ -398,7 +398,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D2")(c)
+		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D2")(c)
 	
 	preDecFlat = Flatten(name="F2")(c) 
 	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
@@ -408,7 +408,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 		lr={{choice([0.001,0.0005,0.002])}}
 	)	
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-	print(model.summary())
+	#print(model.summary())
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min')
@@ -435,7 +435,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	
 	return {'loss': HL_full, 'status': STATUS_OK, 'model': model}
 	
-def conv1DModel(X_train, Y_train, X_test, Y_test):
+def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import load_model
 	from keras.callbacks import ModelCheckpoint
 	from keras.models import Model
@@ -449,23 +449,25 @@ def conv1DModel(X_train, Y_train, X_test, Y_test):
 	outputFeatures = 2
 	timesteps = 20
 	dropPerc = 0.5
-	drop = {{choice(['drop', 'noDrop'])}}
+	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	
-	c = Conv1D({{choice([16,32,48,64,96,128])}}, {{choice([3,5,7,9])}},activation='relu',name="E1")(inputs)
+	codeSize = {{choice([5,7,9,12])}}
+	c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([3,5,7,9])}},activation='relu',name="E1")(inputs)
 	
 	if {{choice(['more', 'less'])}} == 'more':
-		if drop  == 'drop':
+		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv1D({{choice([16,32,48,64,96,128])}}, {{choice([2,3,5])}},activation='relu',name="E2")(c)
+		c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([2,3,5])}},activation='relu',name="E2")(c)
 	if {{choice(['more', 'less'])}} == 'more':
-		if drop  == 'drop':
+		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv1D({{choice([16,32,48,64,96,128])}}, {{choice([2,3,5])}},activation='relu',name="E3")(c)
+		c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([2,3,5])}},activation='relu',name="E3")(c)
 	
 	preEncodeFlat = Flatten(name="F1")(c) 
-	enc = Dense({{choice([5,7,9,11])}},activation='relu',name="ENC")(preEncodeFlat)
-	c = Dense({{choice([2,4,8,16])}},activation='relu',name="D1")(enc)
+	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+	c = Dense({{choice([16,32,48,64,96,128,256])}},activation='relu',name="D1")(enc)
+	if {{choice(['drop', 'noDrop'])}}  == 'drop':
+		c = Dropout(dropPerc)(c)
 	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 	model = Model(inputs=inputs, outputs=out)
@@ -473,16 +475,16 @@ def conv1DModel(X_train, Y_train, X_test, Y_test):
 		lr=0.0005
 	)	
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-	
+	#print(model.summary())
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min')
 	
-	model.fit(X_train, Y_train,
+	model.fit(train, train,
 		verbose = 0,
 		batch_size=100,
-		epochs=175,
-		validation_data=(X_test, Y_test)
+		epochs=200,
+		validation_data=(valid, valid)
 		,callbacks=[checkpoint]
 	)
 	
@@ -490,15 +492,85 @@ def conv1DModel(X_train, Y_train, X_test, Y_test):
 	model = load_model(path4save
 			,custom_objects=customLoss)
 	
-	HL , MAE= model.evaluate(X_test, Y_test, verbose=2)
-	print("HL: %f MAE: %f" % (HL, MAE))
-	return {'loss': HL, 'status': STATUS_OK, 'model': model}
+	HL_aged, MAE_aged = model.evaluate(agedValid, agedValid, verbose=0)
+	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
+	score = MAE_full - MAE_aged
+	
+	print("HL_aged: %f HL_full: %f MAE_aged: %f MAE_full: %f Score: %f" 
+		% (HL_aged,HL_full, MAE_aged, MAE_full, score))
+	
+	return {'loss': HL_full, 'status': STATUS_OK, 'model': model}
+	
+def conv1DModelScore(train, valid, agedTrain, agedValid):
+	from keras.models import load_model
+	from keras.callbacks import ModelCheckpoint
+	from keras.models import Model
+	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
+	from keras import optimizers
+	from Minerva import huber_loss
+	from keras.layers import Conv1D
+	from Demetra import EpisodedTimeSeries
+	
+	inputFeatures = 2
+	outputFeatures = 2
+	timesteps = 20
+	dropPerc = 0.5
+	
+	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+	codeSize = {{choice([5,7,9,12])}}
+	c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([3,5,7,9])}},activation='relu',name="E1")(inputs)
+	if {{choice(['more', 'less'])}} == 'more':
+		if  {{choice(['drop', 'noDrop'])}}  == 'drop':
+			c = Dropout(dropPerc)(c)
+		c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([2,3,5])}},activation='relu',name="E2")(c)
+	if {{choice(['more', 'less'])}} == 'more':
+		if  {{choice(['drop', 'noDrop'])}}  == 'drop':
+			c = Dropout(dropPerc)(c)
+		c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([2,3,5])}},activation='relu',name="E3")(c)
+	
+	preEncodeFlat = Flatten(name="F1")(c) 
+	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+	c = Dense({{choice([16,32,48,64,96,128,256])}},activation='relu',name="D1")(enc)
+	if  {{choice(['drop', 'noDrop'])}}  == 'drop':
+		c = Dropout(dropPerc)(c)
+	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
+	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+	model = Model(inputs=inputs, outputs=out)
+	adam = optimizers.Adam(
+		lr=0.0005
+	)	
+	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+	#print(model.summary())
+	path4save = "./optimizedModel.h5"
+	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
+			save_best_only=True, mode='min')
+	
+	model.fit(train, train,
+		verbose = 0,
+		batch_size=100,
+		epochs=200,
+		validation_data=(valid, valid)
+		,callbacks=[checkpoint]
+	)
+	
+	customLoss = {'huber_loss': huber_loss}
+	model = load_model(path4save
+			,custom_objects=customLoss)
+	
+	HL_aged, MAE_aged = model.evaluate(agedValid, agedValid, verbose=0)
+	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
+	score = MAE_full - MAE_aged
+	
+	print("HL_aged: %f HL_full: %f MAE_aged: %f MAE_full: %f Score: %f" 
+		% (HL_aged,HL_full, MAE_aged, MAE_full, score))
+	
+	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
 def main():
 	import time
 	start = time.clock()
 	best_run, best_model = optim.minimize(
-										  model = conv2DModelScore,
+										  model = conv1DModelClassic,
                                           data=data,
                                           algo=tpe.suggest,
                                           max_evals=20,
