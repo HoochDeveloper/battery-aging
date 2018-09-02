@@ -195,6 +195,12 @@ def learningCurve(encSize,type,K):
 		plt.legend(['train', 'test'], loc='upper left')
 		plt.show()
 
+def showModel(encSize,type):
+	from Minerva import Minerva
+	name4model = modelNameTemplate % (encSize,100,type,1)
+	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
+	minerva.printModelSummary(name4model)
+		
 def main():
 	if(len(sys.argv) != 4):
 		print("Expected train / evaluate")
@@ -212,6 +218,8 @@ def main():
 		loadEvaluation(encSize,type=type, K = K)
 	elif(action=="learning_curve"):
 		learningCurve(encSize,type,K)
+	elif(action == "show"):
+		showModel(encSize,type)
 	else:
 		print("Can't perform %s" % action)
 		

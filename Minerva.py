@@ -161,6 +161,14 @@ class Minerva():
 		logger.info("Valid HL %f - MAE %f" % (valMae,valHuber))	
 		logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
 	
+	def printModelSummary(self,name4model):
+		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
+		customLoss = {'huber_loss': huber_loss}
+		model = load_model(path4save,custom_objects=customLoss)
+		from keras.utils import plot_model
+		plot_model(model,show_shapes = True,to_file="%s.png" % name4model)
+		print(model.summary())
+	
 	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
 		
 		customLoss = {'huber_loss': huber_loss}
