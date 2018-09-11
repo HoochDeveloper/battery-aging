@@ -142,6 +142,9 @@ class Mercurio():
 		print("Unique A")
 		print(allDf[self.ets.dataHeader[16]].unique().shape)
 		
+		print(allDf.min())
+		print(allDf.max())
+		
 	def realDataResolution(self):
 		print(self.ets.dataHeader[17])
 		print(self.ets.dataHeader[16])
@@ -159,7 +162,8 @@ class Mercurio():
 		
 		#print(allDf[self.ets.dataHeader[17]].unique())
 		print(allDf[self.ets.dataHeader[16]].unique().shape)
-		
+		print(allDf.min())
+		print(allDf.max())
 	def exportForSynthetic(self):
 		"""
 		Creates the swab2swab dataset (if not exists)
@@ -348,8 +352,8 @@ def main():
 	elif(action == "compare"):
 		mercurio.compareSyntheticAge()
 	elif(action == "resolution"):
-		#mercurio.syntheticDataResolution()
-		mercurio.realDataResolution()
+		mercurio.syntheticDataResolution()
+		#mercurio.realDataResolution()
 		return
 	
 		batteries = mercurio.ets.loadSyntheticBlowDataSet(100)

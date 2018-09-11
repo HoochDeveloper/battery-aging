@@ -20,6 +20,56 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
+## TODO minerva.getEncoded
+
+
+def codeProjection(encSize,type,K):
+	
+	ageScales = [100,50]
+	from mpl_toolkits.mplot3d import Axes3D
+	from sklearn.decomposition import PCA
+	from Minerva import Minerva
+	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
+	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
+	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
+	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)
+	
+	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
+	count = 0
+	for _, test_index in zip(trainIdx,testIdx): 
+		count += 1
+		print("Fold %d" % count)
+		name4model = modelNameTemplate % (encSize,100,type,count)
+		maes = []
+		labels = []
+		codes = []
+		for ageScale in ageScales:
+			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
+			_,k_data = astrea.kfoldByKind(batteries,K)
+			scaler = astrea.getScaler(k_data)
+			folds4learn = []
+			for i in test_index:
+				fold = k_data[i]
+				foldAs3d = astrea.foldAs3DArray(fold,scaler)
+				folds4learn.append(foldAs3d)
+			test =  np.concatenate(folds4learn)
+			code = minerva.getEncoded(name4model,test)
+			
+			pca = PCA(n_components=3)
+			pc = pca.fit_transform(code)
+			codes.append(pc)
+			#print(pc.shape)
+			#plt.scatter(pc[:,0],pc[:,1])
+			#plt.show()
+		
+		fig = plt.figure()
+		ax = fig.add_subplot(111, projection='3d')
+
+		
+		for code in codes:
+			ax.scatter(code[:3,0],code[:3,1],code[:3,2])
+		plt.show()
+			
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	from Minerva import Minerva
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
@@ -33,7 +83,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,45,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -97,7 +147,7 @@ def errorBoxPlot(errorList,labels,title,save=True):
 		print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
 	
 	fig = plt.figure()
-	plt.boxplot(errorList,sym='') #whis=[0, 99]
+	plt.boxplot(errorList,sym='',whis=[10, 90]) #
 	plt.xticks(range(1,len(labels)+1),labels)
 	plt.title(title)
 	plt.grid()
@@ -187,6 +237,15 @@ def learningCurve(encSize,type,K):
 	for k in range(1,K+1):
 		hfile = modelNameTemplate % (encSize,100,type,k)
 		history = ets.loadZip(ets.rootResultFolder,hfile+ "_history")
+		
+		print("Val Loss")
+		for s in range(0,500,100):
+			print(history['val_loss'][s])
+		print("Train Loss")
+		for s in range(0,500,100):
+			print(history['loss'][s])
+		print("-------------------------------")
+		
 		plt.plot(history['loss'])
 		plt.plot(history['val_loss'])
 		plt.title("Learning Curve for %s" % hfile)
@@ -220,6 +279,8 @@ def main():
 		learningCurve(encSize,type,K)
 	elif(action == "show"):
 		showModel(encSize,type)
+	elif(action == "proj"):
+		codeProjection(encSize,type,K)
 	else:
 		print("Can't perform %s" % action)
 		

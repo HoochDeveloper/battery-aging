@@ -169,6 +169,20 @@ class Minerva():
 		plot_model(model,show_shapes = True,to_file="%s.png" % name4model)
 		print(model.summary())
 	
+	
+	def getEncoded(self,model2load,data):
+	
+		customLoss = {'huber_loss': huber_loss}
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
+			,custom_objects=customLoss)
+	
+		layer_name = 'ENC'
+		encoded = Model(inputs=model.input,
+										 outputs=model.get_layer(layer_name).output)
+		code = encoded.predict(data)
+		print (code.shape)
+		return code
+	
 	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
 		
 		customLoss = {'huber_loss': huber_loss}
