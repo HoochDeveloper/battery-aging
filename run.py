@@ -1,6 +1,6 @@
 import uuid,time,os,logging, numpy as np, sys, matplotlib.pyplot as plt
 from logging import handlers as loghds
-from sklearn.model_selection import train_test_split
+
 
 #Project module import
 from Astrea import Astrea
@@ -20,12 +20,9 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
-## TODO minerva.getEncoded
-
-
 def codeProjection(encSize,type,K):
 	
-	ageScales = [100,50]
+	ageScales = [100,75]
 	from mpl_toolkits.mplot3d import Axes3D
 	from sklearn.decomposition import PCA
 	from Minerva import Minerva
@@ -55,19 +52,17 @@ def codeProjection(encSize,type,K):
 			test =  np.concatenate(folds4learn)
 			code = minerva.getEncoded(name4model,test)
 			
-			pca = PCA(n_components=3)
+			pca = PCA(n_components=2)
 			pc = pca.fit_transform(code)
 			codes.append(pc)
-			#print(pc.shape)
-			#plt.scatter(pc[:,0],pc[:,1])
-			#plt.show()
-		
-		fig = plt.figure()
-		ax = fig.add_subplot(111, projection='3d')
+			
+			
+		#fig = plt.figure()
+		#ax = fig.add_subplot(111, projection='3d')
 
 		
 		for code in codes:
-			ax.scatter(code[:3,0],code[:3,1],code[:3,2])
+			plt.scatter(code[:50,0],code[:50,1])
 		plt.show()
 			
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
@@ -83,7 +78,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,45,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -190,17 +185,19 @@ def train(minerva,astrea,K,encSize,type="Dense",denoise=False):
 	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
 	count = 0
 	for train_index, test_index in zip(trainIdx,testIdx): 
+		
 		count += 1
 		# TRAIN X
 		trainX = None
 		if len(foldsDenoise) > 0:
-			trainX = [foldsDenoise[i] for i in train_index]
+			trainX = [foldsDenoise[train_index[i]] for i in range(1,len(train_index))]
 		else:
-			trainX = [folds4learn[i] for i in train_index]
+			trainX = [folds4learn[train_index[i]] for i in range(1,len(train_index))]
 		trainX = np.concatenate(trainX)
 		# TRAIN  Y
-		trainY = [folds4learn[i] for i in train_index]
-		trainY = np.concatenate(trainY)
+		trainY = trainX
+		validX = folds4learn[train_index[0]]
+		validY = validX
 		#TEST X
 		testX = None
 		if len(foldsDenoise) > 0:
@@ -212,9 +209,6 @@ def train(minerva,astrea,K,encSize,type="Dense",denoise=False):
 		# TEST Y
 		testY =  [folds4learn[i] for i in test_index]
 		testY =  np.concatenate(testY)
-		
-		trainX,validX,trainY,validY = train_test_split( trainX, trainY, test_size=0.2,
-			random_state=42)
 		
 		name4model = modelNameTemplate % (encSize,train_ageScale,type,count)
 		minerva.trainlModelOnArray(trainX, trainY, validX, validY,
@@ -264,7 +258,7 @@ def main():
 	if(len(sys.argv) != 4):
 		print("Expected train / evaluate")
 		return
-	K = 4
+	K = 5
 	encSize = int(sys.argv[2])
 	type = sys.argv[3]
 	print("Encoded size %s type %s" % (encSize,type))
