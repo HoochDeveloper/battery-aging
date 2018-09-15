@@ -161,7 +161,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 	#	err = errors[c]
 	#	prc = np.percentile(err,[25,50,75])
 	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
-	lastPerc = 90
+	lastPerc = 80
 	print("Metrics with threshold @ %d" % lastPerc)
 	percFull = np.percentile(errors[0],[lastPerc])
 	fullTh = percFull[0]
@@ -190,7 +190,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 	
 	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
 	
-	if(False):
+	if(True):
 		fig = plt.figure()
 		plt.boxplot(errors,sym='',whis=[3, lastPerc]) #
 		plt.xticks(range(1,len(labels)+1),labels)

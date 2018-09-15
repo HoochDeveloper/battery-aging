@@ -74,24 +74,24 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	
 	# START HyperParameters
 	dropPerc = 0.5
-	codeSize = {{choice([5,7,9,12])}}
+	codeSize = {{choice([7,9,11,13])}}
 	codeMultiplier = {{choice([2,3,4])}}
 	
 	# END HyperParameters
-	d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E1")(inputs)
+	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="E1")(inputs)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E2")(d)
+		d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="E2")(d)
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E3")(d)
+		d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="E3")(d)
 	
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		d = Dropout(dropPerc)(d)
-	d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E4")(d)
+	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="E4")(d)
 	
 	### s - encoding
 	d = Flatten(name="F1")(d) 
@@ -105,16 +105,16 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D2")(d)
+		d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="D2")(d)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D3")(d)
+		d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="D3")(d)
 	
 	if {{choice(['drop', 'noDrop'])}} == 'drop':
 		d = Dropout(dropPerc)(d)
-	d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D4")(d)
+	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="D4")(d)
 	
 	d = Flatten(name="F2")(d)
 	d = Dense(outputFeatures*timesteps,activation='linear',name="DEC")(d)
@@ -133,7 +133,7 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	model.fit(train, train,
 		verbose = 0,
 		batch_size=100,
-		epochs=200,
+		epochs=150,
 		validation_data=(valid, valid)
 		,callbacks=[checkpoint]
 	)
@@ -142,13 +142,20 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	model = load_model(path4save
 			,custom_objects=customLoss)
 	
-
-	HL_aged, MAE_aged = model.evaluate(agedValid, agedValid, verbose=0)
 	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
-	score = MAE_full - MAE_aged
 	
-	print("HL_aged: %f HL_full: %f MAE_aged: %f MAE_full: %f Score: %f" 
-		% (HL_aged,HL_full, MAE_aged, MAE_full, score))
+	
+	ydecoded = model.predict(valid,  batch_size=100)
+	maes = np.zeros(ydecoded.shape[0], dtype='float32')
+	for sampleCount in range(0,ydecoded.shape[0]):
+		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
+	
+	prc = np.percentile(maes,[3,97])
+	sigma = np.std(maes)
+	
+	score = HL_full #MAE_full + sigma + prc[1] 
+	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
+	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
 	
 	return {'loss': HL_full, 'status': STATUS_OK, 'model': model}
@@ -172,9 +179,9 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	dropPerc = 0.5
 	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	codeSize = {{choice([8,9,10,11,12])}}
+	codeSize = {{choice([9,11,13])}}
 	
-	norm = {{choice([2.0,3.0])}}
+	norm = {{choice([2.,3.,4.])}}
 	c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([5,9])}},kernel_constraint=max_norm(norm),activation='relu',name="E1")(inputs)
 	
 	if {{choice(['more', 'less'])}} == 'more':
@@ -194,12 +201,12 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Dense({{choice([16,32,48,64,96,128,256,512])}},kernel_constraint=max_norm(norm),activation='relu',name="D2")(enc)
+		c = Dense({{choice([16,32,48,64,96,128,256,512])}},kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Dense({{choice([16,32,48,64,96,128,256,512])}},kernel_constraint=max_norm(norm),activation='relu',name="D3")(enc)
+		c = Dense({{choice([16,32,48,64,96,128,256,512])}},kernel_constraint=max_norm(norm),activation='relu',name="D3")(c)
 	
 	c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(norm),activation='linear',name="DECODED")(c)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
@@ -215,8 +222,8 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	
 	model.fit(train, train,
 		verbose = 0,
-		batch_size={{choice([100,200])}},
-		epochs=200,
+		batch_size=100,
+		epochs=150,
 		validation_data=(valid, valid)
 		,callbacks=[checkpoint]
 	)
@@ -236,7 +243,7 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	prc = np.percentile(maes,[3,97])
 	sigma = np.std(maes)
 	
-	score = MAE_full + sigma + prc[1] 
+	score = HL_full #MAE_full + sigma + prc[1] 
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
@@ -344,10 +351,10 @@ def main():
 	start = time.clock()
 	best_run, best_model = optim.minimize(
 										  #model = conv2DModelClassic,
-                                          model = conv1DModelClassic,
+                                          model = denseModelClassic,
 										  data=data,
                                           algo=tpe.suggest,
-                                          max_evals=25,
+                                          max_evals=20,
                                           trials=Trials())
 	
 	train, valid, agedTrain, agedValid = data()
