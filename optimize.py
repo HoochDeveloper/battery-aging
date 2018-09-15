@@ -43,110 +43,18 @@ def data():
 	train = None
 	valid = None
 
-	for train_index, _ in zip(trainIdx,testIdx): 
-		t = [folds4learn[train_index[i]] for i in range(1,len(train_index))]
-		t = np.concatenate(t)
-		
-		v = folds4learn[train_index[0]]
-		
-		train = minerva.batchCompatible(100,t)
-		valid = minerva.batchCompatible(100,v)
-		
-		break
+	#for train_index, _ in zip(trainIdx,testIdx): 
+	train_index, _ = list(zip(trainIdx,testIdx))[0]
+	t = [folds4learn[train_index[i]] for i in range(1,len(train_index))]
+	t = np.concatenate(t)
+	v = folds4learn[train_index[0]]
+	train = minerva.batchCompatible(100,t)
+	valid = minerva.batchCompatible(100,v)
+	#	break
 	
 	return train, valid, train, valid
 	
-def denseModelScore(train, valid, agedTrain, agedValid):
-	from keras.models import load_model
-	from keras.callbacks import ModelCheckpoint
-	from keras.models import Model
-	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
-	from keras import optimizers
-	from Minerva import huber_loss
-	from Demetra import EpisodedTimeSeries
 
-	ets = EpisodedTimeSeries(5,5,5,5)
-	timesteps = 20
-	inputFeatures = 2
-	outputFeatures = 2
-	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	
-	# START HyperParameters
-	dropPerc = 0.5
-	codeSize = {{choice([5,7,9,12])}}
-	codeMultiplier = {{choice([2,3,4])}}
-	
-	# END HyperParameters
-	d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E1")(inputs)
-	
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E2")(d)
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E3")(d)
-	
-	if {{choice(['drop', 'noDrop'])}} == 'drop':
-		d = Dropout(dropPerc)(d)
-	d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="E4")(d)
-	
-	### s - encoding
-	d = Flatten(name="F1")(d) 
-	enc = Dense(codeSize,activation='relu',name="ENC")(d)
-	### e - encoding
-	
-	
-	d = Dense(codeSize*codeMultiplier,activation='relu',name="D1")(enc)
-	d = Reshape((codeSize, codeMultiplier),name="R")(d)
-	
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D2")(d)
-	
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-		d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D3")(d)
-	
-	if {{choice(['drop', 'noDrop'])}} == 'drop':
-		d = Dropout(dropPerc)(d)
-	d = Dense({{choice([16,32,48,64,96,128])}},activation='relu',name="D4")(d)
-	
-	d = Flatten(name="F2")(d)
-	d = Dense(outputFeatures*timesteps,activation='linear',name="DEC")(d)
-	out = Reshape((timesteps, outputFeatures),name="OUT")(d)
-	model = Model(inputs=inputs, outputs=out)
-	
-	adam = optimizers.Adam(lr=0.0005)		
-	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-	path4save = "./optimizedModel.h5"
-	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min')
-	
-	model.fit(train, train,
-		verbose = 0,
-		batch_size=100,
-		epochs=200,
-		validation_data=(valid, valid)
-		,callbacks=[checkpoint]
-	)
-	# loading the best model
-	customLoss = {'huber_loss': huber_loss}
-	model = load_model(path4save
-			,custom_objects=customLoss)
-	
-
-	HL_aged, MAE_aged = model.evaluate(agedValid, agedValid, verbose=0)
-	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
-	score = MAE_full - MAE_aged
-	
-	print("HL_aged: %f HL_full: %f MAE_aged: %f MAE_full: %f Score: %f" 
-		% (HL_aged,HL_full, MAE_aged, MAE_full, score))
-	
-	return {'loss': score, 'status': STATUS_OK, 'model': model}
 
 	
 def denseModelClassic(train, valid, agedTrain, agedValid):
@@ -245,101 +153,6 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	
 	return {'loss': HL_full, 'status': STATUS_OK, 'model': model}
 	
-def conv2DModelClassic(train, valid, agedTrain, agedValid):
-	
-	from keras.models import load_model
-	from keras.callbacks import ModelCheckpoint
-	from keras.models import Model
-	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
-	from keras import optimizers
-	from Minerva import huber_loss
-	from keras.layers import Conv2DTranspose, Conv2D
-	from Demetra import EpisodedTimeSeries
-	#from keras.backend import constant as cnt
-	
-	ets = EpisodedTimeSeries(5,5,5,5)
-	
-	inputFeatures = 2
-	outputFeatures = 2
-	timesteps = 20
-	
-	dropPerc = 0.5
-	strideSize = 2
-	codeSize = {{choice([7,8,9,10,11,12])}}
-
-	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	c = Reshape((5,4,2),name="R2E")(inputs)
-	c = Conv2D({{choice([16,32,48,64,96,128])}},strideSize,activation='relu',name="E1")(c)
-	
-	if  {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}}  == 'drop':
-			c = Dropout(dropPerc)(c)
-		c = Conv2D({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="E2")(c)
-
-	if  {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			c = Dropout(dropPerc)(c)
-		c = Conv2D({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="E3")(c)
-	
-	preEncodeFlat = Flatten(name="F1")(c) 
-	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-	c = Reshape((1,1,codeSize),name="R2D")(enc)
-	
-	c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D1")(c)
-
-	if  {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}}  == 'drop':
-			c = Dropout(dropPerc)(c)
-		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D2")(c)
-	
-	if  {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}}  == 'drop':
-			c = Dropout(dropPerc)(c)
-		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,activation='relu',name="D3")(c)
-	
-	preDecFlat = Flatten(name="F2")(c) 
-	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-	model = Model(inputs=inputs, outputs=out)
-	adam = optimizers.Adam(
-		lr=0.0005
-	)	
-	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-	#print(model.summary())
-	path4save = "./optimizedModel.h5"
-	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min')
-	
-	model.fit(train, train,
-		verbose = 0,
-		batch_size=100,
-		epochs=100,
-		validation_data=(valid, valid)
-		,callbacks=[checkpoint]
-	)
-	# loading the best model
-	customLoss = {'huber_loss': huber_loss}
-	model = load_model(path4save
-			,custom_objects=customLoss)
-
-	
-	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
-	
-	ydecoded = model.predict(valid,  batch_size=100)
-	maes = np.zeros(ydecoded.shape[0], dtype='float32')
-	for sampleCount in range(0,ydecoded.shape[0]):
-		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
-	
-	prc = np.percentile(maes,[3,97])
-	
-	score = prc[1] - prc[0]
-	
-	variance = np.var(maes)
-	
-	print("Score: %f Variance: %f Loss: %f MAE: %f" % (score,variance,HL_full,MAE_full))
-	
-	return {'loss': variance, 'status': STATUS_OK, 'model': model}
-	
 def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import load_model
 	from keras.callbacks import ModelCheckpoint
@@ -418,14 +231,110 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	
 	prc = np.percentile(maes,[3,97])
 	
-	score = prc[1] - prc[0]
+	score = prc[1]
 	
 	variance = np.var(maes)
 	
 	print("Score: %f Variance: %f Loss: %f MAE: %f" % (score,variance,HL_full,MAE_full))
 	
-	return {'loss': variance, 'status': STATUS_OK, 'model': model}
+	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
+	
+	
+def conv2DModelClassic(train, valid, agedTrain, agedValid):
+	
+	from keras.models import load_model
+	from keras.callbacks import ModelCheckpoint
+	from keras.models import Model
+	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
+	from keras import optimizers
+	from Minerva import huber_loss
+	from keras.layers import Conv2DTranspose, Conv2D
+	from Demetra import EpisodedTimeSeries
+	from keras.constraints import max_norm
+	#from keras.backend import constant as cnt
+	
+	ets = EpisodedTimeSeries(5,5,5,5)
+	
+	inputFeatures = 2
+	outputFeatures = 2
+	timesteps = 20
+	
+	dropPerc = 0.5
+	strideSize = 2
+	codeSize = {{choice([4,5,6,7,8])}}
+
+	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+	c = Reshape((5,4,2),name="R2E")(inputs)
+	c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E1")(c)
+	
+	if  {{choice(['more', 'less'])}} == 'more':
+		if {{choice(['drop', 'noDrop'])}}  == 'drop':
+			c = Dropout(dropPerc)(c)
+		c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E2")(c)
+
+	if  {{choice(['more', 'less'])}} == 'more':
+		if {{choice(['drop', 'noDrop'])}} == 'drop':
+			c = Dropout(dropPerc)(c)
+		c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E3")(c)
+	
+	preEncodeFlat = Flatten(name="F1")(c) 
+	enc = Dense(codeSize,kernel_constraint=max_norm(2.),activation='relu',name="ENC")(preEncodeFlat)
+	c = Reshape((1,1,codeSize),name="R2D")(enc)
+
+	c = Conv2DTranspose({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D1")(c)
+	
+	if  {{choice(['more', 'less'])}} == 'more':
+		if {{choice(['drop', 'noDrop'])}}  == 'drop':
+			c = Dropout(dropPerc)(c) 
+		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D2")(c)
+
+	if  {{choice(['more', 'less'])}} == 'more':
+		if {{choice(['drop', 'noDrop'])}}  == 'drop':
+			c = Dropout(dropPerc)(c)
+		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D3")(c)
+	
+	preDecFlat = Flatten(name="F2")(c) 
+	c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(2.),activation='linear',name="DECODED")(preDecFlat)
+	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+	model = Model(inputs=inputs, outputs=out)
+	adam = optimizers.Adam(
+		lr=0.0005
+	)	
+	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+	#print(model.summary())
+	path4save = "./optimizedModel.h5"
+	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
+			save_best_only=True, mode='min')
+	
+	model.fit(train, train,
+		verbose = 0,
+		batch_size=200,
+		epochs=200,
+		validation_data=(valid, valid)
+		,callbacks=[checkpoint]
+	)
+	# loading the best model
+	customLoss = {'huber_loss': huber_loss}
+	model = load_model(path4save
+			,custom_objects=customLoss)
+
+	
+	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
+
+	ydecoded = model.predict(valid,  batch_size=100)
+	maes = np.zeros(ydecoded.shape[0], dtype='float32')
+	for sampleCount in range(0,ydecoded.shape[0]):
+		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
+	
+	prc = np.percentile(maes,[3,97])
+	sigma = np.std(maes)
+	
+	score = MAE_full + sigma + prc[1] #variance + MAE_full
+	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
+	return {'loss': score, 'status': STATUS_OK, 'model': model}
+	
+
 	
 def main():
 	import time

@@ -14,7 +14,7 @@ from keras.callbacks import EarlyStopping, CSVLogger, ModelCheckpoint
 import tensorflow as tf
 #Sklearn
 from sklearn.metrics import mean_absolute_error
-
+from keras.constraints import max_norm
 
 #KERAS ENV GPU
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -73,7 +73,7 @@ class Minerva():
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
-	batchSize = 100
+	batchSize = 200
 	epochs = 500
 	ets = None
 	eps1   = 5
@@ -118,7 +118,7 @@ class Minerva():
 		x_valid = self.__batchCompatible(self.batchSize,x_valid)
 		y_valid = self.__batchCompatible(self.batchSize,y_valid)
 		
-		logger.info("Training model %s with train %s and valid %s" % (name4model,x_train.shape,x_valid.shape))
+		logger.debug("Training model %s with train %s and valid %s" % (name4model,x_train.shape,x_valid.shape))
 
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
@@ -146,19 +146,18 @@ class Minerva():
 			validation_data=(x_valid,validY)
 			,callbacks=[checkpoint]
 		)
+		elapsed = (time.clock() - tt)
+		
 		historySaveFile = name4model+"_history"
 		self.ets.saveZip(self.ets.rootResultFolder,historySaveFile,history.history)
-		
-		logger.info("Training completed. Elapsed %f second(s)" %  (time.clock() - tt))
 		
 		# loading the best model for evaluation
 		customLoss = {'huber_loss': huber_loss}
 		model = load_model(path4save,custom_objects=customLoss)
-		
 		trainMae, trainHuber = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
-		logger.info("Train HL %f - MAE %f" % (trainMae,trainHuber))
 		valMae, valHuber = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
-		logger.info("Valid HL %f - MAE %f" % (valMae,valHuber))	
+		logger.info("Training completed. Elapsed %f second(s). Train HL %f - MAE %f  Valid HL %f - MAE %f " %  (elapsed,trainMae,trainHuber,valMae,valHuber) )
+		
 		logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
 	
 	def printModelSummary(self,name4model):
@@ -188,7 +187,7 @@ class Minerva():
 		customLoss = {'huber_loss': huber_loss}
 		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
 			,custom_objects=customLoss)
-		logger.info("There are %s parameters in model" % model.count_params()) 
+		logger.debug("There are %s parameters in model" % model.count_params()) 
 		
 		testX = self.__batchCompatible(self.batchSize,testX)
 		testY = self.__batchCompatible(self.batchSize,testY)
@@ -291,21 +290,37 @@ class Minerva():
 		return maes
 	
 	
+	
 	def __ch2sp(self,inputFeatures,outputFeatures,timesteps):
-		strideSize = 2
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		codeSize =10
-		c = Reshape((5,4,2),name="R2E")(inputs)
-		c = Conv2D(32,strideSize,activation='relu',name="E1")(c)
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Reshape((1,1,codeSize),name="R2D")(enc)
-		c = Conv2DTranspose(256,strideSize,activation='relu',name="D1")(c)
-		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		autoencoderModel = Model(inputs=inputs, outputs=out)
 		
+		
+		dropPerc = 0.5
+		strideSize = 2
+		codeSize = 10
+
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		c = Reshape((5,4,2),name="R2E")(inputs)
+		c = Conv2D(96,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E1")(c)
+		
+		c = Dropout(dropPerc)(c)
+		c = Conv2D(128,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E2")(c)
+
+		
+		preEncodeFlat = Flatten(name="F1")(c) 
+		enc = Dense(codeSize,kernel_constraint=max_norm(2.),activation='relu',name="ENC")(preEncodeFlat)
+		c = Reshape((1,1,codeSize),name="R2D")(enc)
+
+		c = Conv2DTranspose(256,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D1")(c)
+		
+		
+		c = Conv2DTranspose(256,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D2")(c)
+
+		preDecFlat = Flatten(name="F2")(c) 
+		c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(2.),activation='linear',name="DECODED")(preDecFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		#print(autoencoderModel.summary())
 		return autoencoderModel
 		
 		
@@ -392,30 +407,26 @@ class Minerva():
 	def __conv2DModelHyperasClassic(self,inputFeatures,outputFeatures,timesteps):
 		dropPerc = 0.5
 		strideSize = 2
-		codeSize = 9
+		codeSize = 10
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((5,4,2),name="R2E")(inputs)
 		c = Conv2D(128,strideSize,activation='relu',name="E1")(c)
 		
-		if   'less' == 'more':
-			if 'noDrop' == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Conv2D(16,strideSize,activation='relu',name="E2")(c)
+		c = Dropout(dropPerc)(c)
+		c = Conv2D(64,strideSize,activation='relu',name="E2")(c)
 
-		if 'drop' == 'drop':
-			c = Dropout(dropPerc)(c)
-		c = Conv2D(64,strideSize,activation='relu',name="E3")(c)
+		
+		c = Dropout(dropPerc)(c)
+		c = Conv2D(32,strideSize,activation='relu',name="E3")(c)
 		
 		preEncodeFlat = Flatten(name="F1")(c) 
 		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
 		c = Reshape((1,1,codeSize),name="R2D")(enc)
 		
 		c = Conv2DTranspose(128,strideSize,activation='relu',name="D1")(c)
-		if   'less' == 'more':
-			if 'drop'  == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Conv2DTranspose(256,strideSize,activation='relu',name="D2")(c)
+		c = Dropout(dropPerc)(c)
+		c = Conv2DTranspose(256,strideSize,activation='relu',name="D2")(c)
 		
 		preDecFlat = Flatten(name="F2")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)

@@ -5,6 +5,7 @@ from logging import handlers as loghds
 #Project module import
 from Astrea import Astrea
 from Demetra import EpisodedTimeSeries
+from sklearn.manifold import TSNE
 
 #Module logging
 logger = logging.getLogger("Main")
@@ -22,7 +23,7 @@ maeFolder = os.path.join(".","evaluation")
 
 def codeProjection(encSize,type,K):
 	
-	ageScales = [100,75]
+	ageScales = [100,70]
 	from mpl_toolkits.mplot3d import Axes3D
 	from sklearn.decomposition import PCA
 	from Minerva import Minerva
@@ -52,9 +53,14 @@ def codeProjection(encSize,type,K):
 			test =  np.concatenate(folds4learn)
 			code = minerva.getEncoded(name4model,test)
 			
-			pca = PCA(n_components=2)
-			pc = pca.fit_transform(code)
-			codes.append(pc)
+			
+			
+			tsne = TSNE(n_components=2, n_iter=300)
+			pr = tsne.fit_transform(code)
+			codes.append(pr)
+			#pca = PCA(n_components=2)
+			#pc = pca.fit_transform(code)
+			#codes.append(pc)
 			
 			
 		#fig = plt.figure()
@@ -62,7 +68,7 @@ def codeProjection(encSize,type,K):
 
 		
 		for code in codes:
-			plt.scatter(code[:50,0],code[:50,1])
+			plt.scatter(code[:,0],code[:,1])
 		plt.show()
 			
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
@@ -73,12 +79,12 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
 	if(mustTrain):
-		train(minerva,astrea,K,encSize,type=type,denoise=False)
+		train(minerva,astrea,K,encSize,type=type)
 	
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,45,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,60,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -134,15 +140,43 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 			errorBoxPlot(maes,labels,tit)
 			
 		
-def errorBoxPlot(errorList,labels,title,save=True):
+def errorBoxPlot(errors,labels,title,save=True):
 	
-	for c in range(0,len(errorList)):
-		err = errorList[c]
-		prc = np.percentile(err,[25,50,75])
-		print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
+	#for c in range(0,len(errors)):
+	#	err = errors[c]
+	#	prc = np.percentile(err,[25,50,75])
+	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
+	
+	percFull = np.percentile(errors[0],[97])
+	fullTh = percFull[0]
+	#idxFull = np.digitize(errors[0],percFull)
+	#uf, cf = np.unique(idxFull,return_counts = True)
+
+	fp = 0
+	for error in range(1,4):
+		errAtAge = errors[error]
+		errAtAge = np.where(errAtAge >= fullTh)
+		fp += errAtAge[0].shape[0]
+		
+	tp = 0
+	fn = 0
+	for error in range(4,7):
+		errAtAge = errors[error]
+		
+		falseNegative = np.where(errAtAge < fullTh)
+		fn += falseNegative[0].shape[0]
+		truePositive = np.where(errAtAge >= fullTh)
+		tp += truePositive[0].shape[0]
+		
+	recall = tp / (tp+fn)
+	precision = tp / (tp + fp)
+	fscore = precision * recall / (precision + recall)
+	
+	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
+	
 	
 	fig = plt.figure()
-	plt.boxplot(errorList,sym='',whis=[10, 90]) #
+	plt.boxplot(errors,sym='',whis=[3, 97]) #
 	plt.xticks(range(1,len(labels)+1),labels)
 	plt.title(title)
 	plt.grid()
@@ -153,62 +187,50 @@ def errorBoxPlot(errorList,labels,title,save=True):
 		plt.show()
 		
 		
-def train(minerva,astrea,K,encSize,type="Dense",denoise=False):
+def train(minerva,astrea,K,encSize,type="Dense"):
 	
 	train_ageScale = 100
 	batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
-	batteriesDenoise = None
-	if(denoise):
-		batteriesDenoise = minerva.ets.loadSyntheticBlowDataSet(100)
-	#batteries = minerva.ets.loadSyntheticMixedAgeBlowDataSet()
 	
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
-	d_data = None
-	if(batteriesDenoise is not None):
-		_,d_data = astrea.kfoldByKind(batteriesDenoise,K)
+	
+	
 	scaler = astrea.getScaler(k_data)
 	folds4learn = []
-	foldsDenoise = []
+	
 	for i in range(len(k_data)):
 		fold = k_data[i]
 		foldAs3d = astrea.foldAs3DArray(fold,scaler)
 		folds4learn.append(foldAs3d)
-		if(d_data is not None):
-			fold = d_data[i]
-			foldAs3d = astrea.foldAs3DArray(fold,scaler)
-			#print(foldAs3d.shape)
-			noise = np.random.normal(0,0.02,foldAs3d.shape)
-			
-			foldAs3d += noise
-			foldsDenoise.append(foldAs3d)
+		
 
-	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
+	trainIdx,testIdx = astrea.leaveOneFoldOut(K)	
 	count = 0
 	for train_index, test_index in zip(trainIdx,testIdx): 
+		# TRAIN #VALID
+		trainStr = ""
+		trainX = []
+		validX = None
+		validY = None
+		for i in range(0,len(train_index)):
+			if i != (count % len(train_index)):
+				trainX.append(folds4learn[train_index[i]])
+				trainStr += " TR " + str(train_index[i])
+			else:
+				validX = folds4learn[train_index[i]]
+				validY = validX
+				trainStr += " VL " + str(train_index[i])
 		
-		count += 1
-		# TRAIN X
-		trainX = None
-		if len(foldsDenoise) > 0:
-			trainX = [foldsDenoise[train_index[i]] for i in range(1,len(train_index))]
-		else:
-			trainX = [folds4learn[train_index[i]] for i in range(1,len(train_index))]
 		trainX = np.concatenate(trainX)
-		# TRAIN  Y
 		trainY = trainX
-		validX = folds4learn[train_index[0]]
-		validY = validX
-		#TEST X
-		testX = None
-		if len(foldsDenoise) > 0:
-			testX = [foldsDenoise[i] for i in test_index]
-		else:
-			testX = [folds4learn[i] for i in test_index]
+
+		#TEST
+		trainStr += " TS " + str(test_index[0])
+		testX = [folds4learn[i] for i in test_index]
 		testX =  np.concatenate(testX)
-		
-		# TEST Y
-		testY =  [folds4learn[i] for i in test_index]
-		testY =  np.concatenate(testY)
+		testY =  testX
+		print(trainStr)
+		count += 1
 		
 		name4model = modelNameTemplate % (encSize,train_ageScale,type,count)
 		minerva.trainlModelOnArray(trainX, trainY, validX, validY,
@@ -277,5 +299,7 @@ def main():
 		codeProjection(encSize,type,K)
 	else:
 		print("Can't perform %s" % action)
+
+
 		
 main()
