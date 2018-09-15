@@ -296,24 +296,23 @@ class Minerva():
 		
 		dropPerc = 0.5
 		strideSize = 2
-		codeSize = 10
+		codeSize = 9
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((5,4,2),name="R2E")(inputs)
-		c = Conv2D(96,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E1")(c)
+		c = Conv2D(16,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E1")(c)
 		
-		c = Dropout(dropPerc)(c)
-		c = Conv2D(128,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E2")(c)
-
+		
+		
+		c = Conv2D(16,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E3")(c)
 		
 		preEncodeFlat = Flatten(name="F1")(c) 
 		enc = Dense(codeSize,kernel_constraint=max_norm(2.),activation='relu',name="ENC")(preEncodeFlat)
 		c = Reshape((1,1,codeSize),name="R2D")(enc)
 
-		c = Conv2DTranspose(256,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D1")(c)
-		
-		
-		c = Conv2DTranspose(256,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D2")(c)
+		c = Conv2DTranspose(128,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D1")(c)
+				
+		c = Conv2DTranspose(48,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D2")(c)
 
 		preDecFlat = Flatten(name="F2")(c) 
 		c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(2.),activation='linear',name="DECODED")(preDecFlat)

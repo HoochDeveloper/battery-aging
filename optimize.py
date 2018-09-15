@@ -163,6 +163,8 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.layers import Conv1D
 	from Demetra import EpisodedTimeSeries
 	from sklearn.metrics import mean_absolute_error
+	from keras.constraints import max_norm
+	
 	
 	inputFeatures = 2
 	outputFeatures = 2
@@ -170,34 +172,36 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	dropPerc = 0.5
 	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	codeSize = {{choice([8,10,11,12])}}
-	c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([5,9])}},activation='relu',name="E1")(inputs)
+	codeSize = {{choice([8,9,10,11,12])}}
+	
+	norm = {{choice([2.0,3.0])}}
+	c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([5,9])}},kernel_constraint=max_norm(norm),activation='relu',name="E1")(inputs)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([5,9])}},activation='relu',name="E2")(c)
+		c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([5,9])}},kernel_constraint=max_norm(norm),activation='relu',name="E2")(c)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv1D({{choice([16,32,48,64,96,128,256])}}, {{choice([2,3])}},activation='relu',name="E3")(c)
+		c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3])}},kernel_constraint=max_norm(norm),activation='relu',name="E3")(c)
 	
 	preEncodeFlat = Flatten(name="F1")(c) 
-	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-	c = Dense({{choice([16,32,48,64,96,128,256])}},activation='relu',name="D1")(enc)
+	enc = Dense(codeSize,kernel_constraint=max_norm(norm),activation='relu',name="ENC")(preEncodeFlat)
+	c = Dense({{choice([16,32,48,64,96,128,256,512])}},kernel_constraint=max_norm(norm),activation='relu',name="D1")(enc)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Dense({{choice([16,32,48,64,96,128,256])}},activation='relu',name="D2")(enc)
+		c = Dense({{choice([16,32,48,64,96,128,256,512])}},kernel_constraint=max_norm(norm),activation='relu',name="D2")(enc)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Dense({{choice([16,32,48,64,96,128,256])}},activation='relu',name="D3")(enc)
+		c = Dense({{choice([16,32,48,64,96,128,256,512])}},kernel_constraint=max_norm(norm),activation='relu',name="D3")(enc)
 	
-	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
+	c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(norm),activation='linear',name="DECODED")(c)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 	model = Model(inputs=inputs, outputs=out)
 	adam = optimizers.Adam(
@@ -211,8 +215,8 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	
 	model.fit(train, train,
 		verbose = 0,
-		batch_size=100,
-		epochs=50,
+		batch_size={{choice([100,200])}},
+		epochs=200,
 		validation_data=(valid, valid)
 		,callbacks=[checkpoint]
 	)
@@ -230,13 +234,10 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
 	
 	prc = np.percentile(maes,[3,97])
+	sigma = np.std(maes)
 	
-	score = prc[1]
-	
-	variance = np.var(maes)
-	
-	print("Score: %f Variance: %f Loss: %f MAE: %f" % (score,variance,HL_full,MAE_full))
-	
+	score = MAE_full + sigma + prc[1] 
+	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
 	
@@ -262,40 +263,42 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	
 	dropPerc = 0.5
 	strideSize = 2
-	codeSize = {{choice([4,5,6,7,8])}}
-
+	codeSize = {{choice([8,9,10,11,12])}}
+	norm = {{choice([2.0,3.0])}}
+	
+	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 	c = Reshape((5,4,2),name="R2E")(inputs)
-	c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E1")(c)
+	c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(norm),activation='relu',name="E1")(c)
 	
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E2")(c)
+		c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(norm),activation='relu',name="E2")(c)
 
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E3")(c)
+		c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(norm),activation='relu',name="E3")(c)
 	
 	preEncodeFlat = Flatten(name="F1")(c) 
-	enc = Dense(codeSize,kernel_constraint=max_norm(2.),activation='relu',name="ENC")(preEncodeFlat)
+	enc = Dense(codeSize,kernel_constraint=max_norm(norm),activation='relu',name="ENC")(preEncodeFlat)
 	c = Reshape((1,1,codeSize),name="R2D")(enc)
 
-	c = Conv2DTranspose({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D1")(c)
+	c = Conv2DTranspose({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D1")(c)
 	
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c) 
-		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D2")(c)
+		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256,512])}},strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)
 
 	if  {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D3")(c)
+		c = Conv2DTranspose({{choice([16,32,48,64,96,128,256])}},strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D3")(c)
 	
 	preDecFlat = Flatten(name="F2")(c) 
-	c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(2.),activation='linear',name="DECODED")(preDecFlat)
+	c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(norm),activation='linear',name="DECODED")(preDecFlat)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 	model = Model(inputs=inputs, outputs=out)
 	adam = optimizers.Adam(
@@ -340,10 +343,11 @@ def main():
 	import time
 	start = time.clock()
 	best_run, best_model = optim.minimize(
-										  model = conv2DModelClassic,
-                                          data=data,
+										  #model = conv2DModelClassic,
+                                          model = conv1DModelClassic,
+										  data=data,
                                           algo=tpe.suggest,
-                                          max_evals=20,
+                                          max_evals=25,
                                           trials=Trials())
 	
 	train, valid, agedTrain, agedValid = data()

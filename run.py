@@ -84,7 +84,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,60,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,65,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -108,36 +108,51 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		os.makedirs(maeFolder)
 
 	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
-	count = 0
-	for _, test_index in zip(trainIdx,testIdx): 
-		count += 1
-		print("Fold %d" % count)
-		name4model = modelNameTemplate % (encSize,100,type,count)
-		maes = []
-		labels = []
 	
-		for ageScale in ageScales:
-			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
-			_,k_data = astrea.kfoldByKind(batteries,K)
+	
+	mae2Save = [None] * K
+	lab2Save = [None] * K
+	for c in range(0,K):
+		foldMaes = [None] * len(ageScales)
+		foldLabels = [None] * len(ageScales)
+		mae2Save[c] = foldMaes
+		lab2Save[c] = foldLabels
+	
+	for a in range(0,len(ageScales)):
+		
+		ageScale = ageScales[a]
+		
+		batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
+		_,k_data = astrea.kfoldByKind(batteries,K)
+		
+		count = 0
+		for _, test_index in zip(trainIdx,testIdx): 
+			
+			print("Fold %d Age: %d" % (count+1,ageScale))
+			name4model = modelNameTemplate % (encSize,100,type,count+1)
+			maes = []
+			labels = []
 			folds4learn = []
 			for i in test_index:
 				fold = k_data[i]
 				foldAs3d = astrea.foldAs3DArray(fold,scaler)
 				folds4learn.append(foldAs3d)
-			
-			test =  np.concatenate(folds4learn)
-			
-			
-			
-			mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
-			maes.append(mae)
-			labels.append("Age %d" % ageScale)
 		
+			test =  np.concatenate(folds4learn)
+			mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
+			mae2Save[count][a] = mae
+			lab2Save[count][a] = "Q@%d" % ageScale
+			count += 1
+			#maes.append(mae)
+			#labels.append("Age %d" % ageScale)
+		
+	for c in range(0,K):
+		name4model = modelNameTemplate % (encSize,100,type,c+1)
+		maes = mae2Save[c]
+		labels = lab2Save[c]
 		minerva.ets.saveZip(maeFolder,name4model+".out",[maes,labels])
 		
-		if(boxPlot):
-			tit = "MAE %s" % name4model 
-			errorBoxPlot(maes,labels,tit)
+		
 			
 		
 def errorBoxPlot(errors,labels,title,save=True):
@@ -146,8 +161,9 @@ def errorBoxPlot(errors,labels,title,save=True):
 	#	err = errors[c]
 	#	prc = np.percentile(err,[25,50,75])
 	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
-	
-	percFull = np.percentile(errors[0],[97])
+	lastPerc = 90
+	print("Metrics with threshold @ %d" % lastPerc)
+	percFull = np.percentile(errors[0],[lastPerc])
 	fullTh = percFull[0]
 	#idxFull = np.digitize(errors[0],percFull)
 	#uf, cf = np.unique(idxFull,return_counts = True)
@@ -174,17 +190,17 @@ def errorBoxPlot(errors,labels,title,save=True):
 	
 	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
 	
-	
-	fig = plt.figure()
-	plt.boxplot(errors,sym='',whis=[3, 97]) #
-	plt.xticks(range(1,len(labels)+1),labels)
-	plt.title(title)
-	plt.grid()
-	if(save):
-		plt.savefig(title, bbox_inches='tight')
-		plt.close()
-	else:
-		plt.show()
+	if(False):
+		fig = plt.figure()
+		plt.boxplot(errors,sym='',whis=[3, lastPerc]) #
+		plt.xticks(range(1,len(labels)+1),labels)
+		plt.title(title)
+		plt.grid()
+		if(save):
+			plt.savefig(title, bbox_inches='tight')
+			plt.close()
+		else:
+			plt.show()
 		
 		
 def train(minerva,astrea,K,encSize,type="Dense"):
