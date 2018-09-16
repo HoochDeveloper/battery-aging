@@ -34,6 +34,97 @@ class Astrea():
 		self.idxName = idxName
 		self.data2keep = data2keep
 	
+	
+	def kFoldWithDegradetion(self,healthly,degraded,degradationPerc,k):
+		tt = time.clock()
+		logger.debug("kFoldWithDegradetion - start")
+		logger.debug("There are %d batteries to distribute in %d fold" % (len(healthly),k))
+		batteris4fold = int( len(healthly) / k )
+		logger.debug("Batteries for fold: %d" % batteris4fold)
+	
+		episodesInDataset = 0
+		for battery in healthly:
+			totalEpisodeInBattery = 0	
+			for episodeInMonth in battery:
+				totalEpisodeInBattery += len(episodeInMonth)
+			episodesInDataset += totalEpisodeInBattery
+			batteryName = self.__getBatteryName(battery)
+			logger.debug("There are %d episode in battery %s" % (totalEpisodeInBattery,batteryName))
+		
+		logger.debug("There are %d episode in dataset." % (episodesInDataset))
+		indexes,datas = self.__foldSplitDegradation(healthly,degraded,degradationPerc,episodesInDataset,k)
+		logger.debug("kfoldByKind - end - %f" % (time.clock() - tt))
+		return indexes,datas
+		
+		
+		
+	def __foldSplitDegradation(self,batteries,degraded,degradationPerc,episodesInDataset,k):
+		
+		tt = time.clock()
+		logger.debug("__foldSplit - start")
+		print(episodesInDataset)
+		maxEpisodesForFold = int( episodesInDataset / k )
+		logger.debug("Max episodes for fold %d" % maxEpisodesForFold)
+		currentFold = 0
+		
+		foldIndex = []
+		foldIndex.append([])
+		foldData  = []
+		foldData.append([])
+		
+		#np.random.seed(1710)
+		np.random.seed(4988)
+		permutedIdx = np.random.permutation(len(batteries))
+		assigned = 0
+		degradedCount = 0
+		for idx in permutedIdx:
+			# iteration over batteries
+			battery = batteries[idx]
+			
+			batteryName = self.__getBatteryName(battery)
+			
+			totalEpisodeInBattery = 0
+			batteryIndex = []
+			batteryData  = []
+			for monthIdx in range(0,len(battery)):
+				# iteration over months in battery
+				episodeInMonth = battery[monthIdx]
+				totalEpisodeInBattery += len(episodeInMonth)
+				for epIdx in range(0,len(episodeInMonth)):
+					# iteration over episodes in month
+					episode = episodeInMonth[epIdx]
+					degProb = np.random.uniform(0, 1)
+					for degIdx in range(len(degradationPerc)):
+						percCurretn = degradationPerc[degIdx]
+						if(degProb < percCurretn):
+							degradedCount +=1
+							episode = degraded[degIdx][idx][monthIdx][epIdx]
+							break
+						
+					startTS = episode.values[:, self.idxTS][0]
+					indexRecord = (batteryName,startTS)
+					batteryIndex.append(indexRecord)
+					batteryData.append(episode[self.data2keep])
+			
+			# check how many episodes are in the fold, it there are more than max, then switch fold
+			episodeInFold = len(foldIndex[currentFold])
+			if((episodeInFold + totalEpisodeInBattery) > maxEpisodesForFold and currentFold < (k - 1)):
+				assigned += episodeInFold
+				logger.debug("End of fold %d, dimension %d" % (currentFold,len(foldIndex[currentFold])))
+				currentFold += 1
+				foldIndex.append([])
+				foldData.append([])
+			
+			foldIndex[currentFold] += batteryIndex
+			foldData[currentFold] += batteryData
+			episodeInFold = len(foldIndex[currentFold])
+		
+		logger.debug("Last fold has %d episode" % (episodesInDataset - assigned))
+		logger.info("Degraded %d" % degradedCount)
+		logger.debug("__foldSplit - end - %f" % (time.clock() - tt))
+		return foldIndex, foldData
+	
+	
 	def kfoldByKind(self,batteries,k,printFold=False):
 		"""
 		Build K fold for the input. It is granted that every episode of a battery are all in the
