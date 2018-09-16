@@ -21,12 +21,11 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
-def mapTable(encSize,type,modelNumber):
+def mapTable(encSize,type,modelNumber,thresholdPercentile):
 	
 	dfTemplate = "map_model_%s_th_%d"
 	mapFolder = os.path.join(".","maps")
 	name4model = modelNameTemplate % (encSize,100,type,modelNumber)
-	thresholdPercentile = 90
 	dataFrameName = dfTemplate % (name4model,thresholdPercentile)
 	fullPath = os.path.join(mapFolder,dataFrameName)
 	dataSet = None
@@ -109,7 +108,7 @@ def mapTable(encSize,type,modelNumber):
 	map = np.mean([n_pr_mean,p_pr_mean])
 	print("p_pr_mean %f n_pr_mean %f map %f" % (p_pr_mean,n_pr_mean,map))
 
-	if(True):
+	if(False):
 		plt.plot( dataSet["N_RC"],dataSet["N_PR"],label="TN")
 		plt.plot( dataSet["P_RC"],dataSet["P_PR"],label="TP")
 		plt.legend()
@@ -434,7 +433,7 @@ def main():
 		execute(False,encSize,type=type, K = K)
 	elif(action=="map"):
 		for i in range(1,6):
-			mapTable(encSize,type,i)
+			mapTable(encSize,type,i,95)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
 	elif(action=="learning_curve"):
