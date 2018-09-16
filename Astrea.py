@@ -171,6 +171,9 @@ class Astrea():
 		scaler.fit(data2dimension)
 		return scaler
 		
+		
+		
+		
 	def foldAs3DArray(self,fold,scaler = None):
 		"""
 		Convert the dataset list structure to numpy 3D array

@@ -2,6 +2,7 @@
 dataset/
 results/
 logs/
+maps/
 exportEpisodes/
 synthetic_data/
 evaluation/

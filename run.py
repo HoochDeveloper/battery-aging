@@ -6,7 +6,7 @@ from logging import handlers as loghds
 from Astrea import Astrea
 from Demetra import EpisodedTimeSeries
 from sklearn.manifold import TSNE
-
+import pandas as pd
 #Module logging
 logger = logging.getLogger("Main")
 logger.setLevel(logging.INFO)
@@ -21,11 +21,171 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
+def meanAvgPrecision(errors):
+	
+	
 
+	thresholdPercentile = 90
+	fullHealthError = errors[0]
+	tmp = np.percentile(fullHealthError,[thresholdPercentile])
+	thresholdValue = tmp[0]
+	print(thresholdValue)
+	#correct = np.where(fullHealthError >= thresholdValue, 0,1)
+	#dataSet = pd.DataFrame({'Error':fullHealthError,'Correct':correct})
+	
+	#allFalsePositiveCount = 0
+	#
+	#for i in range(1,4):
+	#	healthError = errors[i]
+	#	correct = np.where(healthError >= thresholdValue, 0,1)
+	#	allFalsePositiveCount += np.where(correct == 0)[0].shape[0]
+	#	healthSet = pd.DataFrame({'Error':healthError,'Correct':correct})
+	#	dataSet = dataSet.append(healthSet)
+	
+	
+	
+	#dataSet.sort_values(by="Error",ascending=False,inplace=True)
+	#print(dataSet.head(200))
+	#return
+	
+	allPositiveCount = 0
+	dataAged = None
+	for i in range(3,4):
+		degradedError =  errors[i]
+		correct = np.where(degradedError >= thresholdValue, 1,0)
+		allPositiveCount += np.where(correct == 1)[0].shape[0]
+		dataAged = pd.DataFrame({'Error':degradedError,'Correct':correct})
+		#dataSet = dataSet.append(dataAged)
+	
+	dataSet = dataAged
+	print(allPositiveCount)
+	
+	dataSet.sort_values(by="Error",ascending=False,inplace=True)
+	#dataSet.set_index(np.arange(len(dataSet.index)))
+	dataSet["Recall"] = dataSet["Correct"].cumsum() / allPositiveCount
+	#dataSet["Precision"] = dataSet["Correct"].cumsum() /  (dataSet["Correct"].cumsum()+
+	
+	print(dataSet.head(50))
+	
+	#print(dataSet["Correct"].cumsum() / allPositiveCount )
+	
+	#sorted = np.sort(fullHealthError) 
+	#errAtAge = np.where(sorted[:100] >= thresholdValue)
+	#fp = errAtAge[0].shape[0]
+
+
+
+def mapTable(encSize,type):
+	
+	dfTemplate = "map_model_%s_th_%d"
+	mapFolder = os.path.join(".","maps")
+	if not os.path.exists(mapFolder):
+		os.makedirs(mapFolder)
+
+	from Minerva import Minerva
+	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
+
+	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
+	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
+	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
+
+	modelNumber = 4
+	name4model = modelNameTemplate % (encSize,100,type,modelNumber)
+	thresholdPercentile = 90
+	
+	dataFrameName = dfTemplate % (name4model,thresholdPercentile)
+	
+	fullPath = os.path.join(mapFolder,dataFrameName)
+	dataSet = None
+	force = False
+	if not os.path.exists(fullPath) or  force:
+	
+	
+		[maes,labels] = minerva.ets.loadZip(maeFolder,name4model+".out",)
+		
+		fullHealthError = maes[0]
+		tmp = np.percentile(fullHealthError,[thresholdPercentile])
+		thresholdValue = tmp[0]
+		#print(thresholdValue)
+		model = minerva.getModel(name4model)
+		
+		ageScale = 100
+		ageTh = 85
+		K = 8
+		ageStep = 5
+		batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
+		_,k_data = astrea.kfoldByKind(batteries,K)
+		scaler = astrea.getScaler(k_data)
+		dataSet = pd.DataFrame({'MAE' : [],'TP' : [], "TN" : [], "FP":[], "FN":[]})
+		
+		#fpc = 0
+		#fnc = 0
+		totalPositive = 0
+		totalNegative = 0
+		for b in range(0,K):
+			testX = astrea.foldAs3DArray(k_data[b],scaler)
+			maes = minerva.getMaes(model,testX,testX)
+			tp = None
+			tn = None
+			fp = None
+			if(ageScale >= ageTh):
+				# no true positive
+				totalNegative += len(maes)
+				fp = np.where(maes >= thresholdValue, 1,0)
+				tn = np.where(maes < thresholdValue, 1,0)
+				tp = np.where(True, 0,0)
+				fn = np.where(True, 0,0)
+			else:
+				totalPositive += len(maes)
+				tp = np.where(maes >= thresholdValue, 1,0)
+				fn = np.where(maes < thresholdValue, 1, 0)
+				tn = np.where(True, 0,0)
+				fp = np.where(True, 0,0)
+				
 			
+			df = pd.DataFrame({'MAE':maes,'TP':tp, 'TN':tn, 'FP':fp, 'FN':fn})
+			dataSet = dataSet.append(df)
+			
+			ageScale -= ageStep
+			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
+			_,k_data = astrea.kfoldByKind(batteries,K)
+			
+		
+		dataSet.sort_values(by="MAE",ascending=False,inplace=True)
+		
+		dataSet["P_RC"] = dataSet["TP"].cumsum() / totalPositive
+		dataSet["P_PR"] = dataSet["TP"].cumsum() / (dataSet["TP"].cumsum() + dataSet["FP"].cumsum())
+		dataSet["N_RC"] = dataSet["TN"].cumsum() / totalNegative
+		dataSet["N_PR"] = dataSet["TN"].cumsum() / (dataSet["TN"].cumsum() + dataSet["FN"].cumsum())
+	
+		dataSet.to_pickle(fullPath)
+	else:
+		dataSet = pd.read_pickle(fullPath)
+	
+	
+	dataSet.fillna(0,inplace=True)
+	
+	plt.plot( dataSet["N_RC"],dataSet["N_PR"],label="TN")
+	plt.plot( dataSet["P_RC"],dataSet["P_PR"],label="TP")
+	plt.legend()
+	plt.show()
+	
+	
+	
+	print(np.mean(dataSet["P_PR"].values))
+	print(np.mean(dataSet["N_PR"].values))
+	#print(dataSet.head(20))
+	#print(dataSet.tail(20))
+	
+	
+	
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	from Minerva import Minerva
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
+	
+	
+	
+	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
@@ -153,13 +313,22 @@ def codeProjection(encSize,type,K):
 		for code in codes:
 			plt.scatter(code[:,0],code[:,1])
 		plt.show()
-		
+	
+
+
+	
+
+	
+	
 def errorBoxPlot(errors,labels,title,save=True):
 	
 	#for c in range(0,len(errors)):
 	#	err = errors[c]
 	#	prc = np.percentile(err,[25,50,75])
 	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
+	
+	
+	#meanAvgPrecision(errors)
 	
 	fp = 0
 	
@@ -192,11 +361,11 @@ def errorBoxPlot(errors,labels,title,save=True):
 		
 	recall = tp / (tp+fn)
 	precision = tp / (tp + fp)
-	fscore = precision * recall / (precision + recall)
+	fscore = 2 * precision * recall / (precision + recall)
 	
 	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
 	
-	if(True):
+	if(False):
 		fig = plt.figure()
 		plt.boxplot(errors,sym='',whis=[3, lastPerc]) #
 		plt.xticks(range(1,len(labels)+1),labels)
@@ -224,10 +393,8 @@ def train(minerva,astrea,K,encSize,type="Dense"):
 	
 	#degradationPerc = [.03,.05,.10,.15,.20]
 	#degradationPerc = [.02,.04,.06,.08,.10]
-	degradationPerc = [.02,.04,.06,.08,.15]
-	
-	
-	
+	#degradationPerc = [.02,.04,.06,.08,.15]
+	degradationPerc = [.01,.02,.03,.04,.05]
 	
 	#k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	print("Degraded")
@@ -327,6 +494,8 @@ def main():
 		execute(True,encSize,type=type,K = K)
 	elif(action=="evaluate"):
 		execute(False,encSize,type=type, K = K)
+	elif(action=="map"):
+		mapTable(encSize,type)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
 	elif(action=="learning_curve"):

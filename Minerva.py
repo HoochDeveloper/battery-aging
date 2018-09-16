@@ -181,6 +181,22 @@ class Minerva():
 		print (code.shape)
 		return code
 	
+	def getModel(self,model2load):
+		customLoss = {'huber_loss': huber_loss}
+		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
+			,custom_objects=customLoss)
+		return model
+			
+	def getMaes(self,model,testX,testY):
+		testX = self.__batchCompatible(self.batchSize,testX)
+		testY = self.__batchCompatible(self.batchSize,testY)
+		ydecoded = model.predict(testX,  batch_size=self.batchSize)
+		maes = np.zeros(ydecoded.shape[0], dtype='float32')
+		for sampleCount in range(0,ydecoded.shape[0]):
+			maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
+		
+		return maes
+	
 	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
 		
 		customLoss = {'huber_loss': huber_loss}
