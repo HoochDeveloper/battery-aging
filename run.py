@@ -21,85 +21,27 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
-def meanAvgPrecision(errors):
-	
-	
-
-	thresholdPercentile = 90
-	fullHealthError = errors[0]
-	tmp = np.percentile(fullHealthError,[thresholdPercentile])
-	thresholdValue = tmp[0]
-	print(thresholdValue)
-	#correct = np.where(fullHealthError >= thresholdValue, 0,1)
-	#dataSet = pd.DataFrame({'Error':fullHealthError,'Correct':correct})
-	
-	#allFalsePositiveCount = 0
-	#
-	#for i in range(1,4):
-	#	healthError = errors[i]
-	#	correct = np.where(healthError >= thresholdValue, 0,1)
-	#	allFalsePositiveCount += np.where(correct == 0)[0].shape[0]
-	#	healthSet = pd.DataFrame({'Error':healthError,'Correct':correct})
-	#	dataSet = dataSet.append(healthSet)
-	
-	
-	
-	#dataSet.sort_values(by="Error",ascending=False,inplace=True)
-	#print(dataSet.head(200))
-	#return
-	
-	allPositiveCount = 0
-	dataAged = None
-	for i in range(3,4):
-		degradedError =  errors[i]
-		correct = np.where(degradedError >= thresholdValue, 1,0)
-		allPositiveCount += np.where(correct == 1)[0].shape[0]
-		dataAged = pd.DataFrame({'Error':degradedError,'Correct':correct})
-		#dataSet = dataSet.append(dataAged)
-	
-	dataSet = dataAged
-	print(allPositiveCount)
-	
-	dataSet.sort_values(by="Error",ascending=False,inplace=True)
-	#dataSet.set_index(np.arange(len(dataSet.index)))
-	dataSet["Recall"] = dataSet["Correct"].cumsum() / allPositiveCount
-	#dataSet["Precision"] = dataSet["Correct"].cumsum() /  (dataSet["Correct"].cumsum()+
-	
-	print(dataSet.head(50))
-	
-	#print(dataSet["Correct"].cumsum() / allPositiveCount )
-	
-	#sorted = np.sort(fullHealthError) 
-	#errAtAge = np.where(sorted[:100] >= thresholdValue)
-	#fp = errAtAge[0].shape[0]
-
-
-
-def mapTable(encSize,type):
+def mapTable(encSize,type,modelNumber):
 	
 	dfTemplate = "map_model_%s_th_%d"
 	mapFolder = os.path.join(".","maps")
-	if not os.path.exists(mapFolder):
-		os.makedirs(mapFolder)
-
-	from Minerva import Minerva
-	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
-
-	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
-	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
-	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
-
-	modelNumber = 4
 	name4model = modelNameTemplate % (encSize,100,type,modelNumber)
 	thresholdPercentile = 90
-	
 	dataFrameName = dfTemplate % (name4model,thresholdPercentile)
-	
 	fullPath = os.path.join(mapFolder,dataFrameName)
 	dataSet = None
 	force = False
 	if not os.path.exists(fullPath) or  force:
-	
+
+		if not os.path.exists(mapFolder):
+			os.makedirs(mapFolder)
+
+		from Minerva import Minerva
+		minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
+
+		nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
+		tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
+		astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
 		[maes,labels] = minerva.ets.loadZip(maeFolder,name4model+".out",)
 		
@@ -162,18 +104,17 @@ def mapTable(encSize,type):
 	else:
 		dataSet = pd.read_pickle(fullPath)
 	
+	p_pr_mean = dataSet["P_PR"].mean()
+	n_pr_mean = dataSet["N_PR"].mean()
+	map = np.mean([n_pr_mean,p_pr_mean])
+	print("p_pr_mean %f n_pr_mean %f map %f" % (p_pr_mean,n_pr_mean,map))
+
+	if(True):
+		plt.plot( dataSet["N_RC"],dataSet["N_PR"],label="TN")
+		plt.plot( dataSet["P_RC"],dataSet["P_PR"],label="TP")
+		plt.legend()
+		plt.show()
 	
-	dataSet.fillna(0,inplace=True)
-	
-	plt.plot( dataSet["N_RC"],dataSet["N_PR"],label="TN")
-	plt.plot( dataSet["P_RC"],dataSet["P_PR"],label="TP")
-	plt.legend()
-	plt.show()
-	
-	
-	
-	print(np.mean(dataSet["P_PR"].values))
-	print(np.mean(dataSet["N_PR"].values))
 	#print(dataSet.head(20))
 	#print(dataSet.tail(20))
 	
@@ -182,10 +123,7 @@ def mapTable(encSize,type):
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	from Minerva import Minerva
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
-	
-	
-	
-	
+
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
@@ -495,7 +433,8 @@ def main():
 	elif(action=="evaluate"):
 		execute(False,encSize,type=type, K = K)
 	elif(action=="map"):
-		mapTable(encSize,type)
+		for i in range(1,6):
+			mapTable(encSize,type,i)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
 	elif(action=="learning_curve"):
