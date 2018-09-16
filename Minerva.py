@@ -74,7 +74,7 @@ class Minerva():
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
-	epochs = 500
+	epochs = 400
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -123,15 +123,14 @@ class Minerva():
 		inputFeatures  = x_train.shape[2]
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
-		
-		model = self.__denseModelHC(inputFeatures,outputFeatures,timesteps)
-		#__denseModel #__denseModelHyperas #__denseModelHC
-		#__conv2DModelHyperasClassic #__conv2DHyperasScore
-		#__conv1DModelHyperasClassic #__conve1DModelHyperasScore
-		# __ch2sp #__ch1sp
+		#CHOOSE MODEL
+		model = self.__ch2sp(inputFeatures,outputFeatures,timesteps)
+		#CHOOSE MODEL
 		adam = optimizers.Adam(lr=0.0005)		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+		
 		#print(model.summary())
+		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min')
@@ -293,33 +292,27 @@ class Minerva():
 	
 	def __ch2sp(self,inputFeatures,outputFeatures,timesteps):
 		
-		
-		dropPerc = 0.5
+		#dropPerc = 0.5
 		strideSize = 2
-		codeSize = 9
-
+		codeSize = 12
+		#norm = 4.
+		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((5,4,2),name="R2E")(inputs)
-		c = Conv2D(16,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E1")(c)
-		
-		
-		
-		c = Conv2D(16,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="E3")(c)
-		
+		c = Conv2D(16,strideSize,activation='relu',name="E1")(c)		
+		c = Conv2D(48,strideSize,activation='relu',name="E3")(c)
+
 		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,kernel_constraint=max_norm(2.),activation='relu',name="ENC")(preEncodeFlat)
+		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
 		c = Reshape((1,1,codeSize),name="R2D")(enc)
 
-		c = Conv2DTranspose(128,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D1")(c)
-				
-		c = Conv2DTranspose(48,strideSize,kernel_constraint=max_norm(2.),activation='relu',name="D2")(c)
-
+		c = Conv2DTranspose(256,strideSize,activation='relu',name="D1")(c)
+		c = Conv2DTranspose(96,strideSize,activation='relu',name="D3")(c)
 		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,kernel_constraint=max_norm(2.),activation='linear',name="DECODED")(preDecFlat)
+		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		#print(autoencoderModel.summary())
 		return autoencoderModel
 		
 		
@@ -350,42 +343,6 @@ class Minerva():
 		
 		return autoencoderModel
 	
-	def __conv1DModelHyperas(self,inputFeatures,outputFeatures,timesteps):
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		dropPerc = 0.5
-		
-		codeSize = 9
-		c = Conv1D(16, 7,activation='relu',name="E1")(inputs)
-		
-		if 'more' == 'more':
-			if 'noDrop'  == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Conv1D(32, 2,activation='relu',name="E2")(c)
-		
-		if  'less'== 'more':
-			if 'drop'  == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Conv1D(256, 5,activation='relu',name="E3")(c)
-		
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Dense(256,activation='relu',name="D1")(enc)
-		
-		if 'less' == 'more':
-			if 'drop'  == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Dense(16,activation='relu',name="D2")(enc)
-		
-		if  'less'== 'more':
-			if 'drop'  == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Dense(64,activation='relu',name="D3")(enc)
-		
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		#print(autoencoderModel.summary())
-		return autoencoderModel
 	
 	def __conv1DModelHyperasClassic(self,inputFeatures,outputFeatures,timesteps):
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -414,75 +371,7 @@ class Minerva():
 		return autoencoderModel
 	
 	
-	def __conv2DModelHyperasClassic(self,inputFeatures,outputFeatures,timesteps):
-		dropPerc = 0.5
-		strideSize = 2
-		codeSize = 10
-
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = Reshape((5,4,2),name="R2E")(inputs)
-		c = Conv2D(128,strideSize,activation='relu',name="E1")(c)
-		
-		c = Dropout(dropPerc)(c)
-		c = Conv2D(64,strideSize,activation='relu',name="E2")(c)
-
-		
-		c = Dropout(dropPerc)(c)
-		c = Conv2D(32,strideSize,activation='relu',name="E3")(c)
-		
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Reshape((1,1,codeSize),name="R2D")(enc)
-		
-		c = Conv2DTranspose(128,strideSize,activation='relu',name="D1")(c)
-		c = Dropout(dropPerc)(c)
-		c = Conv2DTranspose(256,strideSize,activation='relu',name="D2")(c)
-		
-		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-
-	def __conv2DHyperasScore(self,inputFeatures,outputFeatures,timesteps):
-
-		dropPerc = 0.5
-		strideSize = 2
-		codeSize = 12
-
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = Reshape((5,4,2),name="R2E")(inputs)
-		c = Conv2D(48,strideSize,activation='relu',name="E1")(c)
-		
-		if   'less'== 'more':
-			if  'noDrop' == 'drop':
-				c = Dropout(dropPerc)(c)
-			c = Conv2D(16,strideSize,activation='relu',name="E2")(c)
-
-		if 'noDrop' == 'drop':
-			c = Dropout(dropPerc)(c)
-		c = Conv2D(16,strideSize,activation='relu',name="E3")(c)
-		
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Reshape((1,1,codeSize),name="R2D")(enc)
-		
-		c = Conv2DTranspose(64,strideSize,activation='relu',name="D1")(c)
-
-		if  'more'  == 'more':
-			if 'drop'  == 'drop':
-				c = Dropout(dropPerc)(c)
-			Conv2DTranspose(48,strideSize,activation='relu',name="D2")(c)
-		
-		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-			
-
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
 	
-
 
 	def __denseModelHC(self,inputFeatures,outputFeatures,timesteps):
 	
@@ -529,91 +418,7 @@ class Minerva():
 		#print(autoencoderModel.summary())
 		return autoencoderModel
 	
-	def __denseModelHyperas(self,inputFeatures,outputFeatures,timesteps):
-	
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		# START HyperParameters
-		dropPerc = 0.5
-		codeSize = 9
-		codeMultiplier = 3
-		
-		# END HyperParameters
-		d = Dense(48,activation='relu',name="E1")(inputs)
-		
-		if 'more' == 'more':
-			if 'noDrop' == 'drop':
-				d = Dropout(dropPerc)(d)
-			d = Dense(48,activation='relu',name="E2")(d)
-		if 'less' == 'more':
-			if 'drop' == 'drop':
-				d = Dropout(dropPerc)(d)
-			d = Dense(48,activation='relu',name="E3")(d)
-		
-		if 'drop' == 'drop':
-			d = Dropout(dropPerc)(d)
-		d = Dense(32,activation='relu',name="E4")(d)
-		
-		### s - encoding
-		d = Flatten(name="F1")(d) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(d)
-		### e - encoding
-		
-		
-		d = Dense(codeSize*codeMultiplier,activation='relu',name="D1")(enc)
-		d = Reshape((codeSize, codeMultiplier),name="R")(d)
-		
-		if  'less' == 'more':
-			if 'drop' == 'drop':
-				d = Dropout(dropPerc)(d)
-			d = Dense(16,activation='relu',name="D2")(d)
-		
-		if  'less' == 'more':
-			if 'noDrop' == 'drop':
-				d = Dropout(dropPerc)(d)
-			d = Dense(64,activation='relu',name="D3")(d)
-		
-		if  'noDrop' == 'drop':
-			d = Dropout(dropPerc)(d)
-		d = Dense(16,activation='relu',name="D4")(d)
-		
-		d = Flatten(name="F2")(d)
-		d = Dense(outputFeatures*timesteps,activation='linear',name="DEC")(d)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
-		
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		#print(autoencoderModel.summary())
-		return autoencoderModel
-	
-	
-		
-	def __denseModel(self,inputFeatures,outputFeatures,timesteps):
-		
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		start = 128
-		d = Dense(start,activation='relu',name="E1")(inputs)
-		d = Dense(int(start / 2),activation='relu',name="E2")(d)
-		d = Dense(int(start / 4),activation='relu',name="E3")(d)
-		d = Dense(int(start / 8),activation='relu',name="E4")(d)
-		d = Dense(int(start / 16),activation='relu',name="E5")(d)
-		
-		d = Flatten(name="F1")(d) 
-		enc = Dense(16,activation='relu',name="ENC")(d)
-		
-		d = Dense(start*timesteps,activation='relu',name="D1")(enc)
-		d = Reshape((timesteps, start),name="R1")(d)
-		
-		d = Dense(int(start / 16),activation='relu',name="D2")(d)
-		d = Dense(int(start / 8),activation='relu',name="D")(d)
-		d = Dense(int(start / 4),activation='relu',name="D4")(d)
-		d = Dense(int(start / 2),activation='relu',name="D5")(d)
-		
-		
-		d = Flatten(name="F2")(d)
-		d = Dense(outputFeatures*timesteps,activation='linear',name="D6")(d)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
-		
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
+
 
 	def	batchCompatible(self,batch_size,data):
 		return self.__batchCompatible(batch_size,data)

@@ -21,55 +21,7 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
-def codeProjection(encSize,type,K):
-	
-	ageScales = [100,70]
-	from mpl_toolkits.mplot3d import Axes3D
-	from sklearn.decomposition import PCA
-	from Minerva import Minerva
-	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
-	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
-	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
-	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)
-	
-	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
-	count = 0
-	for _, test_index in zip(trainIdx,testIdx): 
-		count += 1
-		print("Fold %d" % count)
-		name4model = modelNameTemplate % (encSize,100,type,count)
-		maes = []
-		labels = []
-		codes = []
-		for ageScale in ageScales:
-			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
-			_,k_data = astrea.kfoldByKind(batteries,K)
-			scaler = astrea.getScaler(k_data)
-			folds4learn = []
-			for i in test_index:
-				fold = k_data[i]
-				foldAs3d = astrea.foldAs3DArray(fold,scaler)
-				folds4learn.append(foldAs3d)
-			test =  np.concatenate(folds4learn)
-			code = minerva.getEncoded(name4model,test)
-			
-			
-			
-			tsne = TSNE(n_components=2, n_iter=300)
-			pr = tsne.fit_transform(code)
-			codes.append(pr)
-			#pca = PCA(n_components=2)
-			#pc = pca.fit_transform(code)
-			#codes.append(pc)
-			
-			
-		#fig = plt.figure()
-		#ax = fig.add_subplot(111, projection='3d')
 
-		
-		for code in codes:
-			plt.scatter(code[:,0],code[:,1])
-		plt.show()
 			
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	from Minerva import Minerva
@@ -84,7 +36,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,65,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,60,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -151,9 +103,56 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		maes = mae2Save[c]
 		labels = lab2Save[c]
 		minerva.ets.saveZip(maeFolder,name4model+".out",[maes,labels])
-		
-		
+
+def codeProjection(encSize,type,K):
+	
+	ageScales = [100,70]
+	from mpl_toolkits.mplot3d import Axes3D
+	from sklearn.decomposition import PCA
+	from Minerva import Minerva
+	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
+	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
+	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
+	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)
+	
+	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
+	count = 0
+	for _, test_index in zip(trainIdx,testIdx): 
+		count += 1
+		print("Fold %d" % count)
+		name4model = modelNameTemplate % (encSize,100,type,count)
+		maes = []
+		labels = []
+		codes = []
+		for ageScale in ageScales:
+			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
+			_,k_data = astrea.kfoldByKind(batteries,K)
+			scaler = astrea.getScaler(k_data)
+			folds4learn = []
+			for i in test_index:
+				fold = k_data[i]
+				foldAs3d = astrea.foldAs3DArray(fold,scaler)
+				folds4learn.append(foldAs3d)
+			test =  np.concatenate(folds4learn)
+			code = minerva.getEncoded(name4model,test)
 			
+			
+			
+			tsne = TSNE(n_components=2, n_iter=300)
+			pr = tsne.fit_transform(code)
+			codes.append(pr)
+			#pca = PCA(n_components=2)
+			#pc = pca.fit_transform(code)
+			#codes.append(pc)
+			
+			
+		#fig = plt.figure()
+		#ax = fig.add_subplot(111, projection='3d')
+
+		
+		for code in codes:
+			plt.scatter(code[:,0],code[:,1])
+		plt.show()
 		
 def errorBoxPlot(errors,labels,title,save=True):
 	
@@ -161,14 +160,20 @@ def errorBoxPlot(errors,labels,title,save=True):
 	#	err = errors[c]
 	#	prc = np.percentile(err,[25,50,75])
 	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
-	lastPerc = 80
+	
+	fp = 0
+	
+	lastPerc = 95
 	print("Metrics with threshold @ %d" % lastPerc)
 	percFull = np.percentile(errors[0],[lastPerc])
 	fullTh = percFull[0]
 	#idxFull = np.digitize(errors[0],percFull)
 	#uf, cf = np.unique(idxFull,return_counts = True)
-
-	fp = 0
+	errAtAge = errors[0]
+	errAtAge = np.where(errAtAge >= fullTh)
+	fp += errAtAge[0].shape[0]
+	
+	
 	for error in range(1,4):
 		errAtAge = errors[error]
 		errAtAge = np.where(errAtAge >= fullTh)
@@ -176,7 +181,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 		
 	tp = 0
 	fn = 0
-	for error in range(4,7):
+	for error in range(4,8):
 		errAtAge = errors[error]
 		
 		falseNegative = np.where(errAtAge < fullTh)
@@ -271,10 +276,10 @@ def learningCurve(encSize,type,K):
 		history = ets.loadZip(ets.rootResultFolder,hfile+ "_history")
 		
 		print("Val Loss")
-		for s in range(0,500,100):
+		for s in range(0,400,50):
 			print(history['val_loss'][s])
 		print("Train Loss")
-		for s in range(0,500,100):
+		for s in range(0,400,500):
 			print(history['loss'][s])
 		print("-------------------------------")
 		
