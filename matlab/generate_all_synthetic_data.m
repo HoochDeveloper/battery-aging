@@ -50,7 +50,7 @@ function [ ] = generate_all_synthetic_data(batterySOCs )
                 
                 simOut = sim(in);
                 fileForSave = strcat(episodeSaveFolder,'/',episodes(e).name);
-                csvwrite(fileForSave,simOut.voltage.Data);
+                csvwrite(fileForSave,[simOut.current.Data  ,simOut.voltage.Data]);
             end
         end
     end
