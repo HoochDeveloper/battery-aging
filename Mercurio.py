@@ -164,6 +164,7 @@ class Mercurio():
 		print(allDf[self.ets.dataHeader[16]].unique().shape)
 		print(allDf.min())
 		print(allDf.max())
+		
 	def exportForSynthetic(self):
 		"""
 		Creates the swab2swab dataset (if not exists)
@@ -198,8 +199,8 @@ class Mercurio():
 				for episode in month:
 					episode_count += 1
 					#adding noise on current
-					noise = np.random.normal(0,0.1,episode.shape[0])
-					episode[self.ets.currentIndex] += noise
+					#noise = np.random.normal(0,0.1,episode.shape[0])
+					#episode[self.ets.currentIndex] += noise
 					ep = episode[self.ets.keepY]
 					fileName = "%d_%d.csv" % (month_count,episode_count)
 					ep.to_csv( os.path.join(batteryFolder,fileName), index=False)
