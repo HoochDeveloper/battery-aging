@@ -118,7 +118,7 @@ def mapTable(encSize,type,modelNumber,thresholdPercentile):
 		posDataset = pd.read_pickle(fullPath+"_pos")
 		negDataset = pd.read_pickle(fullPath+"_neg")
 		
-	if(False):
+	if(True):
 		plt.plot( posDataset["RCL"],posDataset["PRC"],label="POS")
 		plt.grid()
 		plt.legend()
@@ -175,7 +175,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,60,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,40,-10),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -311,7 +311,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 	
 	fp = 0
 	
-	lastPerc = 90
+	lastPerc = 95
 	print("Metrics with threshold @ %d" % lastPerc)
 	percFull = np.percentile(errors[0],[lastPerc])
 	fullTh = percFull[0]
@@ -321,7 +321,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 4
+	ageThIdx = 3
 	
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]
@@ -330,7 +330,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 		
 	tp = 0
 	fn = 0
-	for error in range(ageThIdx,8):
+	for error in range(ageThIdx,len(errors)):
 		errAtAge = errors[error]
 		
 		falseNegative = np.where(errAtAge < fullTh)
@@ -361,23 +361,20 @@ def train(minerva,astrea,K,encSize,type="Dense"):
 	
 	train_ageScale = 100
 	batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
+	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	
-	
-	degraded = []
-	for i in range(70,100,5):
-		
-		corrupted = minerva.ets.loadSyntheticBlowDataSet(i)
-		degraded.append(corrupted)
-	
-	
-	#degradationPerc = [.03,.05,.10,.15,.20]
-	#degradationPerc = [.02,.04,.06,.08,.10]
-	#degradationPerc = [.02,.04,.06,.08,.15]
-	degradationPerc = [.01,.02,.03,.04,.05]
-	
-	#k_idx,k_data = astrea.kfoldByKind(batteries,K)
-	print("Degraded")
-	k_idx,k_data = astrea.kFoldWithDegradetion(batteries,degraded,degradationPerc,K)
+	if(False):
+		degraded = []
+		for i in range(50,110,10):
+			
+			corrupted = minerva.ets.loadSyntheticBlowDataSet(i)
+			degraded.append(corrupted)
+		degradationPerc = [.03,.05,.10,.15,.20]
+		degradationPerc = [.02,.04,.06,.08,.10]
+		degradationPerc = [.02,.04,.06,.08,.15]
+		degradationPerc = [.01,.02,.03,.04,.05]
+		print("Degraded")
+		k_idx,k_data = astrea.kFoldWithDegradetion(batteries,degraded,degradationPerc,K)
 	
 	scaler = astrea.getScaler(k_data)
 	folds4learn = []

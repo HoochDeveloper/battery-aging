@@ -308,26 +308,31 @@ class Minerva():
 	
 	def __ch2sp(self,inputFeatures,outputFeatures,timesteps):
 		
-		#dropPerc = 0.5
+		dropPerc = 0.5
 		strideSize = 2
-		codeSize = 12
-		#norm = 4.
-		
+		codeSize =11
+		norm = 5.
+
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = Reshape((5,4,2),name="R2E")(inputs)
-		c = Conv2D(16,strideSize,activation='relu',name="E1")(c)		
-		c = Conv2D(48,strideSize,activation='relu',name="E3")(c)
+		
+		c = Reshape((4,5,2),name="R2E")(inputs)
+		c = Conv2D(128,strideSize,activation='relu',name="E1")(c)
+		c = Dropout(dropPerc)(c)
+		c = Conv2D(48,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="E2")(c)
 
 		preEncodeFlat = Flatten(name="F1")(c) 
 		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
 		c = Reshape((1,1,codeSize),name="R2D")(enc)
-
-		c = Conv2DTranspose(256,strideSize,activation='relu',name="D1")(c)
-		c = Conv2DTranspose(96,strideSize,activation='relu',name="D3")(c)
+	
+		c = Conv2DTranspose(512,strideSize,activation='relu',name="D1")(c)		
+		c = Dropout(dropPerc)(c) 
+		c = Conv2DTranspose(64,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)	
+		c = Conv2DTranspose(32,strideSize,activation='relu',name="D3")(c)
+		
 		preDecFlat = Flatten(name="F2")(c) 
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		
+			
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 		

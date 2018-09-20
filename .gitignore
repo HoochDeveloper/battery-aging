@@ -5,7 +5,7 @@ logs/
 backs/
 exportEpisodes/
 synthetic_data/
-
+maps/
 optimizedModel.h5
 *.png
 # Byte-compiled / optimized / DLL files

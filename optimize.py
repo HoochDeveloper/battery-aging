@@ -272,10 +272,9 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	strideSize = 2
 	codeSize = {{choice([7,8,9,10,11,12])}}
 	norm = {{choice([2.,3.,4.,5.])}}
-	
-	
+
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	c = Reshape((5,4,2),name="R2E")(inputs)
+	c = Reshape((4,5,2),name="R2E")(inputs)
 	c = Conv2D({{choice([16,32,48,64,96,128,256,512])}},strideSize,activation='relu',name="E1")(c)
 	
 	if  {{choice(['more', 'less'])}} == 'more':
@@ -322,7 +321,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	model.fit(train, train,
 		verbose = 0,
 		batch_size=100,
-		epochs=200,
+		epochs=250,
 		validation_data=(valid, valid)
 		,callbacks=[checkpoint]
 	)
@@ -339,11 +338,11 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	for sampleCount in range(0,ydecoded.shape[0]):
 		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
 	
-	prc = np.percentile(maes,[90])
+	prc = np.percentile(maes,[92])
 	sigma = np.std(maes)
 	mean = np.mean(maes)
 	
-	score = mean + sigma + prc[0] #variance + MAE_full
+	score = HL_full  #mean + sigma + prc[0] #variance + MAE_full
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f MeanC: %f" % (score,sigma,MAE_full,HL_full, prc[0],mean))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
