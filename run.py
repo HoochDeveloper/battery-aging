@@ -23,6 +23,8 @@ maeFolder = os.path.join(".","evaluation")
 
 def mapTable(encSize,type,modelNumber,thresholdPercentile):
 	
+	print("Percentile: %d Model: %d" % (thresholdPercentile,modelNumber))
+	
 	dfTemplate = "map_model_%s_th_%d"
 	mapFolder = os.path.join(".","maps")
 	name4model = modelNameTemplate % (encSize,100,type,modelNumber)
@@ -91,31 +93,71 @@ def mapTable(encSize,type,modelNumber,thresholdPercentile):
 			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
 			_,k_data = astrea.kfoldByKind(batteries,K)
 			
-		
+
 		dataSet.sort_values(by="MAE",ascending=False,inplace=True)
 		
-		dataSet["P_RC"] = dataSet["TP"].cumsum() / totalPositive
-		dataSet["P_PR"] = dataSet["TP"].cumsum() / (dataSet["TP"].cumsum() + dataSet["FP"].cumsum())
-		dataSet["N_RC"] = dataSet["TN"].cumsum() / totalNegative
-		dataSet["N_PR"] = dataSet["TN"].cumsum() / (dataSet["TN"].cumsum() + dataSet["FN"].cumsum())
-	
+		tmp = dataSet.loc[ (dataSet["TP"] == 1) | (dataSet["FP"] == 1) ]
+		
+		rcl = tmp["TP"].cumsum() / totalPositive
+		prc = tmp["TP"].cumsum() / (tmp["TP"].cumsum() + tmp["FP"].cumsum())
+		posDataset = pd.DataFrame({'RCL':rcl,'PRC':prc})
+		
+
+		dataSet.sort_values(by="MAE",ascending=True,inplace=True)
+		tmp = dataSet.loc[ (dataSet["TN"] == 1) | (dataSet["FN"] == 1) ]
+		rcl = tmp["TN"].cumsum() / totalNegative
+		prc = tmp["TN"].cumsum() / (tmp["TN"].cumsum() + tmp["FN"].cumsum())
+		negDataset = pd.DataFrame({'RCL':rcl,'PRC':prc})
+		
+		
+		posDataset.to_pickle(fullPath+"_pos")
+		negDataset.to_pickle(fullPath+"_neg")
 		dataSet.to_pickle(fullPath)
 	else:
 		dataSet = pd.read_pickle(fullPath)
-	
-	p_pr_mean = dataSet["P_PR"].mean()
-	n_pr_mean = dataSet["N_PR"].mean()
-	map = np.mean([n_pr_mean,p_pr_mean])
-	print("p_pr_mean %f n_pr_mean %f map %f" % (p_pr_mean,n_pr_mean,map))
-
+		posDataset = pd.read_pickle(fullPath+"_pos")
+		negDataset = pd.read_pickle(fullPath+"_neg")
+		
 	if(False):
-		plt.plot( dataSet["N_RC"],dataSet["N_PR"],label="TN")
-		plt.plot( dataSet["P_RC"],dataSet["P_PR"],label="TP")
+		plt.plot( posDataset["RCL"],posDataset["PRC"],label="POS")
+		plt.grid()
+		plt.legend()
+		plt.show()	
+		plt.plot( negDataset["RCL"],negDataset["PRC"],label="NEG")
+		plt.grid()
 		plt.legend()
 		plt.show()
+		
+	#print(dataSet.shape)
+	#print("FN ",dataSet.loc[ (dataSet["FN"] == 1) ].shape[0])
+	#print("TP ",dataSet.loc[ (dataSet["TP"] == 1) ].shape[0])
+	#print("FP ",dataSet.loc[ (dataSet["FP"] == 1) ].shape[0])
+	#print("TN ",dataSet.loc[ (dataSet["TN"] == 1) ].shape[0])
 	
-	#print(dataSet.head(20))
-	#print(dataSet.tail(20))
+	posAp = posDataset["PRC"].mean()
+	negAp = negDataset["PRC"].mean()
+	
+	map = np.mean([posAp,negAp])
+	print("PosAp: %f NegAp: %f MAP: %f" % (posAp,negAp,map))
+	
+	precision = dataSet["TP"].sum() / (dataSet["TP"].sum() + dataSet["FP"].sum())
+	recall = dataSet["TP"].sum() / (dataSet["TP"].sum() + dataSet["FN"].sum())
+	fscore = 2 * (precision*recall) / (precision+recall)
+	print("Positive Precision: %f Recall: %f F: %f" % (precision,recall,fscore))
+	
+	precision = dataSet["TN"].sum() / (dataSet["TN"].sum() + dataSet["FN"].sum())
+	recall = dataSet["TN"].sum() / (dataSet["TN"].sum() + dataSet["FP"].sum())
+	fscore = 2 * (precision*recall) / (precision+recall)
+	print("Negative Precision: %f Recall: %f F: %f" % (precision,recall,fscore))
+		
+	
+	#if(True):
+	#	dataSet = pd.read_pickle(fullPath+"_pos")
+	#else:
+	#	dataSet = pd.read_pickle(fullPath+"_neg")
+	#
+	#print(dataSet.head(10))
+	#print(dataSet.tail(10))
 	
 	
 	
@@ -302,7 +344,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 	
 	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
 	
-	if(False):
+	if(True):
 		fig = plt.figure()
 		plt.boxplot(errors,sym='',whis=[3, lastPerc]) #
 		plt.xticks(range(1,len(labels)+1),labels)
@@ -432,8 +474,11 @@ def main():
 	elif(action=="evaluate"):
 		execute(False,encSize,type=type, K = K)
 	elif(action=="map"):
-		for i in range(1,6):
-			mapTable(encSize,type,i,95)
+		#for tau in range(75,100,5):
+		for tau in range(90,100,2):
+			#for i in range(1,6):
+			i = 4
+			mapTable(encSize,type,i,tau)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
 	elif(action=="learning_curve"):
