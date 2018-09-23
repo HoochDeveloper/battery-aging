@@ -175,7 +175,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,40,-10),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,45,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	
@@ -187,12 +187,63 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 	count = 0
 	for _, test_index in zip(trainIdx,testIdx): 
 		count += 1
+		fig, ax = plt.subplots()
 		print("Load evaluation for fold %d" % count)
 		name4model = modelNameTemplate % (encSize,100,type,count)
-		[maes,labels] = ets.loadZip(maeFolder,name4model+".out",)
-		tit = "MAE %s" % name4model 
-		errorBoxPlot(maes,labels,tit,False)
+		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+		
+		labels = []
+		for i in range(0,len(lab)):
+			mul = 100 - (5*i)
+			q = int(340 * mul / 100)
+			labels.append("%d" % q)
+		
+		x,y,n = __evaluation(maes,labels,name4model)
+		ax.scatter(x, y, label="Q")
+		for i, txt in enumerate(n):
+			ax.annotate(txt, (x[i], y[i]))
+		
+		name4model = modelNameTemplate % (encSize,100,type+"QR",count)
+		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+		
+			
+		x,y,n = __evaluation(maes,labels,name4model)
+		ax.scatter(x, y, label="QR")
+		for i, txt in enumerate(n):
+			ax.annotate(txt, (x[i], y[i]))
+		
+		#fig.suptitle('RvP @ different threshold')
+		plt.xlabel('Recall')
+		plt.ylabel('Precision')
+		plt.legend()
+		plt.grid()
+		plt.show()
+		
+def __evaluation(maes,labels,name4model):
 	
+	tit = "MAE %s" % name4model 
+	
+	x = []
+	y = []
+	n = []
+	
+	a = np.zeros((10,3))
+	
+	i = 0
+	for perc in range(88,98):
+		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
+		x.append(recall)
+		y.append(precision)
+		n.append(perc)
+		a[i,0] = "{:10.3f}".format(perc) 
+		a[i,1] = "{:10.3f}".format(precision)
+		a[i,2] = "{:10.3f}".format(recall)
+		i+=1
+	
+	print (" \\\\\n".join([" & ".join(map(str,line)) for line in a]) )
+		
+	return x,y,n
+		
 def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,showScatter=False,boxPlot=False):
 
 	if not os.path.exists(maeFolder):
@@ -299,20 +350,15 @@ def codeProjection(encSize,type,K):
 
 	
 	
-def errorBoxPlot(errors,labels,title,save=True):
+def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	
 	#for c in range(0,len(errors)):
 	#	err = errors[c]
 	#	prc = np.percentile(err,[25,50,75])
 	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
-	
-	
-	#meanAvgPrecision(errors)
-	
+		
 	fp = 0
-	
-	lastPerc = 95
-	print("Metrics with threshold @ %d" % lastPerc)
+	#print("Metrics with threshold @ %d" % lastPerc)
 	percFull = np.percentile(errors[0],[lastPerc])
 	fullTh = percFull[0]
 	#idxFull = np.digitize(errors[0],percFull)
@@ -321,8 +367,7 @@ def errorBoxPlot(errors,labels,title,save=True):
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 3
-	
+	ageThIdx = 5
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]
 		errAtAge = np.where(errAtAge >= fullTh)
@@ -342,19 +387,26 @@ def errorBoxPlot(errors,labels,title,save=True):
 	precision = tp / (tp + fp)
 	fscore = 2 * precision * recall / (precision + recall)
 	
-	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
 	
-	if(True):
-		fig = plt.figure()
-		plt.boxplot(errors,sym='',whis=[3, lastPerc]) #
+	
+	if(False):
+		print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
+		#fig = plt.figure()
+		plt.boxplot(errors,sym='',whis=[100-lastPerc, lastPerc]) #
+		plt.axhline(y=fullTh, color='blue', linestyle='-')
+		plt.axvline(x=(ageThIdx+0.5),color='gray',)
 		plt.xticks(range(1,len(labels)+1),labels)
 		plt.title(title)
 		plt.grid()
+		plt.xlabel('Q')
+		plt.ylabel('MAE')
 		if(save):
 			plt.savefig(title, bbox_inches='tight')
 			plt.close()
 		else:
 			plt.show()
+	
+	return precision,recall
 		
 		
 def train(minerva,astrea,K,encSize,type="Dense"):
@@ -369,10 +421,11 @@ def train(minerva,astrea,K,encSize,type="Dense"):
 			
 			corrupted = minerva.ets.loadSyntheticBlowDataSet(i)
 			degraded.append(corrupted)
-		degradationPerc = [.03,.05,.10,.15,.20]
+		
+		#degradationPerc = [.02,.05,.10,.15,.20]
+		#degradationPerc = [.02,.04,.06,.08,.15]
 		degradationPerc = [.02,.04,.06,.08,.10]
-		degradationPerc = [.02,.04,.06,.08,.15]
-		degradationPerc = [.01,.02,.03,.04,.05]
+		#degradationPerc = [.01,.02,.03,.04,.05]
 		print("Degraded")
 		k_idx,k_data = astrea.kFoldWithDegradetion(batteries,degraded,degradationPerc,K)
 	
