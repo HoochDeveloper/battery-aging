@@ -6,6 +6,8 @@ backs/
 exportEpisodes/
 synthetic_data/
 maps/
+evaluation/
+synthetic_data_fixedR/
 optimizedModel.h5
 *.png
 # Byte-compiled / optimized / DLL files

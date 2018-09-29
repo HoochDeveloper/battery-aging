@@ -178,7 +178,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,45,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	
+	mustPlot = False
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
 	tsIndex = ets.dataHeader.index(ets.timeIndex)
@@ -187,9 +187,9 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 	count = 0
 	for _, test_index in zip(trainIdx,testIdx): 
 		count += 1
-		fig, ax = plt.subplots()
+		#fig, ax = plt.subplots()
 		print("Load evaluation for fold %d" % count)
-		name4model = modelNameTemplate % (encSize,100,type,count)
+		name4model = modelNameTemplate % (11,100,"C2",count)
 		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
 		
 		labels = []
@@ -199,25 +199,33 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 			labels.append("%d" % q)
 		
 		x,y,n = __evaluation(maes,labels,name4model)
-		ax.scatter(x, y, label="Q")
-		for i, txt in enumerate(n):
-			ax.annotate(txt, (x[i], y[i]))
+		if(mustPlot):
+			plt.plot(x, y, label="Conv2D")
+		#ax.scatter(x, y, label="Conv2D")
+		#for i, txt in enumerate(n):
+		#	ax.annotate(txt, (x[i], y[i]))
 		
-		name4model = modelNameTemplate % (encSize,100,type+"QR",count)
+		name4model = modelNameTemplate % (11,100,"C1",count)
 		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
-		
-			
 		x,y,n = __evaluation(maes,labels,name4model)
-		ax.scatter(x, y, label="QR")
-		for i, txt in enumerate(n):
-			ax.annotate(txt, (x[i], y[i]))
+		if(mustPlot):
+			plt.plot(x, y, label="Conv1D")
+		#ax.scatter(x, y, label="Conv1D")
+		#for i, txt in enumerate(n):
+		#	ax.annotate(txt, (x[i], y[i]))
 		
 		#fig.suptitle('RvP @ different threshold')
-		plt.xlabel('Recall')
-		plt.ylabel('Precision')
-		plt.legend()
-		plt.grid()
-		plt.show()
+		
+		name4model = modelNameTemplate % (9,100,"D",count)
+		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+		x,y,n = __evaluation(maes,labels,name4model)
+		if(mustPlot):
+			plt.plot(x, y, label="FC")
+			plt.xlabel('Recall')
+			plt.ylabel('Precision')
+			plt.legend()
+			plt.grid()
+			plt.show()
 		
 def __evaluation(maes,labels,name4model):
 	
@@ -230,7 +238,8 @@ def __evaluation(maes,labels,name4model):
 	a = np.zeros((10,3))
 	
 	i = 0
-	for perc in range(88,98):
+	print(name4model)
+	for perc in range(87,88):
 		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
 		x.append(recall)
 		y.append(precision)
@@ -239,8 +248,8 @@ def __evaluation(maes,labels,name4model):
 		a[i,1] = "{:10.3f}".format(precision)
 		a[i,2] = "{:10.3f}".format(recall)
 		i+=1
-	
-	print (" \\\\\n".join([" & ".join(map(str,line)) for line in a]) )
+	if(False):
+		print (" \\\\\n".join([" & ".join(map(str,line)) for line in a]) )
 		
 	return x,y,n
 		
@@ -367,7 +376,8 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 5
+	ageThIdx = 6
+	lastAge = 9 #len(errors)
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]
 		errAtAge = np.where(errAtAge >= fullTh)
@@ -375,7 +385,7 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 		
 	tp = 0
 	fn = 0
-	for error in range(ageThIdx,len(errors)):
+	for error in range(ageThIdx,lastAge):
 		errAtAge = errors[error]
 		
 		falseNegative = np.where(errAtAge < fullTh)
@@ -388,13 +398,15 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	fscore = 2 * precision * recall / (precision + recall)
 	
 	
-	
-	if(False):
-		print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
+	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
+	if(True):
+		print("TP %d FN %d FP %d" % (tp,fn,fp))
+		
 		#fig = plt.figure()
 		plt.boxplot(errors,sym='',whis=[100-lastPerc, lastPerc]) #
 		plt.axhline(y=fullTh, color='blue', linestyle='-')
-		plt.axvline(x=(ageThIdx+0.5),color='gray',)
+		plt.axvline(x=(ageThIdx-0.5),color='gray',)
+		plt.axvline(x=(lastAge-0.5),color='gray',)
 		plt.xticks(range(1,len(labels)+1),labels)
 		plt.title(title)
 		plt.grid()
