@@ -187,9 +187,9 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 	count = 0
 	for _, test_index in zip(trainIdx,testIdx): 
 		count += 1
-		#fig, ax = plt.subplots()
+		fig, ax = plt.subplots()
 		print("Load evaluation for fold %d" % count)
-		name4model = modelNameTemplate % (11,100,"C2",count)
+		name4model = modelNameTemplate % (12,100,"C2QR",count)
 		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
 		
 		labels = []
@@ -200,33 +200,169 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 		
 		x,y,n = __evaluation(maes,labels,name4model)
 		if(mustPlot):
-			plt.plot(x, y, label="Conv2D")
-		#ax.scatter(x, y, label="Conv2D")
-		#for i, txt in enumerate(n):
-		#	ax.annotate(txt, (x[i], y[i]))
+			#plt.plot(x, y, label="Conv2D")
+			ax.scatter(x, y, label="Conv2D")
+			for i, txt in enumerate(n):
+				ax.annotate(txt, (x[i], y[i]))
 		
-		name4model = modelNameTemplate % (11,100,"C1",count)
-		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
-		x,y,n = __evaluation(maes,labels,name4model)
-		if(mustPlot):
-			plt.plot(x, y, label="Conv1D")
+		##name4model = modelNameTemplate % (11,100,"C1",count)
+		##[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+		##x,y,n = __evaluation(maes,labels,name4model)
+		##if(mustPlot):
+		##	plt.plot(x, y, label="Conv1D")
+		
 		#ax.scatter(x, y, label="Conv1D")
 		#for i, txt in enumerate(n):
 		#	ax.annotate(txt, (x[i], y[i]))
 		
 		#fig.suptitle('RvP @ different threshold')
 		
-		name4model = modelNameTemplate % (9,100,"D",count)
-		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
-		x,y,n = __evaluation(maes,labels,name4model)
+		##name4model = modelNameTemplate % (9,100,"D",count)
+		##[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+		##x,y,n = __evaluation(maes,labels,name4model)
+		##if(mustPlot):
+		##	plt.plot(x, y, label="FC")
+		
 		if(mustPlot):
-			plt.plot(x, y, label="FC")
+			
 			plt.xlabel('Recall')
 			plt.ylabel('Precision')
 			plt.legend()
 			plt.grid()
 			plt.show()
+	
+
+def precisionRecallOnRandPopulation(errors,lowTH,upTH,population):
+	
+	percFull = np.percentile(errors[0],[lowTH])
+	fullTh = percFull[0]
+	
+	upperFull = np.percentile(errors[0],[upTH+5])
+	upperTh = upperFull[0]
+	
+	
+	healthly = []
+	degraded = []
+	maes = []
+	mTP = []
+	mTN = []
+	mFP = []
+	mFN = []
+	
+	unknown = 0
+
+	np.random.seed(42)
+	prob = np.random.rand(len(errors[0]))
+	for i in range(0,len(prob)):
+		if(prob[i] >= population[0]):
+			if(errors[4][i] < fullTh or errors[4][i] > upperTh):
+				degraded.append(errors[4][i])
+				maes.append(errors[4][i])
+				if(errors[4][i] >= fullTh):
+					mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+				else:
+					mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
+			else:
+				unknown += 1
+		elif(prob[i] >= population[1]):
+			if(errors[3][i] < fullTh or errors[3][i] > upperTh):
+				degraded.append(errors[3][i])
+				maes.append(errors[3][i])
+				if(errors[3][i] >= fullTh):
+					mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+				else:
+					mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
+			else:
+				unknown += 1
+		elif(prob[i] >= population[2]): # 90
+			if(errors[2][i] < fullTh or errors[2][i] > upperTh):
+				healthly.append(errors[2][i])
+				maes.append(errors[2][i])
+				if(errors[2][i] >= fullTh):
+					mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
+				else:
+					mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0); 
+			else:
+				unknown += 1
+		elif(prob[i] >= population[3]): # 95
+			if(errors[1][i] < fullTh or errors[1][i] > upperTh):
+				healthly.append(errors[1][i])
+				maes.append(errors[1][i])
+				if(errors[1][i] >= fullTh):
+					mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
+				else:
+					mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0); 
+			else:
+				unknown += 1
+		else: # 100
+			if(errors[0][i] < fullTh or errors[0][i] > upperTh):
+				healthly.append(errors[0][i])
+				maes.append(errors[1][i])
+				if(errors[0][i] >= fullTh):
+					mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
+				else:
+					mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0); 
+			else:
+				unknown += 1
+	
+	#print(unknown)
+	#print(len(prob)-unknown)
+	
+	falseNegative = np.where(degraded < fullTh)
+	fn = falseNegative[0].shape[0]
+	truePositive = np.where(degraded >= fullTh)
+	tp = truePositive[0].shape[0]
+	
+	falsePositive = np.where(healthly >= fullTh)
+	fp = falsePositive[0].shape[0]
+	
+	trueNegative = np.where(healthly < fullTh)
+	tn = falsePositive[0].shape[0]
+	
+	recall = tp / (tp+fn)
+	precision = tp / (tp + fp)
+	fscore = 2 * precision * recall / (precision + recall)
+	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))	
+	
+	if(True):
+		### MAP
+		dataSet = pd.DataFrame({'MAE':maes,'TP':mTP, 'TN':mTN, 'FP':mFP, 'FN':mFN})
+		dataSet.sort_values(by="MAE",ascending=False,inplace=True)
+			
+		tmp = dataSet.loc[ (dataSet["TP"] == 1) | (dataSet["FP"] == 1) ]
 		
+		rcl = tmp["TP"].cumsum() / (tp+fn)
+		prc = tmp["TP"].cumsum() / (tmp["TP"].cumsum() + tmp["FP"].cumsum())
+		posDataset = pd.DataFrame({'RCL':rcl,'PRC':prc})
+		#print(posDataset.head(20))
+		plt.plot( posDataset["RCL"],posDataset["PRC"],label="POS")
+		plt.grid()
+		plt.legend()
+		plt.show()
+		### end MAP
+	
+	
+	
+	
+	if(False):
+		#ageThIdx = 3 # 90
+		boxes = [np.asarray(healthly), np.asarray(degraded)]
+		plt.boxplot(boxes,sym='',whis=[100-lowTH, lowTH]) #
+		plt.axhline(y=fullTh, color='blue', linestyle='-')
+		plt.axhline(y=upperTh, color='blue', linestyle='-')
+		#plt.axvline(x=(ageThIdx+0.5),color='gray',)
+		#plt.axvline(x=(lastAge+0.5),color='gray',)
+		plt.xticks(range(1,3),["Healthly","Degraded"])
+		plt.title("%d %d" % (lowTH,upTH) )
+		plt.grid()
+		plt.xlabel('Status')
+		plt.ylabel('MAE')
+		plt.show()
+	
+	
+	return precision,recall
+
+	
 def __evaluation(maes,labels,name4model):
 	
 	tit = "MAE %s" % name4model 
@@ -235,12 +371,14 @@ def __evaluation(maes,labels,name4model):
 	y = []
 	n = []
 	
-	a = np.zeros((10,3))
+	a = np.zeros((20,3))
 	
 	i = 0
 	print(name4model)
-	for perc in range(87,88):
-		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
+	population = [0.90,0.60,0.50,0.40]
+	for perc in range(80,82):
+		#precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
+		precision,recall = precisionRecallOnRandPopulation(maes,perc,perc+4,population)
 		x.append(recall)
 		y.append(precision)
 		n.append(perc)
@@ -354,11 +492,6 @@ def codeProjection(encSize,type,K):
 		plt.show()
 	
 
-
-	
-
-	
-	
 def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	
 	#for c in range(0,len(errors)):
@@ -376,8 +509,8 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 6
-	lastAge = 9 #len(errors)
+	ageThIdx = 3
+	lastAge = 5 #len(errors)
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]
 		errAtAge = np.where(errAtAge >= fullTh)
@@ -405,8 +538,8 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 		#fig = plt.figure()
 		plt.boxplot(errors,sym='',whis=[100-lastPerc, lastPerc]) #
 		plt.axhline(y=fullTh, color='blue', linestyle='-')
-		plt.axvline(x=(ageThIdx-0.5),color='gray',)
-		plt.axvline(x=(lastAge-0.5),color='gray',)
+		plt.axvline(x=(ageThIdx+0.5),color='gray',)
+		plt.axvline(x=(lastAge+0.5),color='gray',)
 		plt.xticks(range(1,len(labels)+1),labels)
 		plt.title(title)
 		plt.grid()
