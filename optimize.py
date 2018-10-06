@@ -371,7 +371,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	sigma = np.std(maes)
 	mean = np.mean(maes)
 	
-	score = HL_full  #mean + sigma + prc[0] #variance + MAE_full
+	score = mean + sigma   # HL_full + prc[0] #variance + MAE_full
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f MeanC: %f" % (score,sigma,MAE_full,HL_full, prc[0],mean))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
@@ -385,7 +385,7 @@ def main():
                                           #model = denseModelClassic,
 										  data=data,
                                           algo=tpe.suggest,
-                                          max_evals=30,
+                                          max_evals=35,
                                           trials=Trials())
 	
 	train, valid, agedTrain, agedValid = data()

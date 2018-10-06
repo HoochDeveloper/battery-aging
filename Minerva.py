@@ -124,7 +124,7 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 		#CHOOSE MODEL
-		model = self.Conv2D_QR(inputFeatures,outputFeatures,timesteps)
+		model = self.Conv2D_QR2(inputFeatures,outputFeatures,timesteps)
 		#__ch2sp(inputFeatures,outputFeatures,timesteps)
 		#CHOOSE MODEL
 		adam = optimizers.Adam(lr=0.0005)		
@@ -305,6 +305,32 @@ class Minerva():
 		
 		return maes
 	
+	
+	def Conv2D_QR2(self,inputFeatures,outputFeatures,timesteps):
+		dropPerc = 0.5
+		strideSize = 2
+		codeSize = 12
+		norm = 4.
+
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		c = Reshape((4,5,2),name="R2E")(inputs)
+		c = Conv2D(256,strideSize,activation='relu',name="E1")(c)
+		c = Conv2D(48,strideSize,activation='relu',name="E3")(c)
+
+		preEncodeFlat = Flatten(name="F1")(c) 
+		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+		c = Reshape((1,1,codeSize),name="R2D")(enc)
+
+		c = Conv2DTranspose(256,strideSize,activation='relu',name="D1")(c)
+
+		c = Dropout(dropPerc)(c) 
+		c = Conv2DTranspose(48,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)
+
+		preDecFlat = Flatten(name="F2")(c) 
+		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		return autoencoderModel
 	
 	def Conv2D_QR(self,inputFeatures,outputFeatures,timesteps):
 		dropPerc = 0.5
