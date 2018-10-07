@@ -5,7 +5,7 @@ from logging import handlers as loghds
 from Demetra import EpisodedTimeSeries
 #Kers
 from keras.models import Sequential, Model
-from keras.layers import Dense, Input, concatenate, Flatten, Reshape, LSTM
+from keras.layers import Dense, Input, concatenate, Flatten, Reshape, LSTM, Lambda
 from keras.layers import Conv1D
 from keras.layers import Conv2DTranspose, Conv2D, Dropout
 from keras.models import load_model
@@ -15,6 +15,8 @@ import tensorflow as tf
 #Sklearn
 from sklearn.metrics import mean_absolute_error
 from keras.constraints import max_norm
+
+import keras.backend as K
 
 #KERAS ENV GPU
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -68,13 +70,20 @@ def rae_huber_loss(y_true, y_pred, clip_delta=1.0, alpha=0.3):
 def huber_loss_mean(y_true, y_pred, clip_delta=1.0):
 	return tf.reduce_mean(huber_loss(y_true, y_pred, clip_delta))
 	
-class Minerva():
+#eps = K.random_normal(shape=(20, 12), mean=0., stddev=1.)
 	
+def sample_z(args):
+	mu, log_sigma = args
+	eps = K.random_normal(shape=(1,10),mean=0.,stddev=1.)
+	return mu + K.exp(log_sigma / 2) * eps
+		
+class Minerva():
+		
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
-	epochs = 400
+	epochs = 500
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -108,6 +117,105 @@ class Minerva():
 			if not os.path.exists(self.ets.episodeImageFolder):
 				os.makedirs(self.ets.episodeImageFolder)
 
+	
+	def VAE(self,inputFeatures,outputFeatures,timesteps):
+		dropPerc = 0.5
+		strideSize = 2
+		codeSize = 10
+		norm = 4.
+		outFun = 'tanh'
+
+		n_z = codeSize
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		h_q = Dense(512, activation='relu')(inputs)
+		mu = Dense(n_z, activation='linear')(h_q)
+		log_sigma = Dense(n_z, activation='linear')(h_q)
+		
+		# Sample z ~ Q(z|X)
+		z = Lambda(sample_z)([mu, log_sigma])
+		
+		# P(X|z) -- decoder
+		decoder_hidden = Dense(512, activation='relu')
+		decoder_out = Dense(784, activation='relu')
+
+		h_p = decoder_hidden(z)
+		outputs = decoder_out(h_p)
+		
+		preDecFlat = Flatten(name="F2")(outputs) 
+		c = Dense(timesteps*outputFeatures,activation=outFun,name="DECODED")(preDecFlat)
+		
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		# Overall VAE model, for reconstruction and training
+		vae = Model(inputs, out)
+		return vae
+
+
+	def VAE3(self,inputFeatures,outputFeatures,timesteps):
+		codeSize = 10
+
+		outFun = 'linear'
+
+		n_z = codeSize
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		h_q = Dense(64, activation='relu')(inputs)
+		mu = Dense(n_z, activation='linear')(h_q)
+		log_sigma = Dense(n_z, activation='linear')(h_q)
+		
+		# Sample z ~ Q(z|X)
+		z = Lambda(sample_z)([mu, log_sigma])
+		
+		# P(X|z) -- decoder
+		decoder_hidden = Dense(32, activation='relu')
+		decoder_out = Dense(64, activation='relu')
+
+		h_p = decoder_hidden(z)
+		outputs = decoder_out(h_p)
+		
+		preDecFlat = Flatten(name="F2")(outputs) 
+		c = Dense(timesteps*outputFeatures,activation=outFun,name="DECODED")(preDecFlat)
+		
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		# Overall VAE model, for reconstruction and training
+		vae = Model(inputs, out)
+		return vae
+		
+	def VAE2(self,inputFeatures,outputFeatures,timesteps):
+		dropPerc = 0.5
+		strideSize = 2
+		codeSize = 10
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		c = Reshape((4,5,2),name="R2E")(inputs)
+		c = Conv2D(256,strideSize,activation='relu',name="E1")(c)
+		c = Conv2D(128,strideSize,activation='relu',name="E2")(c)
+		#c = Conv2D(16,strideSize,activation='relu',name="E3")(c)
+		
+		mu = Dense(codeSize, activation='linear')(c)
+		log_sigma = Dense(codeSize, activation='linear')(c)
+		
+		# Sample z ~ Q(z|X)
+		z = Lambda(sample_z)([mu, log_sigma])
+		
+		# P(X|z) -- decoder
+		decoder_hidden = Conv2DTranspose(128,strideSize,activation='relu',name="D1")
+		decoder_out = Conv2DTranspose(256,strideSize,activation='relu',name="D2")
+
+		h_p = decoder_hidden(z)
+		outputs = decoder_out(h_p)
+		
+		preDecFlat = Flatten(name="F2")(outputs) 
+		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		
+		# Overall VAE model, for reconstruction and training
+		vae = Model(inputs, out)
+		return vae
+		
+				
 	def trainlModelOnArray(self,x_train, y_train, x_valid, y_valid,name4model,encodedSize = 8):
 		
 		tt = time.clock()
@@ -124,13 +232,13 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 		#CHOOSE MODEL
-		model = self.Conv2D_QR2(inputFeatures,outputFeatures,timesteps)
+		model = self.VAE3(inputFeatures,outputFeatures,timesteps)
 		#__ch2sp(inputFeatures,outputFeatures,timesteps)
 		#CHOOSE MODEL
 		adam = optimizers.Adam(lr=0.0005)		
 		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 		
-		#print(model.summary())
+		print(model.summary())
 		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
@@ -306,6 +414,32 @@ class Minerva():
 		return maes
 	
 	
+	def Conv2D_QR3(self,inputFeatures,outputFeatures,timesteps):
+		dropPerc = 0.5
+		strideSize = 2
+		codeSize = 12
+		norm = 4.
+		outFun = 'tanh'
+
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		c = Reshape((4,5,2),name="R2E")(inputs)
+		c = Conv2D(48,strideSize,activation='relu',name="E1")(c)
+		c = Conv2D(48,strideSize,activation='relu',name="E3")(c)
+
+		preEncodeFlat = Flatten(name="F1")(c) 
+		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+		c = Reshape((1,1,codeSize),name="R2D")(enc)
+
+		c = Conv2DTranspose(128,strideSize,activation='relu',name="D1")(c)
+		c = Dropout(dropPerc)(c)
+		c = Conv2DTranspose(128,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D3")(c)
+		preDecFlat = Flatten(name="F2")(c) 
+		c = Dense(timesteps*outputFeatures,activation=outFun,name="DECODED")(preDecFlat)
+		
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		return autoencoderModel
+	
 	def Conv2D_QR2(self,inputFeatures,outputFeatures,timesteps):
 		dropPerc = 0.5
 		strideSize = 2
@@ -413,6 +547,24 @@ class Minerva():
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		return autoencoderModel
+	
+	def conv1DQR(self,inputFeatures,outputFeatures,timesteps):
+		
+		dropPerc = 0.5
+		norm = 5
+		codeSize = 10
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		c = Conv1D(256,5,activation='relu',name="E1")(inputs)
+		c = Dropout(dropPerc)(c)
+		c = Conv1D(64, 4,kernel_constraint=max_norm(norm),activation='relu',name="E2")(c)
+		preEncodeFlat = Flatten(name="F1")(c) 
+		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+		c = Dense(256,activation='relu',name="D1")(enc)
+		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		return autoencoderModel
 	
