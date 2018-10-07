@@ -386,14 +386,15 @@ def __evaluation(maes,labels,name4model):
 	print(name4model)
 	#population = [0.90,0.80,0.70,0.35]
 	#population = [0.90,0.85,0.80,0.15]
-	population = [0.95,0.80,0.50,0.35]
-	for perc in range(70,100):
-		#precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
-		precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
-		x.append(fprate)
-		y.append(recall)
-		#x.append(recall)
-		#y.append(precision)
+	population = [0.95,0.80,0.60,0.35]
+	for perc in range(94,95):
+		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
+		#x.append(fprate)
+		#y.append(recall)
+		
+		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
+		x.append(recall)
+		y.append(precision)
 		n.append(perc)
 		a[i,0] = "{:10.3f}".format(perc) 
 		a[i,1] = "{:10.3f}".format(precision)

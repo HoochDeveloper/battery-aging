@@ -74,7 +74,7 @@ def huber_loss_mean(y_true, y_pred, clip_delta=1.0):
 	
 def sample_z(args):
 	mu, log_sigma = args
-	eps = K.random_normal(shape=(1,10),mean=0.,stddev=1.)
+	eps = K.random_normal(shape=(1,7),mean=0.,stddev=1.)
 	return mu + K.exp(log_sigma / 2) * eps
 		
 class Minerva():
@@ -160,7 +160,7 @@ class Minerva():
 		n_z = codeSize
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		h_q = Dense(64, activation='relu')(inputs)
+		h_q = Dense(256, activation='relu')(inputs)
 		mu = Dense(n_z, activation='linear')(h_q)
 		log_sigma = Dense(n_z, activation='linear')(h_q)
 		
@@ -168,8 +168,8 @@ class Minerva():
 		z = Lambda(sample_z)([mu, log_sigma])
 		
 		# P(X|z) -- decoder
-		decoder_hidden = Dense(32, activation='relu')
-		decoder_out = Dense(64, activation='relu')
+		decoder_hidden = Dense(128, activation='relu')
+		decoder_out = Dense(256, activation='relu')
 
 		h_p = decoder_hidden(z)
 		outputs = decoder_out(h_p)
@@ -186,29 +186,31 @@ class Minerva():
 	def VAE2(self,inputFeatures,outputFeatures,timesteps):
 		dropPerc = 0.5
 		strideSize = 2
-		codeSize = 10
+		codeSize = 7
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((4,5,2),name="R2E")(inputs)
-		c = Conv2D(256,strideSize,activation='relu',name="E1")(c)
-		c = Conv2D(128,strideSize,activation='relu',name="E2")(c)
-		#c = Conv2D(16,strideSize,activation='relu',name="E3")(c)
-		
-		mu = Dense(codeSize, activation='linear')(c)
-		log_sigma = Dense(codeSize, activation='linear')(c)
+		c = Conv2D(128,strideSize,activation='relu',name="E1")(c)
+		c = Conv2D(48,strideSize,activation='relu',name="E2")(c)
+
+		mu =  Conv2D(codeSize,strideSize,activation='linear',name="MU")(c)
+		log_sigma = Conv2D(codeSize,strideSize,activation='linear',name="SIGMA")(c)
 		
 		# Sample z ~ Q(z|X)
-		z = Lambda(sample_z)([mu, log_sigma])
+		z = Lambda(sample_z,name="Z")([mu, log_sigma])
 		
 		# P(X|z) -- decoder
-		decoder_hidden = Conv2DTranspose(128,strideSize,activation='relu',name="D1")
-		decoder_out = Conv2DTranspose(256,strideSize,activation='relu',name="D2")
+		decoder_hidden = Conv2DTranspose(48,strideSize,activation='relu',name="D1")
+		decoder_out = Conv2DTranspose(128,strideSize,activation='relu',name="D2")
 
 		h_p = decoder_hidden(z)
 		outputs = decoder_out(h_p)
 		
-		preDecFlat = Flatten(name="F2")(outputs) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+		#preDecFlat = Flatten(name="F2")(outputs) 
+		#c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+		
+		
+		c = Conv2DTranspose(outputFeatures,strideSize,activation='linear',name="D3")(outputs)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		
 		# Overall VAE model, for reconstruction and training
@@ -232,7 +234,7 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 		#CHOOSE MODEL
-		model = self.VAE3(inputFeatures,outputFeatures,timesteps)
+		model = self.VAE2(inputFeatures,outputFeatures,timesteps)
 		#__ch2sp(inputFeatures,outputFeatures,timesteps)
 		#CHOOSE MODEL
 		adam = optimizers.Adam(lr=0.0005)		
