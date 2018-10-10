@@ -178,7 +178,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,70,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = True
+	mustPlot = False
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
 	tsIndex = ets.dataHeader.index(ets.timeIndex)
@@ -387,7 +387,7 @@ def __evaluation(maes,labels,name4model):
 	#population = [0.90,0.80,0.70,0.35]
 	#population = [0.90,0.85,0.80,0.15]
 	population = [0.95,0.80,0.60,0.35]
-	for perc in range(94,95):
+	for perc in range(80,81):
 		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
 		#x.append(fprate)
 		#y.append(recall)

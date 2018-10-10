@@ -16,6 +16,8 @@ import tensorflow as tf
 from sklearn.metrics import mean_absolute_error
 from keras.constraints import max_norm
 
+from keras.losses import mse, binary_crossentropy
+
 import keras.backend as K
 
 #KERAS ENV GPU
@@ -37,7 +39,7 @@ logger.addHandler(consoleHandler)
  ' https://jaromiru.com/2017/05/27/on-using-huber-loss-in-deep-q-learning/
  ' https://en.wikipedia.org/wiki/Huber_loss
 '''
-def huber_loss(y_true, y_pred, clip_delta=1.0):
+def __huber_loss(y_true, y_pred, clip_delta=1.0):
 	error = y_true - y_pred	
 	cond  = tf.keras.backend.abs(error) < clip_delta
 	squared_loss = 0.5 * tf.keras.backend.square(error)
@@ -74,9 +76,41 @@ def huber_loss_mean(y_true, y_pred, clip_delta=1.0):
 	
 def sample_z(args):
 	mu, log_sigma = args
-	eps = K.random_normal(shape=(1,7),mean=0.,stddev=1.)
+	eps = K.random_normal(shape=(1,5),mean=0.,stddev=1.)
 	return mu + K.exp(log_sigma / 2) * eps
+
+
+def huber_loss(z_mean,z_log_var):
+
+	def loss(y_true, y_pred, clip_delta=1.0):
+	
+		error = y_true - y_pred	
+		cond  = tf.keras.backend.abs(error) < clip_delta
+		squared_loss = 0.5 * tf.keras.backend.square(error) 
+		linear_loss  = clip_delta * (tf.keras.backend.abs(error) - 0.5 * clip_delta) 
+		huberLoss = tf.where(cond, squared_loss, linear_loss) 
+		kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+		kl_loss = K.sum(kl_loss, axis=-1)
+		kl_loss *= -0.5
+			
+		#print(kl_loss.get_shape())
+		#print(huberLoss.get_shape())
 		
+		tmp1 =  tf.add( huberLoss[:,:,0] , kl_loss)
+		tmp2 = 	tf.add( huberLoss[:,:,1] , kl_loss)
+		
+		err = tf.add(tmp1,tmp2)
+
+		
+		return err
+		
+	
+	
+	
+	return loss
+	
+
+	
 class Minerva():
 		
 	logFolder = "./logs"
@@ -117,39 +151,106 @@ class Minerva():
 			if not os.path.exists(self.ets.episodeImageFolder):
 				os.makedirs(self.ets.episodeImageFolder)
 
+				
+	def VAE4(self,inputFeatures,outputFeatures,timesteps):
+		
+		intermediate_dim = 256
+		latent_dim = 5
+		
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		
+		
+		
+		x = Dense(intermediate_dim, activation='relu')(inputs)
+		z_mean = Dense(latent_dim, name='z_mean')(x)
+		z_log_var = Dense(latent_dim, name='z_log_var')(x)
+
+		# use reparameterization trick to push the sampling out as input
+		# note that "output_shape" isn't necessary with the TensorFlow backend
+		z = Lambda(sample_z, output_shape=(latent_dim,), name='z')([z_mean, z_log_var])
+
+		# instantiate encoder model
+		encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
+		print("ENCODER")
+		encoder.summary()
+		
+		# build decoder model
+		latent_inputs = Input(shape=(latent_dim,), name='z_sampling')
+		x = Dense(intermediate_dim, activation='relu')(latent_inputs)
+		y = Dense(outputFeatures*timesteps, activation='sigmoid')(x)
+		#outputs = Reshape((timesteps, outputFeatures),name="OUT")(y)
+		
+		
+		# instantiate decoder model
+		decoder = Model(latent_inputs, y, name='decoder')
+		print("Decoder")
+		decoder.summary()
+		
+		adam = optimizers.Adam(lr=0.0005)		
+		out = decoder(encoder(inputs)[2])
+		
+		
+		outputs = Reshape((timesteps, outputFeatures),name="OUT")(out)
+		vae = Model(inputs, outputs, name='vae_mlp')
+		print("VAE")
+		vae.summary();
+		#vae.add_loss(vae_loss)
+		#huber_loss(z_mean,z_log_var)
+		
+		vae.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+		
+		return vae,encoder,decoder
+		
+				
 	
 	def VAE(self,inputFeatures,outputFeatures,timesteps):
 		dropPerc = 0.5
 		strideSize = 2
-		codeSize = 10
+		codeSize = 5
 		norm = 4.
 		outFun = 'tanh'
 
 		n_z = codeSize
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		h_q = Dense(512, activation='relu')(inputs)
+		h_q = Dense(256, activation='relu')(inputs)
 		mu = Dense(n_z, activation='linear')(h_q)
 		log_sigma = Dense(n_z, activation='linear')(h_q)
 		
 		# Sample z ~ Q(z|X)
 		z = Lambda(sample_z)([mu, log_sigma])
 		
+		
+		
+		
 		# P(X|z) -- decoder
-		decoder_hidden = Dense(512, activation='relu')
-		decoder_out = Dense(784, activation='relu')
+		decoder_hidden = Dense(256, activation='relu')
+		decoder_out = Dense(128, activation='relu')
 
 		h_p = decoder_hidden(z)
 		outputs = decoder_out(h_p)
+		
 		
 		preDecFlat = Flatten(name="F2")(outputs) 
 		c = Dense(timesteps*outputFeatures,activation=outFun,name="DECODED")(preDecFlat)
 		
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		
+		adam = optimizers.Adam(lr=0.0005)
 		# Overall VAE model, for reconstruction and training
 		vae = Model(inputs, out)
-		return vae
+		
+		
+		decoder = None
+		latent_inputs = Input(shape=(5,), name='z_sampling')
+		
+		
+		decOut = decoder_out(decoder_hidden(latent_inputs))
+		decoder = Model(latent_inputs,decOut)
+		
+		encoder = Model(inputs,[mu, log_sigma])
+		
+		vae.compile(loss=huber_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
+		return vae, encoder, decoder
 
 
 	def VAE3(self,inputFeatures,outputFeatures,timesteps):
@@ -234,26 +335,40 @@ class Minerva():
 		outputFeatures = y_train.shape[2]
 		timesteps =  x_train.shape[1]
 		#CHOOSE MODEL
-		model = self.VAE2(inputFeatures,outputFeatures,timesteps)
+		model,_,_ = self.VAE(inputFeatures,outputFeatures,timesteps)
 		#__ch2sp(inputFeatures,outputFeatures,timesteps)
 		#CHOOSE MODEL
-		adam = optimizers.Adam(lr=0.0005)		
-		model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 		
-		print(model.summary())
+		
+		if(False):
+			model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+		
+		#print(model.summary())
 		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min')
+			save_best_only=True, mode='min',save_weights_only=True)
 		
 		validY = y_valid
 		trainY = y_train
 		
-		history  = model.fit(x_train, trainY,
+		
+		#samples = x_train.shape[0]
+		#timesteps = x_train.shape[1]
+		#features = x_train.shape[2]
+		#x_train = x_train.reshape(samples,timesteps*features)
+		#
+		#samples = x_valid.shape[0]
+		#timesteps = x_valid.shape[1]
+		#features = x_valid.shape[2]
+		#x_valid = x_valid.reshape(samples,timesteps*features)
+		
+		history  = model.fit(x_train, x_train,
 			verbose = 0,
 			batch_size=self.batchSize,
-			epochs=self.epochs,
-			validation_data=(x_valid,validY)
+			#epochs=self.epochs,
+			epochs=5,
+			validation_data=(x_valid,x_valid)
 			,callbacks=[checkpoint]
 		)
 		elapsed = (time.clock() - tt)
@@ -262,8 +377,15 @@ class Minerva():
 		self.ets.saveZip(self.ets.rootResultFolder,historySaveFile,history.history)
 		
 		# loading the best model for evaluation
-		customLoss = {'huber_loss': huber_loss}
-		model = load_model(path4save,custom_objects=customLoss)
+		#customLoss = {'huber_loss': huber_loss}
+		#model = load_model(path4save,custom_objects=customLoss)
+		
+		
+		model, encoder, decoder = self.VAE(inputFeatures,outputFeatures,timesteps)
+		model.load_weights(path4save)
+		
+		
+		
 		trainMae, trainHuber = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
 		valMae, valHuber = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
 		logger.info("Training completed. Elapsed %f second(s). Train HL %f - MAE %f  Valid HL %f - MAE %f " %  (elapsed,trainMae,trainHuber,valMae,valHuber) )
@@ -310,9 +432,19 @@ class Minerva():
 	
 	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
 		
-		customLoss = {'huber_loss': huber_loss}
-		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
-			,custom_objects=customLoss)
+		#customLoss = {'huber_loss': huber_loss}
+		#model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
+		#	,custom_objects=customLoss)
+		
+		model,enc,_ = self.VAE(2,2,20)
+		
+		model.load_weights(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
+		
+		
+		[m,s] = enc.predict(testX,  batch_size=self.batchSize)
+		
+		
+		
 		logger.debug("There are %s parameters in model" % model.count_params()) 
 		
 		testX = self.__batchCompatible(self.batchSize,testX)
