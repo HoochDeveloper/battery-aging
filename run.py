@@ -178,7 +178,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,70,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = True
+	mustPlot = False
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
 	tsIndex = ets.dataHeader.index(ets.timeIndex)
@@ -387,14 +387,14 @@ def __evaluation(maes,labels,name4model):
 	#population = [0.90,0.80,0.70,0.35]
 	#population = [0.90,0.85,0.80,0.15]
 	population = [0.95,0.80,0.60,0.35]
-	for perc in range(80,99):
-		precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
-		x.append(fprate)
-		y.append(recall)
+	for perc in range(85,86):
+		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
+		#x.append(fprate)
+		#y.append(recall)
 		
-		#precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
-		#x.append(recall)
-		#y.append(precision)
+		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
+		x.append(recall)
+		y.append(precision)
 		n.append(perc)
 		a[i,0] = "{:10.3f}".format(perc) 
 		a[i,1] = "{:10.3f}".format(precision)
@@ -524,7 +524,7 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 3
+	ageThIdx = 2
 	lastAge = 5 #len(errors)
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]

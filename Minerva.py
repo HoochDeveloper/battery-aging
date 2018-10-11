@@ -83,7 +83,7 @@ class Minerva():
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
-	batchSize = 100
+	batchSize = 200
 	epochs = 500
 	ets = None
 	eps1   = 5
@@ -129,11 +129,12 @@ class Minerva():
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		r = Reshape((4,5,2),name="RE")
 		
-		#encoderHidden1 = Dense(512, activation='relu',name = "EH1")
-		#encoderHidden2 = Dense(256, activation='relu',name = "EH2")
-		eh1 = Conv2D(256,2, activation='relu',name = "EH1")
-		eh2 = Conv2D(128,2, activation='relu',name = "EH2")
-		eh3 = Conv2D(64,2, activation='relu',name = "EH3")
+		eh1 = Dense(256, activation='relu',name = "EH1")
+		eh2 = Dense(128, activation='relu',name = "EH2")
+		eh3 = Dense(64, activation='relu',name = "EH3")
+		#eh1 = Conv2D(256,2, activation='relu',name = "EH1")
+		#eh2 = Conv2D(128,2, activation='relu',name = "EH2")
+		#eh3 = Conv2D(64,2, activation='relu',name = "EH3")
 		flatE = Flatten(name="FE")
 		mean = Dense(codeSize, activation='linear',name = "MU")
 		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
@@ -153,8 +154,8 @@ class Minerva():
 		# P(X|z) -- decoder
 		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
 		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
-		decoder_hidden1 = Dense(512, activation='relu',name = "DH1")
-		decoder_hidden2 = Dense(256, activation='relu',name = "DH2")
+		decoder_hidden1 = Dense(256, activation='relu',name = "DH1")
+		decoder_hidden2 = Dense(128, activation='relu',name = "DH2")
 		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
 		#fd = Flatten(name = "FD")
 		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
@@ -171,10 +172,10 @@ class Minerva():
 			print("VAE")
 			vae.summary()
 		
-		adam = optimizers.Adam() #lr=0.0005
+		adam = optimizers.Adam(lr=0.0005) 
 		# Overall VAE model, for reconstruction and training
-		vae.compile(loss=vae_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
-		#vae.compile(loss = huber_loss,optimizer=adam,metrics=['mae'])
+		#vae.compile(loss=vae_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
+		vae.compile(loss = huber_loss,optimizer=adam,metrics=['mae'])
 		return vae, encoder, decoder
 
 
@@ -280,13 +281,19 @@ class Minerva():
 				samples.append(z)
 			xhat = decoder.predict(np.asarray(samples))
 			
-			maes = np.zeros(xhat.shape[0], dtype='float32')
+			errs = np.zeros(xhat.shape[0], dtype='float32')
 			for sampleCount in range(0,xhat.shape[0]):
-				maes[sampleCount] = mean_squared_error(testX[sampleCount],xhat[sampleCount])
+				
+				#diff = np.mean( testX[sampleCount] - xhat[sampleCount] )
+				diff = mean_absolute_error(testX[sampleCount] , xhat[sampleCount])
+				errs[sampleCount] = np.square(diff)
 			
-			recProb = maes.mean()
-			
-			probs[i] = recProb
+			#print("Errs")
+			#print(errs)
+			recProb = np.exp(-errs)
+			#print("Probs")
+			#print(recProb)
+			probs[i] = recProb.mean()
 		
 		print(probs.mean())
 		return probs
