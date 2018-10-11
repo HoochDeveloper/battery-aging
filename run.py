@@ -387,7 +387,7 @@ def __evaluation(maes,labels,name4model):
 	#population = [0.90,0.80,0.70,0.35]
 	#population = [0.90,0.85,0.80,0.15]
 	population = [0.95,0.80,0.60,0.35]
-	for perc in range(80,81):
+	for perc in range(90,91):
 		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
 		#x.append(fprate)
 		#y.append(recall)
@@ -443,11 +443,12 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		
 			test =  np.concatenate(folds4learn)
 			mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
+			#mae = minerva.reconstructionProbability(name4model,test)
+			
 			mae2Save[count][a] = mae
 			lab2Save[count][a] = "Q@%d" % ageScale
 			count += 1
-			#maes.append(mae)
-			#labels.append("Age %d" % ageScale)
+			break
 		
 	for c in range(0,K):
 		name4model = modelNameTemplate % (encSize,100,type,c+1)
@@ -523,8 +524,8 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 4
-	lastAge = 6 #len(errors)
+	ageThIdx = 3
+	lastAge = 5 #len(errors)
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]
 		errAtAge = np.where(errAtAge >= fullTh)

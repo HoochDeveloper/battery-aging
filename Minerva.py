@@ -13,7 +13,7 @@ from keras import optimizers
 from keras.callbacks import EarlyStopping, CSVLogger, ModelCheckpoint
 import tensorflow as tf
 #Sklearn
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from keras.constraints import max_norm
 
 from keras.losses import mse, binary_crossentropy
@@ -34,6 +34,9 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
+codeDimension = 3
+
+
 '''
  ' Huber loss.
  ' https://jaromiru.com/2017/05/27/on-using-huber-loss-in-deep-q-learning/
@@ -51,63 +54,24 @@ def huber_loss(y_true, y_pred, clip_delta=1.0):
 
 def vae_loss(z_mean,z_log_var):
 
-	def loss(y_true, y_pred, clip_delta=1.0):
+	def loss(y_true, y_pred):
 	
 	
-		kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
-		kl_loss = K.sum(kl_loss, axis=-1)
-		kl_loss *= -0.5
-	
-	
-		
-	
-		error = y_true - y_pred	
-		
+		#kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+		#kl_loss = K.sum(kl_loss, axis=-1)
+		#kl_loss *= -0.5
+		reconstruction_loss = K.mean(mse(y_true, y_pred))
+		#temp = K.mean(kl_loss)
+		vaeLoss = reconstruction_loss #+ temp
+		return vaeLoss
 		
 		
-		cond  = tf.keras.backend.abs(error) < clip_delta
-		t_squared_loss = 0.5 * tf.keras.backend.square(error) 
-		t_linear_loss  = clip_delta * (tf.keras.backend.abs(error) - 0.5 * clip_delta) 
-		
-		
-		temp =  tf.stack([kl_loss] * 40) 
-		
-		
-		temp = tf.reshape(temp, [-1, 20,2]) 
-		
-		
-		
-		squared_loss = tf.add(temp,t_squared_loss)
-		linear_loss = tf.add(temp,t_linear_loss)
-		
-		
-		
-		huberLoss = tf.where(cond, squared_loss, linear_loss) 
-		
-			
-		#print(kl_loss.get_shape())
-		#print(huberLoss.get_shape())
-		
-		return huberLoss
-		
-		#tmp1 =  tf.add( huberLoss[:,:,0] , kl_loss)
-		#tmp2 = 	tf.add( huberLoss[:,:,1] , kl_loss)
-		#
-		#tmp1 =  tf.add( huberLoss[:,:,:] , B)
-		#tmp2 = 	tf.add( huberLoss[:,:,:] , B)
-		#
-		#err = tf.add(tmp1,tmp2)
-		#return err
-		
-	
-	
-	
 	return loss
 	
 
 def sample_z(args):
 	mu, log_sigma = args
-	eps = K.random_normal(shape=(1,11),mean=0.,stddev=1.)
+	eps = K.random_normal(shape=(1,2,codeDimension,),mean=0.,stddev=1.)
 	return mu + K.exp(log_sigma / 2) * eps
 
 	
@@ -118,7 +82,7 @@ class Minerva():
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
-	epochs = 250
+	epochs = 350
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -157,50 +121,60 @@ class Minerva():
 	
 	def VAE(self,inputFeatures,outputFeatures,timesteps):
 		
-		codeSize = 11
+		summary = False
+		codeSize = codeDimension
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		encoderHidden1 = Dense(512, activation='relu',name = "EH1")
-		encoderHidden2 = Dense(256, activation='relu',name = "EH2")
-		flatE = Flatten(name="FE")
-		mean = Dense(codeSize, activation='sigmoid',name = "MU")
-		logsg =  Dense(codeSize, activation='sigmoid', name = "LOG_SIGMA")
-		mu = mean(flatE(encoderHidden2(encoderHidden1(inputs))))
-		log_sigma = logsg(flatE(encoderHidden2(encoderHidden1(inputs))))
+		r = Reshape((4,5,2),name="RE")
+		
+		#encoderHidden1 = Dense(512, activation='relu',name = "EH1")
+		#encoderHidden2 = Dense(256, activation='relu',name = "EH2")
+		eh1 = Conv2D(256,2, activation='relu',name = "EH1")
+		eh2 = Conv2D(128,2, activation='relu',name = "EH2")
+		eh3 = Conv2D(64,2, activation='relu',name = "EH3")
+		#flatE = Flatten(name="FE")
+		mean = Dense(codeSize, activation='linear',name = "MU")
+		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+		#mu = mean(flatE(encoderHidden2(encoderHidden1(r(inputs)))))
+		#log_sigma = logsg(flatE(encoderHidden2(encoderHidden1(r(inputs)))))
+		mu = mean((eh3(eh2(eh1(r(inputs))))))
+		log_sigma = logsg((eh3(eh2(eh1(r(inputs))))))
 		encoder = Model(inputs,[mu, log_sigma])
-		#print("Encoder")
-		#encoder.summary()
+		if(summary):
+			print("Encoder")
+			encoder.summary()
 		
 		# Sample z ~ Q(z|X)
 		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
 		
 	
 		# P(X|z) -- decoder
-		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
-		decoder_hidden1 = Dense(256, activation='relu',name = "DH1")
-		decoder_hidden2 = Dense(128, activation='relu',name = "DH2")
+		latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
+		decoder_hidden1 = Dense(1024, activation='relu',name = "DH1")
+		decoder_hidden2 = Dense(512, activation='relu',name = "DH2")
 		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
+		fd = Flatten(name = "FD")
 		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
 		
-		decOut = decoderOut( decoded( decoder_hidden2 ( decoder_hidden1(latent_inputs) ) ))
+		decOut = decoderOut( decoded(fd( decoder_hidden2 ( decoder_hidden1(latent_inputs) ) )))
 		decoder = Model(latent_inputs,decOut)
-		#print("Decoder")
-		#decoder.summary()
+		if(summary):
+			print("Decoder")
+			decoder.summary()
 
-		trainDecOut = decoderOut( decoded(decoder_hidden2(decoder_hidden1(z)))) 
+		trainDecOut = decoderOut( decoded( fd(decoder_hidden2(decoder_hidden1(z))))) 
 		vae = Model(inputs, trainDecOut)
-		#print("VAE")
-		#vae.summary()
+		if(summary):
+			print("VAE")
+			vae.summary()
 		
-		adam = optimizers.Adam(lr=0.0005)
+		adam = optimizers.Adam() #lr=0.0005
 		# Overall VAE model, for reconstruction and training
-		vae.compile(loss=vae_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
+		#vae.compile(loss=vae_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
+		vae.compile(loss = huber_loss,optimizer=adam,metrics=['mae'])
 		return vae, encoder, decoder
 
 
-	
-		
-				
 	def trainlModelOnArray(self,x_train, y_train, x_valid, y_valid,name4model,encodedSize = 8):
 		
 		tt = time.clock()
@@ -235,7 +209,7 @@ class Minerva():
 		trainY = y_train
 		
 		history  = model.fit(x_train, x_train,
-			verbose = 0,
+			verbose = 1,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,x_valid)
@@ -251,31 +225,31 @@ class Minerva():
 		#model = load_model(path4save,custom_objects=customLoss)
 		
 		
-		model, encoder, decoder = self.VAE(inputFeatures,outputFeatures,timesteps)
-		model.load_weights(path4save,by_name=True)
+		vae, encoder, decoder = self.VAE(inputFeatures,outputFeatures,timesteps)
+		vae.load_weights(path4save,by_name=True)
 		encoder.load_weights(path4save,by_name=True)
 		decoder.load_weights(path4save,by_name=True)
 		
 		m,s = encoder.predict(x_valid)
 		
-		
 		samples = []
 		for i in range(0,m.shape[0]):
-			eps = np.random.normal(0, 1, 11)
+			eps = np.random.normal(0, 1, codeDimension)
 			z = m[i] + np.exp(s[i] / 2) * eps
 			samples.append(z)
-
+        
 		samples = np.asarray(samples)
-			
-		
+        
 		ydecoded = decoder.predict(samples)
+		
+		#ydecoded = vae.predict(x_valid)
 		
 		maes = np.zeros(ydecoded.shape[0], dtype='float32')
 		for sampleCount in range(0,ydecoded.shape[0]):
 			maes[sampleCount] = mean_absolute_error(x_valid[sampleCount],ydecoded[sampleCount])
 		
 		print(np.mean(maes))
-		
+		logger.info("Training completed. Elapsed %f second(s)." %  (elapsed))
 		
 		#trainMae, trainHuber = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
 		#valMae, valHuber = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
@@ -285,123 +259,64 @@ class Minerva():
 	
 	
 	
-
-	
+	def reconstructionProbability(self,model2load,testX):
+		path4save = os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
+		_, encoder, decoder = self.VAE(2,2,20)
+		encoder.load_weights(path4save,by_name=True)
+		decoder.load_weights(path4save,by_name=True)
+		testX = self.__batchCompatible(self.batchSize,testX)
+		m,s = encoder.predict(testX)
+		
+		#print(testX.shape)
+		probs = np.zeros(testX.shape[0], dtype='float32')
+		for i in range(0,m.shape[0]):
+			samples = []
+			for j in range(0,100):
+				# sample 50
+				eps = np.random.normal(0, 1, codeDimension)
+				z = m[i] + np.exp(s[i] / 2) * eps
+				samples.append(z)
+			xhat = decoder.predict(np.asarray(samples))
+			
+			maes = np.zeros(xhat.shape[0], dtype='float32')
+			for sampleCount in range(0,xhat.shape[0]):
+				maes[sampleCount] = mean_squared_error(testX[sampleCount],xhat[sampleCount])
+			
+			recProb = maes.mean()
+			
+			probs[i] = recProb
+		
+		print(probs.mean())
+		return probs
+		
+			
 	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
 		
-		#customLoss = {'huber_loss': huber_loss}
-		#model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
-		#	,custom_objects=customLoss)
+		path4save = os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
+		_, encoder, decoder = self.VAE(2,2,20)
 		
-		model,enc,_ = self.VAE(2,2,20)
-		
-		model.load_weights(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt))
-		
-		
-		#[m,s] = enc.predict(testX,  batch_size=self.batchSize)
-		
-		
-		
-		logger.debug("There are %s parameters in model" % model.count_params()) 
+		encoder.load_weights(path4save,by_name=True)
+		decoder.load_weights(path4save,by_name=True)
 		
 		testX = self.__batchCompatible(self.batchSize,testX)
-		testY = self.__batchCompatible(self.batchSize,testY)
+		m,s = encoder.predict(testX)
 		
-		logger.debug("Validating model %s with test %s" % (model2load,testX.shape))
 		
-		tt = time.clock()
-		
-		Huber, mae= model.evaluate( x=testX, y=testY, batch_size=self.batchSize, verbose=0)
-		
-		logger.info("%s HL %f - MAE %f Elapsed %f" % (phase,Huber,mae,(time.clock() - tt)))
-		
-		logger.debug("Reconstruction")
-		tt = time.clock()
-		ydecoded = model.predict(testX,  batch_size=self.batchSize)
-		logger.debug("Elapsed %f" % (time.clock() - tt))	
-		
+		samples = []
+		for i in range(0,m.shape[0]):
+			eps = np.random.normal(0, 1, codeDimension)
+			z = m[i] + np.exp(s[i] / 2) * eps
+			samples.append(z)
+
+		samples = np.asarray(samples)
+		ydecoded = decoder.predict(samples)
 		
 		maes = np.zeros(ydecoded.shape[0], dtype='float32')
 		for sampleCount in range(0,ydecoded.shape[0]):
-			maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
-			
-		if(False):
-			layer_name = 'ENC'
-			intermediate_layer_model = Model(inputs=model.input,
-				outputs=model.get_layer(layer_name).output)
-			
-			coded = intermediate_layer_model.predict(testX,  batch_size=self.batchSize)
-			#n = 10
-			
-			
-			for k in range(0,2):
-				plt.figure(figsize=(20, 8))
-				i = np.random.randint(coded.shape[0])
-				ax = plt.subplot(1, 3, 1)
-				plt.imshow(testX[i].reshape(5,8).T)
-				plt.title("Original")
-				#plt.gray()
-				ax.get_xaxis().set_visible(False)
-				ax.get_yaxis().set_visible(False)
-				
-				ax = plt.subplot(1, 3, 2)
-				plt.imshow(coded[i].reshape(3,2).T)
-				plt.title("Coded")
-				#plt.gray()
-				ax.get_xaxis().set_visible(False)
-				ax.get_yaxis().set_visible(False)
-				
-				ax = plt.subplot(1, 3, 3)
-				plt.imshow(ydecoded[i].reshape(5,8).T)
-				#plt.gray()
-				plt.title("Reconstruced")
-				ax.get_xaxis().set_visible(False)
-				ax.get_yaxis().set_visible(False)
-				
-				
-				plt.suptitle('MAE %f' % maes[i], fontsize=16)
-				plt.show()
-			
-		if(showScatter):
-			plt.figure(figsize=(8, 6), dpi=100)
-			plt.scatter(range(0,ydecoded.shape[0]), maes)
-			plt.hlines(mae,0,ydecoded.shape[0], color='r')
-			self.ets.plotMode(plotMode,"Scatter")
-			
-		if(showImages):
-				
-			
-			unscaledDecoded = ydecoded
-			unscaledTest = testY
-			
-			if(scaler is not None):
-				ydecoded = self.__skScaleBack(ydecoded,scaler)
-				testY = self.__skScaleBack(testY,scaler)
-				scaledMAE = self.__skMAE(testY,ydecoded)
-				logger.debug("%s scaled MAE %f" % (phase,scaledMAE))
-			for r in range(num2show):
-				plt.figure(figsize=(8, 6), dpi=100)
-				toPlot = np.random.randint(ydecoded.shape[0])
-				
-				episodeMAE = mean_absolute_error(unscaledTest[toPlot],unscaledDecoded[toPlot])
-				
-				i = 1
-				sid = 14
-				for col in range(ydecoded.shape[2]):
-					plt.subplot(ydecoded.shape[2], 1, i)
-					plt.plot(ydecoded[toPlot][:, col],color="navy",label="Reconstructed")
-					plt.plot(testY[toPlot][:, col],color="orange",label="Target")
-					if(i == 1):
-						plt.title("Current (A) vs Time (s)",loc="right")
-					else:
-						plt.title("Voltage (V) vs Time (s)",loc="right")
-					plt.suptitle("Episode MAE: %f" % episodeMAE, fontsize=16)
-					plt.grid()
-					plt.legend()
-					i += 1	
-				title = str(toPlot) +"_"+str(uuid.uuid4())
-				self.ets.plotMode(plotMode,title)
-		
+			maes[sampleCount] = mean_absolute_error(testX[sampleCount],ydecoded[sampleCount])
+		print(np.mean(maes))
+
+
 		return maes
 	
 	
