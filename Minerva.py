@@ -34,7 +34,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
-codeDimension = 3
+codeDimension = 9
 
 
 '''
@@ -57,12 +57,13 @@ def vae_loss(z_mean,z_log_var):
 	def loss(y_true, y_pred):
 	
 	
-		#kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
-		#kl_loss = K.sum(kl_loss, axis=-1)
-		#kl_loss *= -0.5
-		reconstruction_loss = K.mean(mse(y_true, y_pred))
-		#temp = K.mean(kl_loss)
-		vaeLoss = reconstruction_loss #+ temp
+		kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+		kl_loss = K.sum(kl_loss, axis=-1)
+		kl_loss *= -0.5
+		
+		reconstruction_loss = K.mean(mse(K.flatten(y_true), K.flatten(y_pred)))
+		reconstruction_loss *= 40
+		vaeLoss = K.mean(reconstruction_loss + kl_loss)
 		return vaeLoss
 		
 		
@@ -71,7 +72,8 @@ def vae_loss(z_mean,z_log_var):
 
 def sample_z(args):
 	mu, log_sigma = args
-	eps = K.random_normal(shape=(1,2,codeDimension,),mean=0.,stddev=1.)
+	#eps = K.random_normal(shape=(1,2,codeDimension,),mean=0.,stddev=1.)
+	eps = K.random_normal(shape=(codeDimension,),mean=0.,stddev=1.)
 	return mu + K.exp(log_sigma / 2) * eps
 
 	
@@ -82,7 +84,7 @@ class Minerva():
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
 	batchSize = 100
-	epochs = 350
+	epochs = 500
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -132,13 +134,13 @@ class Minerva():
 		eh1 = Conv2D(256,2, activation='relu',name = "EH1")
 		eh2 = Conv2D(128,2, activation='relu',name = "EH2")
 		eh3 = Conv2D(64,2, activation='relu',name = "EH3")
-		#flatE = Flatten(name="FE")
+		flatE = Flatten(name="FE")
 		mean = Dense(codeSize, activation='linear',name = "MU")
 		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
 		#mu = mean(flatE(encoderHidden2(encoderHidden1(r(inputs)))))
 		#log_sigma = logsg(flatE(encoderHidden2(encoderHidden1(r(inputs)))))
-		mu = mean((eh3(eh2(eh1(r(inputs))))))
-		log_sigma = logsg((eh3(eh2(eh1(r(inputs))))))
+		mu = mean(flatE(eh3(eh2(eh1(r(inputs))))))
+		log_sigma = logsg(flatE(eh3(eh2(eh1(r(inputs))))))
 		encoder = Model(inputs,[mu, log_sigma])
 		if(summary):
 			print("Encoder")
@@ -149,20 +151,21 @@ class Minerva():
 		
 	
 		# P(X|z) -- decoder
-		latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
-		decoder_hidden1 = Dense(1024, activation='relu',name = "DH1")
-		decoder_hidden2 = Dense(512, activation='relu',name = "DH2")
+		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
+		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
+		decoder_hidden1 = Dense(512, activation='relu',name = "DH1")
+		decoder_hidden2 = Dense(256, activation='relu',name = "DH2")
 		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
-		fd = Flatten(name = "FD")
+		#fd = Flatten(name = "FD")
 		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
 		
-		decOut = decoderOut( decoded(fd( decoder_hidden2 ( decoder_hidden1(latent_inputs) ) )))
+		decOut = decoderOut( decoded(( decoder_hidden2 ( decoder_hidden1(latent_inputs) ) )))
 		decoder = Model(latent_inputs,decOut)
 		if(summary):
 			print("Decoder")
 			decoder.summary()
 
-		trainDecOut = decoderOut( decoded( fd(decoder_hidden2(decoder_hidden1(z))))) 
+		trainDecOut = decoderOut( decoded( (decoder_hidden2(decoder_hidden1(z))))) 
 		vae = Model(inputs, trainDecOut)
 		if(summary):
 			print("VAE")
@@ -170,8 +173,8 @@ class Minerva():
 		
 		adam = optimizers.Adam() #lr=0.0005
 		# Overall VAE model, for reconstruction and training
-		#vae.compile(loss=vae_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
-		vae.compile(loss = huber_loss,optimizer=adam,metrics=['mae'])
+		vae.compile(loss=vae_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
+		#vae.compile(loss = huber_loss,optimizer=adam,metrics=['mae'])
 		return vae, encoder, decoder
 
 
@@ -209,7 +212,7 @@ class Minerva():
 		trainY = y_train
 		
 		history  = model.fit(x_train, x_train,
-			verbose = 1,
+			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,x_valid)
@@ -231,7 +234,7 @@ class Minerva():
 		decoder.load_weights(path4save,by_name=True)
 		
 		m,s = encoder.predict(x_valid)
-		
+		np.random.seed(42)
 		samples = []
 		for i in range(0,m.shape[0]):
 			eps = np.random.normal(0, 1, codeDimension)
@@ -242,7 +245,6 @@ class Minerva():
         
 		ydecoded = decoder.predict(samples)
 		
-		#ydecoded = vae.predict(x_valid)
 		
 		maes = np.zeros(ydecoded.shape[0], dtype='float32')
 		for sampleCount in range(0,ydecoded.shape[0]):
@@ -301,7 +303,7 @@ class Minerva():
 		testX = self.__batchCompatible(self.batchSize,testX)
 		m,s = encoder.predict(testX)
 		
-		
+		np.random.seed(42)
 		samples = []
 		for i in range(0,m.shape[0]):
 			eps = np.random.normal(0, 1, codeDimension)
