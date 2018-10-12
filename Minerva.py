@@ -167,9 +167,7 @@ class Minerva():
 			vae.summary()
 		
 		opt = optimizers.Adam(lr=0.0001) 
-		#opt = optimizers.RMSprop(lr=0.00005)
-		# Overall VAE model, for reconstruction and training
-		#vae.compile(loss=vae_loss(mu,log_sigma), optimizer=opt,metrics=['mae'])
+
 		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
 		return vae, encoder, decoder
 

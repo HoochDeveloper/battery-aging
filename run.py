@@ -39,7 +39,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = True
+	mustPlot = False
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
 	tsIndex = ets.dataHeader.index(ets.timeIndex)
@@ -85,20 +85,21 @@ def __evaluation(maes,labels,name4model):
 	i = 0
 	print(name4model)
 	
-	#population = [0.95,0.80,0.60,0.35]
-	population = [0.95,0.60,0.59,0.35]
-	for perc in range(80,99):
+	population = [0.95,0.80,0.60,0.35]
+	#population = [0.95,0.60,0.59,0.35]
+	#for perc in range(85,86):
+	for perc in range(85,86):
 		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
 		#x.append(fprate)
 		#y.append(recall)
 		
-		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
-		
-		fscore = 2 * precision * recall / (precision + recall)
-		
+		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False,plot=True)
 		x.append(recall)
 		y.append(precision)
+		
+		fscore = 2 * precision * recall / (precision + recall)
 		n.append(perc)
+		
 		a[i,0] = "{:10.3f}".format(perc) 
 		a[i,1] = "{:10.3f}".format(precision)
 		a[i,2] = "{:10.3f}".format(recall)
@@ -153,19 +154,21 @@ def precisionRecallOnRandPopulation(errors,lowTH,population):
 			#else:
 			#	unknown += 1
 		elif(prob[i] >= population[2]): # 90
-			
-			#healthly.append(errors[2][i])
-			#maes.append(errors[2][i])
-			#if(errors[2][i] >= fullTh):
-			#	mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
-			#else:
-			#	mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0);
-			degraded.append(errors[2][i])
+			x = 0
+			healthly.append(errors[2][i])
 			maes.append(errors[2][i])
 			if(errors[2][i] >= fullTh):
-				mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+				mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
 			else:
-				mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
+				mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0);
+			
+			
+			#degraded.append(errors[2][i])
+			#maes.append(errors[2][i])
+			#if(errors[2][i] >= fullTh):
+			#	mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+			#else:
+			#	mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
 
 		elif(prob[i] >= population[3]): # 95
 			#if(errors[1][i] < fullTh or errors[1][i] > upperTh):
@@ -300,22 +303,20 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 
 def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 	
-	#for c in range(0,len(errors)):
-	#	err = errors[c]
-	#	prc = np.percentile(err,[25,50,75])
-	#	print("%f	%f	%f" % ( prc[0],prc[1],prc[2] ))
 		
 	fp = 0
-	#print("Metrics with threshold @ %d" % lastPerc)
+	#percFull = np.percentile(errors[0],[25,75])
+	#iqd = percFull[1] - percFull[0]
+	#fullTh =  percFull[1] + iqd
+	
 	percFull = np.percentile(errors[0],[lastPerc])
-	fullTh = percFull[0]
-	#idxFull = np.digitize(errors[0],percFull)
-	#uf, cf = np.unique(idxFull,return_counts = True)
+	fullTh =  percFull[0]
+	
 	errAtAge = errors[0]
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 2
+	ageThIdx = 3
 	lastAge = 5 #len(errors)
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]
@@ -324,7 +325,8 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 		
 	tp = 0
 	fn = 0
-	for error in range(ageThIdx+1,lastAge):
+	#for error in range(ageThIdx+1,lastAge):
+	for error in range(ageThIdx,lastAge):
 		errAtAge = errors[error]
 		
 		falseNegative = np.where(errAtAge < fullTh)
