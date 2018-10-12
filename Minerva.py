@@ -49,41 +49,33 @@ def huber_loss(y_true, y_pred, clip_delta=1.0):
 	linear_loss  = clip_delta * (tf.keras.backend.abs(error) - 0.5 * clip_delta)
 	return tf.where(cond, squared_loss, linear_loss)
 
-
-
-
 def vae_loss(z_mean,z_log_var):
 
 	def loss(y_true, y_pred):
-	
-	
+
 		kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
 		kl_loss = K.sum(kl_loss, axis=-1)
 		kl_loss *= -0.5
-		
-		reconstruction_loss = K.mean(mse(K.flatten(y_true), K.flatten(y_pred)))
-		reconstruction_loss *= 40
+		kl_loss = K.mean(kl_loss)
+
+		reconstruction_loss = K.mean(huber_loss(K.flatten(y_true), K.flatten(y_pred)))
+		kl_loss *= 0.1
 		vaeLoss = K.mean(reconstruction_loss + kl_loss)
 		return vaeLoss
-		
-		
+	
 	return loss
 	
-
 def sample_z(args):
 	mu, log_sigma = args
-	#eps = K.random_normal(shape=(1,2,codeDimension,),mean=0.,stddev=1.)
 	eps = K.random_normal(shape=(codeDimension,),mean=0.,stddev=1.)
 	return mu + K.exp(log_sigma / 2) * eps
 
-	
-	
 class Minerva():
 		
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
-	batchSize = 200
+	batchSize = 100
 	epochs = 500
 	ets = None
 	eps1   = 5
@@ -91,6 +83,9 @@ class Minerva():
 	alpha1 = 5
 	alpha2 = 5
 	
+	def getModel(self,inputFeatures,outputFeatures,timesteps):
+		return self.VAE(inputFeatures,outputFeatures,timesteps)
+		#return self.Conv2D_QR(inputFeatures,outputFeatures,timesteps)
 	
 	def __init__(self,eps1,eps2,alpha1,alpha2,plotMode = "server"):
 	
@@ -119,29 +114,29 @@ class Minerva():
 				os.makedirs(self.ets.episodeImageFolder)
 
 				
-			
+	def loadModel(self,path4save,inputFeatures,outputFeatures,timesteps):
+		vae, encoder, decoder = self.getModel(inputFeatures,outputFeatures,timesteps)
+		vae.load_weights(path4save,by_name=True)
+		if(encoder is not None):
+			encoder.load_weights(path4save,by_name=True)
+		if(decoder is not None):
+			decoder.load_weights(path4save,by_name=True)
+		return vae, encoder, decoder
 	
-	def VAE(self,inputFeatures,outputFeatures,timesteps):
+	
+	def VAE(self,inputFeatures,outputFeatures,timesteps,summary = False):
 		
-		summary = False
 		codeSize = codeDimension
-
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		r = Reshape((4,5,2),name="RE")
-		
 		eh1 = Dense(256, activation='relu',name = "EH1")
 		eh2 = Dense(128, activation='relu',name = "EH2")
 		eh3 = Dense(64, activation='relu',name = "EH3")
-		#eh1 = Conv2D(256,2, activation='relu',name = "EH1")
-		#eh2 = Conv2D(128,2, activation='relu',name = "EH2")
-		#eh3 = Conv2D(64,2, activation='relu',name = "EH3")
 		flatE = Flatten(name="FE")
 		mean = Dense(codeSize, activation='linear',name = "MU")
 		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
-		#mu = mean(flatE(encoderHidden2(encoderHidden1(r(inputs)))))
-		#log_sigma = logsg(flatE(encoderHidden2(encoderHidden1(r(inputs)))))
-		mu = mean(flatE(eh3(eh2(eh1(r(inputs))))))
-		log_sigma = logsg(flatE(eh3(eh2(eh1(r(inputs))))))
+
+		mu = mean(flatE(eh3(eh2(eh1((inputs))))))
+		log_sigma = logsg(flatE(eh3(eh2(eh1((inputs))))))
 		encoder = Model(inputs,[mu, log_sigma])
 		if(summary):
 			print("Encoder")
@@ -149,280 +144,39 @@ class Minerva():
 		
 		# Sample z ~ Q(z|X)
 		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
-		
-	
 		# P(X|z) -- decoder
 		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
 		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
-		decoder_hidden1 = Dense(256, activation='relu',name = "DH1")
-		decoder_hidden2 = Dense(128, activation='relu',name = "DH2")
+		dh1 = Dense(256, activation='relu',name = "DH1")
+		dh2 = Dense(128, activation='relu',name = "DH2")
+		dh3 = Dense(64, activation='relu',name = "DH3")
 		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
 		#fd = Flatten(name = "FD")
 		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
 		
-		decOut = decoderOut( decoded(( decoder_hidden2 ( decoder_hidden1(latent_inputs) ) )))
+		decOut = decoderOut( decoded(dh3( dh2 ( dh1(latent_inputs) ) )))
 		decoder = Model(latent_inputs,decOut)
 		if(summary):
 			print("Decoder")
 			decoder.summary()
 
-		trainDecOut = decoderOut( decoded( (decoder_hidden2(decoder_hidden1(z))))) 
+		trainDecOut = decoderOut( decoded(dh3(dh2(dh1(z))))) 
 		vae = Model(inputs, trainDecOut)
 		if(summary):
 			print("VAE")
 			vae.summary()
 		
-		adam = optimizers.Adam(lr=0.0005) 
+		opt = optimizers.Adam(lr=0.0001) 
+		#opt = optimizers.RMSprop(lr=0.00005)
 		# Overall VAE model, for reconstruction and training
-		#vae.compile(loss=vae_loss(mu,log_sigma), optimizer=adam,metrics=['mae'])
-		vae.compile(loss = huber_loss,optimizer=adam,metrics=['mae'])
+		#vae.compile(loss=vae_loss(mu,log_sigma), optimizer=opt,metrics=['mae'])
+		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
 		return vae, encoder, decoder
 
-
-	def trainlModelOnArray(self,x_train, y_train, x_valid, y_valid,name4model,encodedSize = 8):
-		
-		tt = time.clock()
-		logger.debug("trainlModelOnArray - start")
-		
-		x_train = self.__batchCompatible(self.batchSize,x_train)
-		y_train = self.__batchCompatible(self.batchSize,y_train)
-		x_valid = self.__batchCompatible(self.batchSize,x_valid)
-		y_valid = self.__batchCompatible(self.batchSize,y_valid)
-		
-		logger.debug("Training model %s with train %s and valid %s" % (name4model,x_train.shape,x_valid.shape))
-
-		inputFeatures  = x_train.shape[2]
-		outputFeatures = y_train.shape[2]
-		timesteps =  x_train.shape[1]
-		#CHOOSE MODEL
-		model,_,_ = self.VAE(inputFeatures,outputFeatures,timesteps)
-		#__ch2sp(inputFeatures,outputFeatures,timesteps)
-		#CHOOSE MODEL
-		
-		
-		if(False):
-			model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-		
-		#print(model.summary())
-		
-		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
-		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min',save_weights_only=True)
-		
-		validY = y_valid
-		trainY = y_train
-		
-		history  = model.fit(x_train, x_train,
-			verbose = 0,
-			batch_size=self.batchSize,
-			epochs=self.epochs,
-			validation_data=(x_valid,x_valid)
-			,callbacks=[checkpoint]
-		)
-		elapsed = (time.clock() - tt)
-		
-		historySaveFile = name4model+"_history"
-		self.ets.saveZip(self.ets.rootResultFolder,historySaveFile,history.history)
-		
-		# loading the best model for evaluation
-		#customLoss = {'huber_loss': huber_loss}
-		#model = load_model(path4save,custom_objects=customLoss)
-		
-		
-		vae, encoder, decoder = self.VAE(inputFeatures,outputFeatures,timesteps)
-		vae.load_weights(path4save,by_name=True)
-		encoder.load_weights(path4save,by_name=True)
-		decoder.load_weights(path4save,by_name=True)
-		
-		m,s = encoder.predict(x_valid)
-		np.random.seed(42)
-		samples = []
-		for i in range(0,m.shape[0]):
-			eps = np.random.normal(0, 1, codeDimension)
-			z = m[i] + np.exp(s[i] / 2) * eps
-			samples.append(z)
-        
-		samples = np.asarray(samples)
-        
-		ydecoded = decoder.predict(samples)
-		
-		
-		maes = np.zeros(ydecoded.shape[0], dtype='float32')
-		for sampleCount in range(0,ydecoded.shape[0]):
-			maes[sampleCount] = mean_absolute_error(x_valid[sampleCount],ydecoded[sampleCount])
-		
-		print(np.mean(maes))
-		logger.info("Training completed. Elapsed %f second(s)." %  (elapsed))
-		
-		#trainMae, trainHuber = model.evaluate( x=x_train, y=y_train, batch_size=self.batchSize, verbose=0)
-		#valMae, valHuber = model.evaluate( x=x_valid, y=y_valid, batch_size=self.batchSize, verbose=0)
-		#logger.info("Training completed. Elapsed %f second(s). Train HL %f - MAE %f  Valid HL %f - MAE %f " %  (elapsed,trainMae,trainHuber,valMae,valHuber) )
-		#logger.debug("trainlModelOnArray - end - %f" % (time.clock() - tt) )
-	
-	
-	
-	
-	def reconstructionProbability(self,model2load,testX):
-		path4save = os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
-		_, encoder, decoder = self.VAE(2,2,20)
-		encoder.load_weights(path4save,by_name=True)
-		decoder.load_weights(path4save,by_name=True)
-		testX = self.__batchCompatible(self.batchSize,testX)
-		m,s = encoder.predict(testX)
-		
-		#print(testX.shape)
-		probs = np.zeros(testX.shape[0], dtype='float32')
-		for i in range(0,m.shape[0]):
-			samples = []
-			for j in range(0,100):
-				# sample 50
-				eps = np.random.normal(0, 1, codeDimension)
-				z = m[i] + np.exp(s[i] / 2) * eps
-				samples.append(z)
-			xhat = decoder.predict(np.asarray(samples))
-			
-			errs = np.zeros(xhat.shape[0], dtype='float32')
-			for sampleCount in range(0,xhat.shape[0]):
-				
-				#diff = np.mean( testX[sampleCount] - xhat[sampleCount] )
-				diff = mean_absolute_error(testX[sampleCount] , xhat[sampleCount])
-				errs[sampleCount] = np.square(diff)
-			
-			#print("Errs")
-			#print(errs)
-			recProb = np.exp(-errs)
-			#print("Probs")
-			#print(recProb)
-			probs[i] = recProb.mean()
-		
-		print(probs.mean())
-		return probs
-		
-			
-	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
-		
-		path4save = os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
-		_, encoder, decoder = self.VAE(2,2,20)
-		
-		encoder.load_weights(path4save,by_name=True)
-		decoder.load_weights(path4save,by_name=True)
-		
-		testX = self.__batchCompatible(self.batchSize,testX)
-		m,s = encoder.predict(testX)
-		
-		np.random.seed(42)
-		samples = []
-		for i in range(0,m.shape[0]):
-			eps = np.random.normal(0, 1, codeDimension)
-			z = m[i] + np.exp(s[i] / 2) * eps
-			samples.append(z)
-
-		samples = np.asarray(samples)
-		ydecoded = decoder.predict(samples)
-		
-		maes = np.zeros(ydecoded.shape[0], dtype='float32')
-		for sampleCount in range(0,ydecoded.shape[0]):
-			maes[sampleCount] = mean_absolute_error(testX[sampleCount],ydecoded[sampleCount])
-		print(np.mean(maes))
-
-
-		return maes
-	
-	
-	def printModelSummary(self,name4model):
-		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
-		customLoss = {'huber_loss': huber_loss}
-		model = load_model(path4save,custom_objects=customLoss)
-		from keras.utils import plot_model
-		plot_model(model,show_shapes = True,to_file="%s.png" % name4model)
-		print(model.summary())
-	
-	def getEncoded(self,model2load,data):
-	
-		customLoss = {'huber_loss': huber_loss}
-		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
-			,custom_objects=customLoss)
-	
-		layer_name = 'ENC'
-		encoded = Model(inputs=model.input,
-										 outputs=model.get_layer(layer_name).output)
-		code = encoded.predict(data)
-		print (code.shape)
-		return code
-	
-	def getModel(self,model2load):
-		customLoss = {'huber_loss': huber_loss}
-		model = load_model(os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
-			,custom_objects=customLoss)
-		return model
-			
-	def getMaes(self,model,testX,testY):
-		testX = self.__batchCompatible(self.batchSize,testX)
-		testY = self.__batchCompatible(self.batchSize,testY)
-		ydecoded = model.predict(testX,  batch_size=self.batchSize)
-		maes = np.zeros(ydecoded.shape[0], dtype='float32')
-		for sampleCount in range(0,ydecoded.shape[0]):
-			maes[sampleCount] = mean_absolute_error(testY[sampleCount],ydecoded[sampleCount])
-		
-		return maes
-	
-	
-	def Conv2D_QR3(self,inputFeatures,outputFeatures,timesteps):
-		dropPerc = 0.5
-		strideSize = 2
-		codeSize = 12
-		norm = 4.
-		outFun = 'tanh'
-
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = Reshape((4,5,2),name="R2E")(inputs)
-		c = Conv2D(48,strideSize,activation='relu',name="E1")(c)
-		c = Conv2D(48,strideSize,activation='relu',name="E3")(c)
-
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Reshape((1,1,codeSize),name="R2D")(enc)
-
-		c = Conv2DTranspose(128,strideSize,activation='relu',name="D1")(c)
-		c = Dropout(dropPerc)(c)
-		c = Conv2DTranspose(128,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D3")(c)
-		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation=outFun,name="DECODED")(preDecFlat)
-		
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-	
-	def Conv2D_QR2(self,inputFeatures,outputFeatures,timesteps):
-		dropPerc = 0.5
-		strideSize = 2
-		codeSize = 12
-		norm = 4.
-
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = Reshape((4,5,2),name="R2E")(inputs)
-		c = Conv2D(256,strideSize,activation='relu',name="E1")(c)
-		c = Conv2D(48,strideSize,activation='relu',name="E3")(c)
-
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Reshape((1,1,codeSize),name="R2D")(enc)
-
-		c = Conv2DTranspose(256,strideSize,activation='relu',name="D1")(c)
-
-		c = Dropout(dropPerc)(c) 
-		c = Conv2DTranspose(48,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)
-
-		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-	
 	def Conv2D_QR(self,inputFeatures,outputFeatures,timesteps):
 		dropPerc = 0.5
 		strideSize = 2
-		codeSize = 11
+		codeSize = codeDimension
 		norm = 5.
 
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -447,67 +201,15 @@ class Minerva():
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-	
-	def __ch2sp(self,inputFeatures,outputFeatures,timesteps):
-		
-		dropPerc = 0.5
-		strideSize = 2
-		codeSize =11
-		norm = 5.
-
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		
-		c = Reshape((4,5,2),name="R2E")(inputs)
-		c = Conv2D(128,strideSize,activation='relu',name="E1")(c)
-		c = Dropout(dropPerc)(c)
-		c = Conv2D(48,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="E2")(c)
-
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Reshape((1,1,codeSize),name="R2D")(enc)
-	
-		c = Conv2DTranspose(512,strideSize,activation='relu',name="D1")(c)		
-		c = Dropout(dropPerc)(c) 
-		c = Conv2DTranspose(64,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)	
-		c = Conv2DTranspose(32,strideSize,activation='relu',name="D3")(c)
-		
-		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-			
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-		
-		
-	
-		
-	def __ch1sp(self,inputFeatures,outputFeatures,timesteps):
-		
-		dropPerc = 0.5
-		codeSize = 11
-		norm = 3.
-		
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = Conv1D(64,9,activation='relu',name="E1")(inputs)
-		c = Dropout(dropPerc)(c)
-		c = Conv1D(32,5,kernel_constraint=max_norm(norm),activation='relu',name="E3")(c)
-		
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
-		c = Dense(128,activation='relu',name="D1")(enc)
-		c = Dense(512,activation='relu',name="D2")(c)
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		
-		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
+		opt = optimizers.Adam(lr=0.00005) 
+		autoencoderModel.compile(loss=huber_loss, optimizer=opt,metrics=['mae'])
+		return autoencoderModel, None, None
 	
 	def conv1DQR(self,inputFeatures,outputFeatures,timesteps):
 		
 		dropPerc = 0.5
 		norm = 5
-		codeSize = 10
+		codeSize = codeDimension
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Conv1D(256,5,activation='relu',name="E1")(inputs)
@@ -519,13 +221,14 @@ class Minerva():
 		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
-	
+		opt = optimizers.Adam(lr=0.00005) 
+		autoencoderModel.compile(loss=huber_loss, optimizer=opt,metrics=['mae'])
+		return autoencoderModel, None, None
 	
 	def dense(self,inputFeatures,outputFeatures,timesteps):
 		dropPerc = 0.5
 		norm = 2.
-		codeSize = 9
+		codeSize = codeDimension
 		codeMultiplier = 4
 		
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -548,13 +251,104 @@ class Minerva():
 		out = Reshape((timesteps, outputFeatures),name="OUT")(d)
 		
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		return autoencoderModel
+		opt = optimizers.Adam(lr=0.00005) 
+		autoencoderModel.compile(loss=huber_loss, optimizer=opt,metrics=['mae'])
+		return autoencoderModel, None, None
 	
+	def getMaes(self,testX,ydecoded):
+		maes = np.zeros(ydecoded.shape[0], dtype='float32')
+		for sampleCount in range(0,ydecoded.shape[0]):
+			maes[sampleCount] = mean_absolute_error(testX[sampleCount],ydecoded[sampleCount])
+		return maes
 
+	def trainlModelOnArray(self,x_train, y_train, x_valid, y_valid,name4model,encodedSize = 8):
+		
+		tt = time.clock()
+		logger.debug("trainlModelOnArray - start")
+		
+		x_train = self.__batchCompatible(self.batchSize,x_train)
+		y_train = self.__batchCompatible(self.batchSize,y_train)
+		x_valid = self.__batchCompatible(self.batchSize,x_valid)
+		y_valid = self.__batchCompatible(self.batchSize,y_valid)
+		
+		logger.debug("Training model %s with train %s and valid %s" % (name4model,x_train.shape,x_valid.shape))
+
+		inputFeatures  = x_train.shape[2]
+		outputFeatures = y_train.shape[2]
+		timesteps =  x_train.shape[1]
+		
+		model,_,_ = self.getModel(inputFeatures,outputFeatures,timesteps)
+
+		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
+		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
+			save_best_only=True, mode='min',save_weights_only=True)
+		
+		early = EarlyStopping(monitor='val_mean_absolute_error', min_delta=0.0005, patience=75, verbose=1, mode='min')
+		
+		validY = y_valid
+		trainY = y_train
+		
+		history  = model.fit(x_train, x_train,
+			verbose = 0,
+			batch_size=self.batchSize,
+			epochs=self.epochs,
+			validation_data=(x_valid,x_valid)
+			,callbacks=[checkpoint,early]
+		)
+		elapsed = (time.clock() - tt)
+		
+		historySaveFile = name4model+"_history"
+		self.ets.saveZip(self.ets.rootResultFolder,historySaveFile,history.history)
+		logger.info("Training completed. Elapsed %f second(s)." %  (elapsed))
+		
+		model,encoder,decoder = self.loadModel(path4save,2,2,20)
+		
+		valid_decoded = None
+		if(encoder is not None):
+			m,s = encoder.predict(x_valid)
+			np.random.seed(42)
+			samples = []
+			for i in range(0,m.shape[0]):
+				eps = np.random.normal(0, 1, codeDimension)
+				z = m[i] + np.exp(s[i] / 2) * eps
+				samples.append(z)
+			
+			samples = np.asarray(samples)
+			valid_decoded = decoder.predict(samples)
+		else:
+			valid_decoded = model.predict(x_valid)
+			
+		valMae = self.getMaes(x_valid,valid_decoded)
+		logger.info("Training completed. Valid MAE %f " %  (valMae.mean()) )
+		
+	def evaluateModelOnArray(self,testX,testY,model2load,plotMode,scaler=None,showImages=True,num2show=5,phase="Test",showScatter = False):
+		
+		path4save = os.path.join( self.ets.rootResultFolder ,model2load+self.modelExt)
+		testX = self.__batchCompatible(self.batchSize,testX)
+		model , encoder, decoder = self.loadModel(path4save,2,2,20)
+		ydecoded = None
+
+		if(encoder is not None):
+			m,s = encoder.predict(testX)
+			np.random.seed(42)
+			samples = []
+			for i in range(0,m.shape[0]):
+				eps = np.random.normal(0, 1, codeDimension)
+				z = m[i] + np.exp(s[i] / 2) * eps
+				samples.append(z)
+
+			samples = np.asarray(samples)
+			ydecoded = decoder.predict(samples)
+		else:
+			ydecoded = model.predict(testX)
+		
+		maes = self.getMaes(testX,ydecoded)
+		logger.info("Test MAE %f " %  (maes.mean()))
+		return maes
+	
 	def	batchCompatible(self,batch_size,data):
 		return self.__batchCompatible(batch_size,data)
 		
-	
 	def __batchCompatible(self,batch_size,data):
 		"""
 		Transform data shape 0 in a multiple of batch_size
@@ -563,28 +357,3 @@ class Minerva():
 		if(exceed > 0):
 			data = data[:-exceed]
 		return data
-	
-	def __skScaleBack(self,data,scaler):
-		"""
-		Apply the SKL scale back to the data
-		data: 3d array [samples,time-steps,features]
-		return: scaled 3d array
-		"""
-		samples = data.shape[0]
-		timesteps = data.shape[1]
-		features = data.shape[2]
-		# the scaler need a 2d array. [<samples>,<features>]
-		# so we reshape the data aggregating samples and time-steps leaving features alone
-		xnorm = data.reshape(samples*timesteps,features)
-		xnorm = scaler.inverse_transform(xnorm)
-		return xnorm.reshape(samples,timesteps,features)
-
-	def __skMAE(self,real,decoded):
-		samples = real.shape[0]
-		timesteps = real.shape[1]
-		features = real.shape[2]
-		
-		skReal = real.reshape(samples*timesteps,features)
-		skDecoded = decoded.reshape(samples*timesteps,features)
-		return mean_absolute_error(skReal,skDecoded)
-	

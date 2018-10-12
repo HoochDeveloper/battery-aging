@@ -21,145 +21,6 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
-def mapTable(encSize,type,modelNumber,thresholdPercentile):
-	
-	print("Percentile: %d Model: %d" % (thresholdPercentile,modelNumber))
-	
-	dfTemplate = "map_model_%s_th_%d"
-	mapFolder = os.path.join(".","maps")
-	name4model = modelNameTemplate % (encSize,100,type,modelNumber)
-	dataFrameName = dfTemplate % (name4model,thresholdPercentile)
-	fullPath = os.path.join(mapFolder,dataFrameName)
-	dataSet = None
-	force = False
-	if not os.path.exists(fullPath) or  force:
-
-		if not os.path.exists(mapFolder):
-			os.makedirs(mapFolder)
-
-		from Minerva import Minerva
-		minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
-
-		nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
-		tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
-		astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
-	
-		[maes,labels] = minerva.ets.loadZip(maeFolder,name4model+".out",)
-		
-		fullHealthError = maes[0]
-		tmp = np.percentile(fullHealthError,[thresholdPercentile])
-		thresholdValue = tmp[0]
-		#print(thresholdValue)
-		model = minerva.getModel(name4model)
-		
-		ageScale = 100
-		ageTh = 85
-		K = 8
-		ageStep = 5
-		batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
-		_,k_data = astrea.kfoldByKind(batteries,K)
-		scaler = astrea.getScaler(k_data)
-		dataSet = pd.DataFrame({'MAE' : [],'TP' : [], "TN" : [], "FP":[], "FN":[]})
-		
-		#fpc = 0
-		#fnc = 0
-		totalPositive = 0
-		totalNegative = 0
-		for b in range(0,K):
-			testX = astrea.foldAs3DArray(k_data[b],scaler)
-			maes = minerva.getMaes(model,testX,testX)
-			tp = None
-			tn = None
-			fp = None
-			if(ageScale >= ageTh):
-				# no true positive
-				totalNegative += len(maes)
-				fp = np.where(maes >= thresholdValue, 1,0)
-				tn = np.where(maes < thresholdValue, 1,0)
-				tp = np.where(True, 0,0)
-				fn = np.where(True, 0,0)
-			else:
-				totalPositive += len(maes)
-				tp = np.where(maes >= thresholdValue, 1,0)
-				fn = np.where(maes < thresholdValue, 1, 0)
-				tn = np.where(True, 0,0)
-				fp = np.where(True, 0,0)
-				
-			
-			df = pd.DataFrame({'MAE':maes,'TP':tp, 'TN':tn, 'FP':fp, 'FN':fn})
-			dataSet = dataSet.append(df)
-			
-			ageScale -= ageStep
-			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
-			_,k_data = astrea.kfoldByKind(batteries,K)
-			
-
-		dataSet.sort_values(by="MAE",ascending=False,inplace=True)
-		
-		tmp = dataSet.loc[ (dataSet["TP"] == 1) | (dataSet["FP"] == 1) ]
-		
-		rcl = tmp["TP"].cumsum() / totalPositive
-		prc = tmp["TP"].cumsum() / (tmp["TP"].cumsum() + tmp["FP"].cumsum())
-		posDataset = pd.DataFrame({'RCL':rcl,'PRC':prc})
-		
-
-		dataSet.sort_values(by="MAE",ascending=True,inplace=True)
-		tmp = dataSet.loc[ (dataSet["TN"] == 1) | (dataSet["FN"] == 1) ]
-		rcl = tmp["TN"].cumsum() / totalNegative
-		prc = tmp["TN"].cumsum() / (tmp["TN"].cumsum() + tmp["FN"].cumsum())
-		negDataset = pd.DataFrame({'RCL':rcl,'PRC':prc})
-		
-		
-		posDataset.to_pickle(fullPath+"_pos")
-		negDataset.to_pickle(fullPath+"_neg")
-		dataSet.to_pickle(fullPath)
-	else:
-		dataSet = pd.read_pickle(fullPath)
-		posDataset = pd.read_pickle(fullPath+"_pos")
-		negDataset = pd.read_pickle(fullPath+"_neg")
-		
-	if(True):
-		plt.plot( posDataset["RCL"],posDataset["PRC"],label="POS")
-		plt.grid()
-		plt.legend()
-		plt.show()	
-		plt.plot( negDataset["RCL"],negDataset["PRC"],label="NEG")
-		plt.grid()
-		plt.legend()
-		plt.show()
-		
-	#print(dataSet.shape)
-	#print("FN ",dataSet.loc[ (dataSet["FN"] == 1) ].shape[0])
-	#print("TP ",dataSet.loc[ (dataSet["TP"] == 1) ].shape[0])
-	#print("FP ",dataSet.loc[ (dataSet["FP"] == 1) ].shape[0])
-	#print("TN ",dataSet.loc[ (dataSet["TN"] == 1) ].shape[0])
-	
-	posAp = posDataset["PRC"].mean()
-	negAp = negDataset["PRC"].mean()
-	
-	map = np.mean([posAp,negAp])
-	print("PosAp: %f NegAp: %f MAP: %f" % (posAp,negAp,map))
-	
-	precision = dataSet["TP"].sum() / (dataSet["TP"].sum() + dataSet["FP"].sum())
-	recall = dataSet["TP"].sum() / (dataSet["TP"].sum() + dataSet["FN"].sum())
-	fscore = 2 * (precision*recall) / (precision+recall)
-	print("Positive Precision: %f Recall: %f F: %f" % (precision,recall,fscore))
-	
-	precision = dataSet["TN"].sum() / (dataSet["TN"].sum() + dataSet["FN"].sum())
-	recall = dataSet["TN"].sum() / (dataSet["TN"].sum() + dataSet["FP"].sum())
-	fscore = 2 * (precision*recall) / (precision+recall)
-	print("Negative Precision: %f Recall: %f F: %f" % (precision,recall,fscore))
-		
-	
-	#if(True):
-	#	dataSet = pd.read_pickle(fullPath+"_pos")
-	#else:
-	#	dataSet = pd.read_pickle(fullPath+"_neg")
-	#
-	#print(dataSet.head(10))
-	#print(dataSet.tail(10))
-	
-	
 	
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	from Minerva import Minerva
@@ -175,10 +36,10 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
 	k_idx,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,70,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = False
+	mustPlot = True
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
 	tsIndex = ets.dataHeader.index(ets.timeIndex)
@@ -204,32 +65,49 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 			ax.scatter(x, y, label=type)
 			for i, txt in enumerate(n):
 				ax.annotate(txt, (x[i], y[i]))
-		
-		##name4model = modelNameTemplate % (12,100,"C2QR",count)
-		##[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
-		##x,y,n = __evaluation(maes,labels,name4model)
-		##if(mustPlot):
-		##	#plt.plot(x, y, label="C2QR")
-		##	ax.scatter(x, y, label="C2QR")
-		##	for i, txt in enumerate(n):
-		##		ax.annotate(txt, (x[i], y[i]))
-		
-		#fig.suptitle('RvP @ different threshold')
-		
-		##name4model = modelNameTemplate % (9,100,"D",count)
-		##[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
-		##x,y,n = __evaluation(maes,labels,name4model)
-		##if(mustPlot):
-		##	plt.plot(x, y, label="FC")
-		
-		if(mustPlot):
-			
+	
 			plt.xlabel('FPR')
 			plt.ylabel('TPR')
 			plt.legend()
 			plt.grid()
 			plt.show()
+
+def __evaluation(maes,labels,name4model):
 	
+	tit = "MAE %s" % name4model 
+	
+	x = []
+	y = []
+	n = []
+	
+	a = np.zeros((50,3))
+	
+	i = 0
+	print(name4model)
+	
+	#population = [0.95,0.80,0.60,0.35]
+	population = [0.95,0.60,0.59,0.35]
+	for perc in range(80,99):
+		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
+		#x.append(fprate)
+		#y.append(recall)
+		
+		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
+		
+		fscore = 2 * precision * recall / (precision + recall)
+		
+		x.append(recall)
+		y.append(precision)
+		n.append(perc)
+		a[i,0] = "{:10.3f}".format(perc) 
+		a[i,1] = "{:10.3f}".format(precision)
+		a[i,2] = "{:10.3f}".format(recall)
+		i+=1
+	if(False):
+		print (" \\\\\n".join([" & ".join(map(str,line)) for line in a]) )
+		
+	return x,y,n
+			
 
 def precisionRecallOnRandPopulation(errors,lowTH,population):
 	
@@ -276,18 +154,18 @@ def precisionRecallOnRandPopulation(errors,lowTH,population):
 			#	unknown += 1
 		elif(prob[i] >= population[2]): # 90
 			
-			healthly.append(errors[2][i])
-			maes.append(errors[2][i])
-			if(errors[2][i] >= fullTh):
-				mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
-			else:
-				mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0);
-			#degraded.append(errors[2][i])
+			#healthly.append(errors[2][i])
 			#maes.append(errors[2][i])
 			#if(errors[2][i] >= fullTh):
-			#	mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+			#	mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
 			#else:
-			#	mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
+			#	mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0);
+			degraded.append(errors[2][i])
+			maes.append(errors[2][i])
+			if(errors[2][i] >= fullTh):
+				mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+			else:
+				mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
 
 		elif(prob[i] >= population[3]): # 95
 			#if(errors[1][i] < fullTh or errors[1][i] > upperTh):
@@ -351,10 +229,10 @@ def precisionRecallOnRandPopulation(errors,lowTH,population):
 		### end MAP
 	
 	
-	print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))	
+	
 	if(False):
 		#ageThIdx = 3 # 90
-		
+		print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))	
 		boxes = [np.asarray(healthly), np.asarray(degraded)]
 		plt.boxplot(boxes,sym='',whis=[100-lowTH, lowTH]) #
 		plt.axhline(y=fullTh, color='blue', linestyle='-')
@@ -370,41 +248,7 @@ def precisionRecallOnRandPopulation(errors,lowTH,population):
 	
 	
 	return precision,recall,fpRate
-
 	
-def __evaluation(maes,labels,name4model):
-	
-	tit = "MAE %s" % name4model 
-	
-	x = []
-	y = []
-	n = []
-	
-	a = np.zeros((50,3))
-	
-	i = 0
-	print(name4model)
-	#population = [0.90,0.80,0.70,0.35]
-	#population = [0.90,0.85,0.80,0.15]
-	population = [0.95,0.80,0.60,0.35]
-	for perc in range(85,86):
-		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
-		#x.append(fprate)
-		#y.append(recall)
-		
-		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False)
-		x.append(recall)
-		y.append(precision)
-		n.append(perc)
-		a[i,0] = "{:10.3f}".format(perc) 
-		a[i,1] = "{:10.3f}".format(precision)
-		a[i,2] = "{:10.3f}".format(recall)
-		i+=1
-	if(False):
-		print (" \\\\\n".join([" & ".join(map(str,line)) for line in a]) )
-		
-	return x,y,n
-		
 def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,showScatter=False,boxPlot=False):
 
 	if not os.path.exists(maeFolder):
@@ -443,8 +287,6 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		
 			test =  np.concatenate(folds4learn)
 			mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
-			#mae = minerva.reconstructionProbability(name4model,test)
-			
 			mae2Save[count][a] = mae
 			lab2Save[count][a] = "Q@%d" % ageScale
 			count += 1
@@ -456,58 +298,7 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		labels = lab2Save[c]
 		minerva.ets.saveZip(maeFolder,name4model+".out",[maes,labels])
 
-def codeProjection(encSize,type,K):
-	
-	ageScales = [100,70]
-	from mpl_toolkits.mplot3d import Axes3D
-	from sklearn.decomposition import PCA
-	from Minerva import Minerva
-	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
-	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
-	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
-	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)
-	
-	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
-	count = 0
-	for _, test_index in zip(trainIdx,testIdx): 
-		count += 1
-		print("Fold %d" % count)
-		name4model = modelNameTemplate % (encSize,100,type,count)
-		maes = []
-		labels = []
-		codes = []
-		for ageScale in ageScales:
-			batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
-			_,k_data = astrea.kfoldByKind(batteries,K)
-			scaler = astrea.getScaler(k_data)
-			folds4learn = []
-			for i in test_index:
-				fold = k_data[i]
-				foldAs3d = astrea.foldAs3DArray(fold,scaler)
-				folds4learn.append(foldAs3d)
-			test =  np.concatenate(folds4learn)
-			code = minerva.getEncoded(name4model,test)
-			
-			
-			
-			tsne = TSNE(n_components=2, n_iter=300)
-			pr = tsne.fit_transform(code)
-			codes.append(pr)
-			#pca = PCA(n_components=2)
-			#pc = pca.fit_transform(code)
-			#codes.append(pc)
-			
-			
-		#fig = plt.figure()
-		#ax = fig.add_subplot(111, projection='3d')
-
-		
-		for code in codes:
-			plt.scatter(code[:,0],code[:,1])
-		plt.show()
-	
-
-def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
+def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 	
 	#for c in range(0,len(errors)):
 	#	err = errors[c]
@@ -533,7 +324,7 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 		
 	tp = 0
 	fn = 0
-	for error in range(ageThIdx,lastAge):
+	for error in range(ageThIdx+1,lastAge):
 		errAtAge = errors[error]
 		
 		falseNegative = np.where(errAtAge < fullTh)
@@ -548,7 +339,7 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 	
 	
 	
-	if(True):
+	if(plot):
 		print("Fscore: %f Precision: %f Recall: %f" % (fscore,precision,recall))
 		print("TP %d FN %d FP %d" % (tp,fn,fp))
 		
@@ -556,6 +347,7 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True):
 		plt.boxplot(errors,sym='',whis=[100-lastPerc, lastPerc]) #
 		plt.axhline(y=fullTh, color='blue', linestyle='-')
 		plt.axvline(x=(ageThIdx+0.5),color='gray',)
+		plt.axvline(x=(ageThIdx+1.5),color='gray',)
 		plt.axvline(x=(lastAge+0.5),color='gray',)
 		plt.xticks(range(1,len(labels)+1),labels)
 		plt.title(title)
@@ -584,8 +376,6 @@ def train(minerva,astrea,K,encSize,type="Dense"):
 			corrupted = minerva.ets.loadSyntheticBlowDataSet(i)
 			degraded.append(corrupted)
 		
-		#degradationPerc = [.02,.05,.10,.15,.20]
-		#degradationPerc = [.02,.04,.06,.08,.15]
 		degradationPerc = [.02,.04,.06,.08,.10]
 		#degradationPerc = [.01,.02,.03,.04,.05]
 		print("Degraded")
@@ -632,17 +422,6 @@ def train(minerva,astrea,K,encSize,type="Dense"):
 		minerva.trainlModelOnArray(trainX, trainY, validX, validY,
 			name4model,encodedSize = encSize)
 		minerva.evaluateModelOnArray(testX, testY,name4model,plotMode,scaler,False)
-
-		
-def dataRange(minerva,astrea,K,min,max,step):
-	for ageScale in range(min,max,step):
-		batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
-		k_idx,k_data = astrea.kfoldByKind(batteries,K)
-		scaler = astrea.getScaler(k_data)
-		print(ageScale)
-		print(scaler.data_min_)
-		print(scaler.data_max_)
-		
 		
 def learningCurve(encSize,type,K):
 	ets = EpisodedTimeSeries(5,5,5,5)
@@ -666,11 +445,7 @@ def learningCurve(encSize,type,K):
 		plt.legend(['train', 'test'], loc='upper left')
 		plt.show()
 
-def showModel(encSize,type):
-	from Minerva import Minerva
-	name4model = modelNameTemplate % (encSize,100,type,1)
-	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
-	minerva.printModelSummary(name4model)
+
 		
 def main():
 	if(len(sys.argv) != 4):
@@ -685,23 +460,12 @@ def main():
 		execute(True,encSize,type=type,K = K)
 	elif(action=="evaluate"):
 		execute(False,encSize,type=type, K = K)
-	elif(action=="map"):
-		#for tau in range(75,100,5):
-		for tau in range(90,100,2):
-			#for i in range(1,6):
-			i = 4
-			mapTable(encSize,type,i,tau)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
 	elif(action=="learning_curve"):
 		learningCurve(encSize,type,K)
-	elif(action == "show"):
-		showModel(encSize,type)
-	elif(action == "proj"):
-		codeProjection(encSize,type,K)
 	else:
 		print("Can't perform %s" % action)
 
 
-		
 main()

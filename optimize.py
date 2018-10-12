@@ -56,6 +56,80 @@ def data():
 	
 
 
+def VAE(train, valid, agedTrain, agedValid):
+	
+
+	from keras.callbacks import ModelCheckpoint
+	from keras.models import Model
+	from keras.layers import Dense, Input, Flatten, Reshape, Dropout, Lambda
+	from keras import optimizers
+	from Minerva import huber_loss, sample_z
+		
+	codeSize = 9
+	
+	inputs = Input(shape=(20,2),name="IN")
+	eh1 = Dense({{choice([16,32,48,64,96,128,256,512])}}, activation='relu',name = "EH1")
+	eh2 = Dense({{choice([16,32,48,64,96,128,256,512])}}, activation='relu',name = "EH2")
+	flatE = Flatten(name="FE")
+	mean = Dense(codeSize, activation='linear',name = "MU")
+	logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+
+	mu = mean(flatE((eh2(eh1((inputs))))))
+	log_sigma = logsg(flatE((eh2(eh1((inputs))))))
+	encoder = Model(inputs,[mu, log_sigma])
+	
+	z = Lambda(sample_z,name="CODE")([mu, log_sigma])
+	
+	latent_inputs = Input(shape=(codeSize,), name='z_sampling')
+	dh1 = Dense({{choice([16,32,48,64,96,128,256,512])}}, activation='relu',name = "DH1")
+	dh2 = Dense({{choice([16,32,48,64,96,128,256,512])}}, activation='relu',name = "DH2")
+	decoded = Dense(20*2,activation='linear',name="DECODED")
+	
+	decoderOut = Reshape((20, 2),name="OUT")
+	
+	decOut = decoderOut( decoded(( dh2 ( dh1(latent_inputs) ) )))
+	decoder = Model(latent_inputs,decOut)
+	
+	
+
+	trainDecOut = decoderOut( decoded( (dh2(dh1(z))))) 
+	vae = Model(inputs, trainDecOut)
+	
+	
+	opt = optimizers.Adam(lr=0.00005) 
+
+	checkpoint = ModelCheckpoint("./optimize.h5", monitor='val_loss', verbose=0,
+			save_best_only=True, mode='min',save_weights_only=True)
+	
+	vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
+	vae.fit(train, train,
+			verbose = 0,
+			batch_size=100,
+			epochs=350,
+			validation_data=(valid,valid)
+			,callbacks=[checkpoint]
+	)
+	
+	vae.load_weights("./optimize.h5",by_name=True)
+	
+	HL_full, MAE_full = vae.evaluate(valid, valid, verbose=0)
+	
+	
+	ydecoded = vae.predict(valid,  batch_size=100)
+	maes = np.zeros(ydecoded.shape[0], dtype='float32')
+	for sampleCount in range(0,ydecoded.shape[0]):
+		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
+	
+	prc = np.percentile(maes,[3,97])
+	sigma = np.std(maes)
+	
+	score = HL_full #MAE_full + sigma + prc[1] 
+	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
+	return {'loss': score, 'status': STATUS_OK, 'model': vae}
+
+	
+	
+	
 	
 def denseModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import load_model
@@ -169,8 +243,7 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
-	
-	return {'loss': HL_full, 'status': STATUS_OK, 'model': model}
+
 	
 def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import load_model
@@ -398,11 +471,11 @@ def main():
 	import time
 	start = time.clock()
 	best_run, best_model = optim.minimize(
-										  model = conv1DModelClassic,
+										  model = VAE,
                                           #model = denseModelClassic,
 										  data=data,
                                           algo=tpe.suggest,
-                                          max_evals=50,
+                                          max_evals=30,
                                           trials=Trials())
 	
 	train, valid, agedTrain, agedValid = data()
