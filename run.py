@@ -1,6 +1,8 @@
 import uuid,time,os,logging, numpy as np, sys, matplotlib.pyplot as plt
 from logging import handlers as loghds
 
+from sklearn.metrics import auc
+
 
 #Project module import
 from Astrea import Astrea
@@ -21,6 +23,138 @@ modelNameTemplate = "Enc_%d_Synthetic_%d_%s_K_%d"
 
 maeFolder = os.path.join(".","evaluation")
 
+def mapTable(encSize,type,modelNumber,thresholdPercentile):
+	
+	print("Percentile: %d Model: %d" % (thresholdPercentile,modelNumber))
+	
+	dfTemplate = "map_model_%s_th_%d"
+	mapFolder = os.path.join(".","maps")
+	name4model = modelNameTemplate % (encSize,100,type,modelNumber)
+	dataFrameName = dfTemplate % (name4model,thresholdPercentile)
+	fullPath = os.path.join(mapFolder,dataFrameName)
+	dataSet = None
+	force = True
+	if not os.path.exists(fullPath) or  force:
+
+		if not os.path.exists(mapFolder):
+			os.makedirs(mapFolder)
+
+		from Minerva import Minerva
+		minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode=plotMode)	
+
+		nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
+		tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
+		astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
+	
+		[loadmaes,labels] = minerva.ets.loadZip(maeFolder,name4model+".out",)
+		
+		fullHealthError = loadmaes[0]
+		tmp = np.percentile(fullHealthError,[thresholdPercentile])
+		thresholdValue = tmp[0]
+		
+		dataSet = pd.DataFrame({'MAE' : [],'TP' : [], "TN" : [], "FP":[], "FN":[]})
+		
+		np.random.seed(42)
+		prob = np.random.rand(len(loadmaes[0]))
+		
+		tp = []
+		tn = []
+		fp = []
+		fn = []
+		mapMaes = []
+		p = 0
+		n = 0
+		for i in range(0,len(prob)):
+			
+			if prob[i] >= .95:
+				b = 4 # 80 SOH
+			elif prob[i] >= .85:
+				b = 3 # 85 SOH
+			elif prob[i] >= .75:
+				b = 2 # 90 SOH
+			elif prob[i] >= .35:
+				b = 1 # 95 SOH
+			else:
+				b = 0 # 100 SOH
+			
+			mae = loadmaes[b][i]
+			mapMaes.append(mae)
+			if(b <= 2):
+				n += 1
+				if(mae >= thresholdValue):
+					fp.append(1); tp.append(0); fn.append(0); tn.append(0)
+				else:
+					fp.append(0); tp.append(0); fn.append(0); tn.append(1)
+			else:
+				p +=1
+				if(mae >= thresholdValue):
+					fp.append(0); tp.append(1); fn.append(0); tn.append(0)
+				else:
+					fp.append(0); tp.append(0); fn.append(1); tn.append(0)
+				
+			
+		df = pd.DataFrame({'MAE':mapMaes,'TP':tp, 'TN':tn, 'FP':fp, 'FN':fn})
+		dataSet = dataSet.append(df)
+		
+		dataSet.sort_values(by="MAE",ascending=False,inplace=True)
+		
+		print(dataSet.head(15))
+		
+		tmp = dataSet.loc[ (dataSet["TP"] == 1) | (dataSet["FP"] == 1) ]
+		
+		rcl = tmp["TP"].cumsum() / p
+		prc = tmp["TP"].cumsum() / (tmp["TP"].cumsum() + tmp["FP"].cumsum())
+		posDataset = pd.DataFrame({'RCL':rcl,'PRC':prc})
+		
+
+		dataSet.sort_values(by="MAE",ascending=True,inplace=True)
+		tmp = dataSet.loc[ (dataSet["TN"] == 1) | (dataSet["FN"] == 1) ]
+		rcl = tmp["TN"].cumsum() / n
+		prc = tmp["TN"].cumsum() / (tmp["TN"].cumsum() + tmp["FN"].cumsum())
+		negDataset = pd.DataFrame({'RCL':rcl,'PRC':prc})
+		
+		
+		posDataset.to_pickle(fullPath+"_pos")
+		negDataset.to_pickle(fullPath+"_neg")
+		dataSet.to_pickle(fullPath)
+	else:
+		dataSet = pd.read_pickle(fullPath)
+		posDataset = pd.read_pickle(fullPath+"_pos")
+		negDataset = pd.read_pickle(fullPath+"_neg")
+	
+	if(True):
+		plt.plot( posDataset["RCL"],posDataset["PRC"],label="POS")
+		plt.grid()
+		plt.legend()
+		plt.show()	
+		plt.plot( negDataset["RCL"],negDataset["PRC"],label="NEG")
+		plt.grid()
+		plt.legend()
+		plt.show()
+		
+	#print(dataSet.shape)
+	#print("FN ",dataSet.loc[ (dataSet["FN"] == 1) ].shape[0])
+	#print("TP ",dataSet.loc[ (dataSet["TP"] == 1) ].shape[0])
+	#print("FP ",dataSet.loc[ (dataSet["FP"] == 1) ].shape[0])
+	#print("TN ",dataSet.loc[ (dataSet["TN"] == 1) ].shape[0])
+	
+	posAp = posDataset["PRC"].mean()
+	negAp = negDataset["PRC"].mean()
+	
+	map = np.mean([posAp,negAp])
+	print("PosAp: %f NegAp: %f MAP: %f" % (posAp,negAp,map))
+	
+	precision = dataSet["TP"].sum() / (dataSet["TP"].sum() + dataSet["FP"].sum())
+	recall = dataSet["TP"].sum() / (dataSet["TP"].sum() + dataSet["FN"].sum())
+	fscore = 2 * (precision*recall) / (precision+recall)
+	print("Positive Precision: %f Recall: %f F: %f" % (precision,recall,fscore))
+	
+	precision = dataSet["TN"].sum() / (dataSet["TN"].sum() + dataSet["FN"].sum())
+	recall = dataSet["TN"].sum() / (dataSet["TN"].sum() + dataSet["FP"].sum())
+	fscore = 2 * (precision*recall) / (precision+recall)
+	print("Negative Precision: %f Recall: %f F: %f" % (precision,recall,fscore))
+	
+
 	
 def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	from Minerva import Minerva
@@ -39,7 +173,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = False
+	mustPlot = True
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
 	tsIndex = ets.dataHeader.index(ets.timeIndex)
@@ -59,20 +193,25 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 			q = int(340 * mul / 100)
 			labels.append("%d" % q)
 		
-		x,y,n = __evaluation(maes,labels,name4model)
+		x,y,n = __evaluation(maes,labels,name4model,evalBox= not mustPlot)
+		
+		
+		#print(np.sum()*np.asarray(y)))
 		if(mustPlot):
-			#plt.plot(x, y, label="Conv2D")
+			print("AUROC %f" % auc(np.asarray(x),np.asarray(y)))
 			ax.scatter(x, y, label=type)
 			for i, txt in enumerate(n):
 				ax.annotate(txt, (x[i], y[i]))
-	
+			
+			ax.plot((0, 1), (0, 1))
+			
 			plt.xlabel('FPR')
 			plt.ylabel('TPR')
 			plt.legend()
 			plt.grid()
 			plt.show()
 
-def __evaluation(maes,labels,name4model):
+def __evaluation(maes,labels,name4model, evalBox=False):
 	
 	tit = "MAE %s" % name4model 
 	
@@ -80,24 +219,44 @@ def __evaluation(maes,labels,name4model):
 	y = []
 	n = []
 	
-	a = np.zeros((50,3))
+	a = np.zeros((100,3))
 	
 	i = 0
 	print(name4model)
 	
-	population = [0.95,0.80,0.60,0.35]
+	population = [0.90,0.80,0.70,0.25]
 	#population = [0.95,0.60,0.59,0.35]
-	#for perc in range(85,86):
-	for perc in range(85,86):
-		#precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
-		#x.append(fprate)
-		#y.append(recall)
+	#for perc in range(86,87):
+	
+	bestScore = 0
+	bestTh = 0
+	bestPrc = 0
+	bestRecall = 0
+	
+	if(evalBox == False):
+		ran = range(10,100)
+	else:
+		ran = range(89,90)
+	
+	for perc in ran:
 		
-		precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False,plot=True)
-		x.append(recall)
-		y.append(precision)
+		if(evalBox == False):
+			precision,recall,fprate = precisionRecallOnRandPopulation(maes,perc,population)
+			x.append(fprate)
+			y.append(recall)
+		else:
+			plot=True
+			precision,recall = errorBoxPlot(maes,labels,tit,lastPerc=perc,save=False,plot = plot)
+			x.append(recall)
+			y.append(precision)
 		
 		fscore = 2 * precision * recall / (precision + recall)
+		if(fscore > bestScore):
+			bestScore = fscore
+			bestTh = perc
+			bestPrc = precision
+			bestRecall = recall
+		
 		n.append(perc)
 		
 		a[i,0] = "{:10.3f}".format(perc) 
@@ -106,7 +265,9 @@ def __evaluation(maes,labels,name4model):
 		i+=1
 	if(False):
 		print (" \\\\\n".join([" & ".join(map(str,line)) for line in a]) )
-		
+	
+	print ("Best fscore is %f at threshold %d. Prec: %f Recall: %f" 
+		% (bestScore, bestTh, bestPrc, bestRecall))
 	return x,y,n
 			
 
@@ -305,12 +466,12 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 	
 		
 	fp = 0
-	#percFull = np.percentile(errors[0],[25,75])
-	#iqd = percFull[1] - percFull[0]
-	#fullTh =  percFull[1] + iqd
+	percFull = np.percentile(errors[0],[25,75])
+	iqd = (percFull[1] - percFull[0]) / 3
+	fullTh =  percFull[1] + iqd
 	
-	percFull = np.percentile(errors[0],[lastPerc])
-	fullTh =  percFull[0]
+	#percFull = np.percentile(errors[0],[lastPerc])
+	#fullTh =  percFull[0]
 	
 	errAtAge = errors[0]
 	errAtAge = np.where(errAtAge >= fullTh)
@@ -349,8 +510,8 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 		plt.boxplot(errors,sym='',whis=[100-lastPerc, lastPerc]) #
 		plt.axhline(y=fullTh, color='blue', linestyle='-')
 		plt.axvline(x=(ageThIdx+0.5),color='gray',)
-		plt.axvline(x=(ageThIdx+1.5),color='gray',)
-		plt.axvline(x=(lastAge+0.5),color='gray',)
+		#plt.axvline(x=(ageThIdx+1.5),color='gray',)
+		#plt.axvline(x=(lastAge+0.5),color='gray',)
 		plt.xticks(range(1,len(labels)+1),labels)
 		plt.title(title)
 		plt.grid()
@@ -464,6 +625,7 @@ def main():
 		execute(False,encSize,type=type, K = K)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
+		#mapTable(encSize,type,2,90)
 	elif(action=="learning_curve"):
 		learningCurve(encSize,type,K)
 	else:

@@ -34,8 +34,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
-codeDimension = 9
-
+codeDimension = 11
 
 '''
  ' Huber loss.
@@ -75,8 +74,8 @@ class Minerva():
 	logFolder = "./logs"
 	modelName = "FullyConnected_4_"
 	modelExt = ".h5"
-	batchSize = 100
-	epochs = 500
+	batchSize = 64
+	epochs = 600
 	ets = None
 	eps1   = 5
 	eps2   = 5
@@ -84,9 +83,12 @@ class Minerva():
 	alpha2 = 5
 	
 	def getModel(self,inputFeatures,outputFeatures,timesteps):
-		return self.VAE(inputFeatures,outputFeatures,timesteps)
+		#return self.VAE(inputFeatures,outputFeatures,timesteps)
 		#return self.Conv2D_QR(inputFeatures,outputFeatures,timesteps)
-	
+		#return self.VAE2D(inputFeatures,outputFeatures,timesteps)
+		return self.VAE1D(inputFeatures,outputFeatures,timesteps)
+		
+		
 	def __init__(self,eps1,eps2,alpha1,alpha2,plotMode = "server"):
 	
 		# plotMode "GUI" #"server" # set mode to server in order to save plot to disk instead of showing on video
@@ -124,19 +126,117 @@ class Minerva():
 		return vae, encoder, decoder
 	
 	
-	def VAE(self,inputFeatures,outputFeatures,timesteps,summary = False):
+	def VAEFC(self,inputFeatures,outputFeatures,timesteps,summary = False):
 		
 		codeSize = codeDimension
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		eh1 = Dense(256, activation='relu',name = "EH1")
+		
+		eh1 = Dense(512, activation='relu',name = "EH1")
 		eh2 = Dense(128, activation='relu',name = "EH2")
-		eh3 = Dense(64, activation='relu',name = "EH3")
-		flatE = Flatten(name="FE")
+		
+		fe = Flatten(name="FE")
 		mean = Dense(codeSize, activation='linear',name = "MU")
 		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
 
-		mu = mean(flatE(eh3(eh2(eh1((inputs))))))
-		log_sigma = logsg(flatE(eh3(eh2(eh1((inputs))))))
+		mu = mean(fe(eh3(eh2(eh1((inputs))))))
+		log_sigma = logsg(fe(eh3(eh2(eh1((inputs))))))
+		encoder = Model(inputs,[mu, log_sigma])
+		if(summary):
+			print("Encoder")
+			encoder.summary()
+		
+		# Sample z ~ Q(z|X)
+		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
+		
+		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
+		
+		dh1 = Dense(256, activation='relu',name = "DH1")
+		dh2 = Dense(48, activation='relu',name = "DH2")
+		dh3 = Dense(512, activation='relu',name = "DH2")
+		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
+		
+		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
+		
+		decOut = decoderOut( decoded( dh3(dh2 ( dh1((latent_inputs))) )))
+		decoder = Model(latent_inputs,decOut)
+		if(summary):
+			print("Decoder")
+			decoder.summary()
+
+		trainDecOut = decoderOut( decoded(dh3(dh2(dh1((z))))) )
+		vae = Model(inputs, trainDecOut)
+		if(summary):
+			print("VAE")
+			vae.summary()
+		
+		opt = optimizers.Adam(lr=0.0001) 
+
+		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
+		return vae, encoder, decoder
+	
+	
+	def VAE1D(self,inputFeatures,outputFeatures,timesteps,summary = False):
+		
+		codeSize = codeDimension
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		
+		eh1 = Conv1D(128,7, activation='relu',name = "EH1")
+		eh2 = Conv1D(256,3, activation='relu',name = "EH2")
+		eh3 = Conv1D(256,3, activation='relu',name = "EH3")
+		fe = Flatten(name="FE")
+		mean = Dense(codeSize, activation='linear',name = "MU")
+		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+
+		mu = mean(fe(eh3(eh2(eh1((inputs))))))
+		log_sigma = logsg(fe(eh3(eh2(eh1((inputs))))))
+		encoder = Model(inputs,[mu, log_sigma])
+		if(summary):
+			print("Encoder")
+			encoder.summary()
+		
+		# Sample z ~ Q(z|X)
+		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
+		
+		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
+		
+		dh1 = Dense(64, activation='relu',name = "DH1")
+		dh2 = Dense(256, activation='relu',name = "DH2")
+		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
+		
+		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
+		
+		decOut = decoderOut( decoded( dh2 ( dh1((latent_inputs))) ))
+		decoder = Model(latent_inputs,decOut)
+		if(summary):
+			print("Decoder")
+			decoder.summary()
+
+		trainDecOut = decoderOut( decoded(dh2(dh1((z))))) 
+		vae = Model(inputs, trainDecOut)
+		if(summary):
+			print("VAE")
+			vae.summary()
+		
+		opt = optimizers.Adam(lr=0.0001) 
+
+		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
+		return vae, encoder, decoder
+	
+	
+	def VAE2D(self,inputFeatures,outputFeatures,timesteps,summary = False):
+		
+		codeSize = codeDimension
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		er = Reshape((4, 5, 2),name="ER")
+		eh1 = Conv2D(512,2, activation='relu',name = "EH1")
+		eh2 = Conv2D(512,2, activation='relu',name = "EH2")
+		#eh3 = Dense(64, activation='relu',name = "EH3")
+		fe = Flatten(name="FE")
+		mean = Dense(codeSize, activation='linear',name = "MU")
+		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+
+		mu = mean(fe((eh2(eh1(er(inputs))))))
+		log_sigma = logsg(fe((eh2(eh1(er(inputs))))))
 		encoder = Model(inputs,[mu, log_sigma])
 		if(summary):
 			print("Encoder")
@@ -147,20 +247,69 @@ class Minerva():
 		# P(X|z) -- decoder
 		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
 		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
-		dh1 = Dense(256, activation='relu',name = "DH1")
-		dh2 = Dense(128, activation='relu',name = "DH2")
-		dh3 = Dense(64, activation='relu',name = "DH3")
+		dr = Reshape((1, 1, codeSize),name="DR")
+		dh1 = Conv2DTranspose(32,2, activation='relu',name = "DH1")
+		dh2 = Conv2DTranspose(16,2, activation='relu',name = "DH2")
+		#dh3 = Dense(64, activation='relu',name = "DH3")
+		fd = Flatten(name = "FD")
 		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
-		#fd = Flatten(name = "FD")
+		
 		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
 		
-		decOut = decoderOut( decoded(dh3( dh2 ( dh1(latent_inputs) ) )))
+		decOut = decoderOut( decoded(fd( dh2 ( dh1(dr(latent_inputs))) )))
 		decoder = Model(latent_inputs,decOut)
 		if(summary):
 			print("Decoder")
 			decoder.summary()
 
-		trainDecOut = decoderOut( decoded(dh3(dh2(dh1(z))))) 
+		trainDecOut = decoderOut( decoded(fd(dh2(dh1(dr(z)))))) 
+		vae = Model(inputs, trainDecOut)
+		if(summary):
+			print("VAE")
+			vae.summary()
+		
+		opt = optimizers.Adam(lr=0.0001) 
+
+		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
+		return vae, encoder, decoder
+	
+	def VAE(self,inputFeatures,outputFeatures,timesteps,summary = False):
+		
+		codeSize = codeDimension
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		eh1 = Dense(512, activation='relu',name = "EH1")
+		eh2 = Dense(256, activation='relu',name = "EH2")
+		#eh3 = Dense(64, activation='relu',name = "EH3")
+		flatE = Flatten(name="FE")
+		mean = Dense(codeSize, activation='linear',name = "MU")
+		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+
+		mu = mean(flatE((eh2(eh1((inputs))))))
+		log_sigma = logsg(flatE((eh2(eh1((inputs))))))
+		encoder = Model(inputs,[mu, log_sigma])
+		if(summary):
+			print("Encoder")
+			encoder.summary()
+		
+		# Sample z ~ Q(z|X)
+		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
+		# P(X|z) -- decoder
+		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
+		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
+		dh1 = Dense(512, activation='relu',name = "DH1")
+		dh2 = Dense(256, activation='relu',name = "DH2")
+		#dh3 = Dense(64, activation='relu',name = "DH3")
+		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
+		#fd = Flatten(name = "FD")
+		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
+		
+		decOut = decoderOut( decoded(( dh2 ( dh1(latent_inputs) ) )))
+		decoder = Model(latent_inputs,decOut)
+		if(summary):
+			print("Decoder")
+			decoder.summary()
+
+		trainDecOut = decoderOut( decoded((dh2(dh1(z))))) 
 		vae = Model(inputs, trainDecOut)
 		if(summary):
 			print("VAE")
