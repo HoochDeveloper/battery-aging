@@ -173,7 +173,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = True
+	mustPlot = False
 	ets = EpisodedTimeSeries(5,5,5,5)
 	nameIndex = ets.dataHeader.index(ets.nameIndex)
 	tsIndex = ets.dataHeader.index(ets.timeIndex)
@@ -234,9 +234,9 @@ def __evaluation(maes,labels,name4model, evalBox=False):
 	bestRecall = 0
 	
 	if(evalBox == False):
-		ran = range(10,100)
+		ran = range(10,99)
 	else:
-		ran = range(89,90)
+		ran = range(95,96)
 	
 	for perc in ran:
 		
@@ -316,20 +316,20 @@ def precisionRecallOnRandPopulation(errors,lowTH,population):
 			#	unknown += 1
 		elif(prob[i] >= population[2]): # 90
 			x = 0
-			healthly.append(errors[2][i])
-			maes.append(errors[2][i])
-			if(errors[2][i] >= fullTh):
-				mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
-			else:
-				mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0);
-			
-			
-			#degraded.append(errors[2][i])
+			#healthly.append(errors[2][i])
 			#maes.append(errors[2][i])
 			#if(errors[2][i] >= fullTh):
-			#	mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+			#	mTP.append(0); mFP.append(1); mTN.append(0); mFN.append(0); 
 			#else:
-			#	mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
+			#	mTP.append(0); mFP.append(0); mTN.append(1); mFN.append(0);
+			
+			
+			degraded.append(errors[2][i])
+			maes.append(errors[2][i])
+			if(errors[2][i] >= fullTh):
+				mTP.append(1); mFP.append(0); mTN.append(0); mFN.append(0); 
+			else:
+				mTP.append(0); mFP.append(0); mTN.append(0); mFN.append(1); 
 
 		elif(prob[i] >= population[3]): # 95
 			#if(errors[1][i] < fullTh or errors[1][i] > upperTh):
@@ -466,18 +466,18 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 	
 		
 	fp = 0
-	percFull = np.percentile(errors[0],[25,75])
-	iqd = (percFull[1] - percFull[0]) / 3
-	fullTh =  percFull[1] + iqd
+	#percFull = np.percentile(errors[0],[25,75])
+	#iqd = (percFull[1] - percFull[0]) / 3
+	#fullTh =  percFull[1] + iqd
 	
-	#percFull = np.percentile(errors[0],[lastPerc])
-	#fullTh =  percFull[0]
+	percFull = np.percentile(errors[0],[lastPerc])
+	fullTh =  percFull[0]
 	
 	errAtAge = errors[0]
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 3
+	ageThIdx = 2
 	lastAge = 5 #len(errors)
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]

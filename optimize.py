@@ -239,13 +239,20 @@ def VAE1D(train, valid, agedTrain, agedValid):
 	
 def VAE2D(train, valid, agedTrain, agedValid):
 	
-	from keras.callbacks import ModelCheckpoint
+	from keras.callbacks import ModelCheckpoint, EarlyStopping
 	from keras.models import Model
 	from keras.layers import Dense, Input, Flatten, Reshape, Lambda, Conv2D, Dropout
 	from keras import optimizers
 	from Minerva import huber_loss
-		
-	codeSize = {{choice([7,9,11,13,15,17,20])}}
+	
+	
+	early = EarlyStopping(monitor='val_mean_absolute_error', 
+		min_delta=0.0001, patience=50, verbose=1, mode='min')
+	saved = "./optimizedW.h5"
+	checkpoint = ModelCheckpoint(saved, monitor='val_loss', verbose=0,
+			save_best_only=True, mode='min',save_weights_only=True)	
+	
+	codeSize = {{choice([7,9,11,13,15,17,19])}}
 
 	def sample_z(args):
 		mu, log_sigma = args
@@ -266,36 +273,36 @@ def VAE2D(train, valid, agedTrain, agedValid):
 	decDrop = {{choice(['drop', 'noDrop'])}} == 'drop'
 	decMore = {{choice(['more', 'less'])}} == 'more'
 	
+	hiddenActivation = {{choice(['linear', 'relu'])}}
+	
+	batch_size = {{choice([64,128])}}
+	lr = {{choice([0.00005,0.0001,0.0002])}}
+	
+	deconvDecoder = {{choice(['dense', 'deconv'])}} == 'deconv'
+	
 	dropPerc =0.5
+	
+	if(encMore):
+		filterSize = 2
+	else:
+		filterSize = 3
 	
 	### ENCODER LAYERS
 	inputs = Input(shape=(20,2),name="IN")
 	er = Reshape((4, 5, 2),name="ER")
-	eh1 = Conv2D(dim1,2, activation='relu',name = "EH1")
-	eh2 = Conv2D(dim2,2, activation='relu',name = "EH2")
-	eh3 = Conv2D(dim2,2, activation='relu',name = "EH3")
+	eh1 = Conv2D(dim1,filterSize, activation=hiddenActivation,name = "EH1")
+	eh2 = Conv2D(dim2,filterSize, activation=hiddenActivation,name = "EH2")
+	eh3 = Conv2D(dim3,filterSize, activation=hiddenActivation,name = "EH3")
 	fe = Flatten(name="FE")
 	edrop = Dropout(dropPerc,name= "DE")
-	mean = Dense(codeSize, activation='linear',name = "MU")
-	logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+	mean = Dense(codeSize, activation=hiddenActivation,name = "MU")
+	logsg =  Dense(codeSize, activation=hiddenActivation, name = "LOG_SIGMA")
 	
-	
-	### DECODER LAYERS
-	dr = Reshape((1,1,codeSize),name="DR")
-	dh1 = Conv2DTranspose(dim4,2, activation='relu',name = "DH1")
-	dh2 = Conv2DTranspose(dim5,2, activation='relu',name = "DH2")
-	dh3 = Conv2DTranspose(dim5,2, activation='relu',name = "DH3")
-	ddrop = Dropout(dropPerc,name = "DD")
-	fd = Flatten(name="FD")
-	decoded = Dense(20*2,activation='linear',name="DECODED")
-	decoderOut = Reshape((20, 2),name="OUT")
-	
-	### MODEL
-
+	### MODEL ENCODER
 	if encMore:
 		encConv = eh3(eh2(eh1(er(inputs))))
 	else:
-		encConv = eh2(eh1(er(inputs)))
+		encConv = (eh1(er(inputs)))
 	
 	if encDrop:
 		mu 		  = mean(fe(edrop(encConv)))
@@ -306,31 +313,54 @@ def VAE2D(train, valid, agedTrain, agedValid):
 	
 	z = Lambda(sample_z,name="CODE")([mu, log_sigma])
 	
-	if decMore:
-		decConv = dh3(dh2(dh1(dr(z))))
-	else:
-		decConv = dh2(dh1(dr(z)))
+	### DECODER LAYERS
+	ddrop = Dropout(dropPerc,name = "DD")
+	decoded = Dense(20*2,activation='linear',name="DECODED")
+	decoderOut = Reshape((20, 2),name="OUT")
+	fd = Flatten(name="FD")
 	
-	if decDrop:
-		trainDecOut = decoderOut(decoded(fd(ddrop(decConv))))
+	### MODEL DECODER
+	if(deconvDecoder):
+		dr = Reshape((1,1,codeSize),name="DR")
+		dh1 = Conv2DTranspose(dim4,filterSize, activation=hiddenActivation,name = "DH1")
+		dh2 = Conv2DTranspose(dim5,filterSize, activation=hiddenActivation,name = "DH2")
+		dh3 = Conv2DTranspose(dim6,filterSize, activation=hiddenActivation,name = "DH3")
+		if decMore:
+			decConv = dh3(dh2(dh1(dr(z))))
+		else:
+			decConv = (dh1(dr(z)))
+		if decDrop:
+			trainDecOut = decoderOut(decoded(fd(ddrop(decConv))))
+		else:
+			trainDecOut = decoderOut(decoded(fd(decConv)))
 	else:
-		trainDecOut = decoderOut(decoded(fd(decConv)))
-	
+		dh1 = Dense(dim4,activation='relu',name = "DH1")
+		dh2 = Dense(dim5,activation='relu',name = "DH2")
+		dh3 = Dense(dim6,activation='relu',name = "DH3")
+		if decMore:
+			decConv = dh3(dh2(dh1((z))))
+		else:
+			decConv = dh2(dh1((z)))
+		if decDrop:
+			trainDecOut = decoderOut(decoded((ddrop(decConv))))
+		else:
+			trainDecOut = decoderOut(decoded((decConv)))
 
 	vae = Model(inputs, trainDecOut)
+
+	opt = optimizers.Adam(lr=lr) 
 	
-	opt = optimizers.Adam(lr=0.0001) 
-	saved = "./optimizedW.h5"
-	checkpoint = ModelCheckpoint(saved, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min',save_weights_only=True)
+	vae.compile(loss = huber_loss,
+		optimizer=opt,metrics=['mae'])
 	
-	vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
+	#print(vae.summary())
+	
 	vae.fit(train, train,
 			verbose = 0,
-			batch_size=64,
-			epochs=250,
+			batch_size=batch_size,
+			epochs=300,
 			validation_data=(valid,valid),
-			callbacks=[checkpoint]
+			callbacks=[checkpoint,early]
 	)
 	
 	vae.load_weights(saved,by_name=True)
@@ -338,21 +368,20 @@ def VAE2D(train, valid, agedTrain, agedValid):
 	HL_full, MAE_full = vae.evaluate(valid, valid, verbose=0)
 	
 	
-	ydecoded = vae.predict(valid,  batch_size=100)
+	ydecoded = vae.predict(valid,  batch_size=batch_size)
 	maes = np.zeros(ydecoded.shape[0], dtype='float32')
 	for sampleCount in range(0,ydecoded.shape[0]):
 		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
 	
-	prc = np.percentile(maes,[3,97])
+	prc = np.percentile(maes,[95])
 	sigma = np.std(maes)
 	
-	score = HL_full #MAE_full + sigma + prc[1] 
-	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
+	score =  MAE_full + sigma + prc[0]  # HL_full
+	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" 
+		% (score,sigma,MAE_full,HL_full, prc[0]))
 	return {'loss': score, 'status': STATUS_OK, 'model': vae}
 	
-	
-	
-	
+
 def denseModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import load_model
 	from keras.callbacks import ModelCheckpoint
@@ -728,8 +757,8 @@ def data():
 	t = [folds4learn[train_index[i]] for i in range(1,len(train_index))]
 	t = np.concatenate(t)
 	v = folds4learn[train_index[0]]
-	train = minerva.batchCompatible(100,t)
-	valid = minerva.batchCompatible(100,v)
+	train = minerva.batchCompatible(128,t)
+	valid = minerva.batchCompatible(128,v)
 	#	break
 	
 	return train, valid, train, valid
@@ -742,7 +771,7 @@ def main():
 										  model = VAE2D,
 										  data=data,
                                           algo=tpe.suggest,
-                                          max_evals=30,
+                                          max_evals=50,
                                           trials=Trials())
 	
 	train, valid, agedTrain, agedValid = data()
@@ -750,5 +779,6 @@ def main():
 	print(best_model.evaluate(valid, valid))
 	print(best_run)
 	print("Optimize - end - %f" % (time.clock() - start) )
+	print(best_model.summary())
 		
 main()	

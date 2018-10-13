@@ -34,7 +34,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
-codeDimension = 11
+codeDimension = 9
 
 '''
  ' Huber loss.
@@ -86,7 +86,7 @@ class Minerva():
 		#return self.VAE(inputFeatures,outputFeatures,timesteps)
 		#return self.Conv2D_QR(inputFeatures,outputFeatures,timesteps)
 		#return self.VAE2D(inputFeatures,outputFeatures,timesteps)
-		return self.VAE1D(inputFeatures,outputFeatures,timesteps)
+		return self.VAE2D_OPT(inputFeatures,outputFeatures,timesteps)
 		
 		
 	def __init__(self,eps1,eps2,alpha1,alpha2,plotMode = "server"):
@@ -124,6 +124,60 @@ class Minerva():
 		if(decoder is not None):
 			decoder.load_weights(path4save,by_name=True)
 		return vae, encoder, decoder
+	
+	def VAE2D_OPT(self,inputFeatures,outputFeatures,timesteps,summary = False):
+		
+		activation = 'linear'
+		
+		codeSize = codeDimension
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		er = Reshape((4, 5, 2),name="ER")
+		eh1 = Conv2D(512,2, activation=activation,name = "EH1")
+		eh2 = Conv2D(128,2, activation=activation,name = "EH2")
+		eh3 = Conv2D(128,2, activation=activation,name = "EH3")
+		fe = Flatten(name="FE")
+		mean = Dense(codeSize, activation='linear',name = "MU")
+		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+
+		mu = mean(fe(eh3(eh2(eh1(er(inputs))))))
+		log_sigma = logsg(fe(eh3(eh2(eh1(er(inputs))))))
+		encoder = Model(inputs,[mu, log_sigma])
+		if(summary):
+			print("Encoder")
+			encoder.summary()
+		
+		# Sample z ~ Q(z|X)
+		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
+		# P(X|z) -- decoder
+		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
+		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
+		dr = Reshape((1, 1, codeSize),name="DR")
+		dh1 = Conv2DTranspose(256,2, activation=activation,name = "DH1")
+		dh2 = Conv2DTranspose(96,2,  activation=activation,name = "DH2")
+		dh3 = Conv2DTranspose(512,2, activation=activation,name = "DH3")
+		fd = Flatten(name = "FD")
+		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
+		
+		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
+		
+		decOut = decoderOut( decoded(fd(dh3( dh2 ( dh1(dr(latent_inputs))) ))))
+		decoder = Model(latent_inputs,decOut)
+		if(summary):
+			print("Decoder")
+			decoder.summary()
+
+		trainDecOut = decoderOut( decoded(fd(dh3(dh2(dh1(dr(z)))))))
+		vae = Model(inputs, trainDecOut)
+		if(summary):
+			print("VAE")
+			vae.summary()
+		
+		opt = optimizers.Adam(lr=0.0002) 
+
+		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
+		return vae, encoder, decoder
+	
+	
 	
 	
 	def VAEFC(self,inputFeatures,outputFeatures,timesteps,summary = False):
