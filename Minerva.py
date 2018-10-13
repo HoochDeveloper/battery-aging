@@ -34,7 +34,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
-codeDimension = 9
+codeDimension = 13
 
 '''
  ' Huber loss.
@@ -484,7 +484,7 @@ class Minerva():
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min',save_weights_only=True)
 		
-		early = EarlyStopping(monitor='val_mean_absolute_error', min_delta=0.0005, patience=75, verbose=1, mode='min')
+		early = EarlyStopping(monitor='val_mean_absolute_error', min_delta=0.0001, patience=100, verbose=1, mode='min')
 		
 		validY = y_valid
 		trainY = y_train
