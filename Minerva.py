@@ -84,9 +84,9 @@ class Minerva():
 	
 	def getModel(self,inputFeatures,outputFeatures,timesteps):
 		#return self.VAE(inputFeatures,outputFeatures,timesteps)
-		#return self.Conv2D_QR(inputFeatures,outputFeatures,timesteps)
+		return self.Conv2DQR(inputFeatures,outputFeatures,timesteps)
 		#return self.VAE2D(inputFeatures,outputFeatures,timesteps)
-		return self.VAE2D_OPT(inputFeatures,outputFeatures,timesteps)
+		#return self.VAE2D_OPT(inputFeatures,outputFeatures,timesteps)
 		
 		
 	def __init__(self,eps1,eps2,alpha1,alpha2,plotMode = "server"):
@@ -277,132 +277,32 @@ class Minerva():
 		return vae, encoder, decoder
 	
 	
-	def VAE2D(self,inputFeatures,outputFeatures,timesteps,summary = False):
-		
-		codeSize = codeDimension
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		er = Reshape((4, 5, 2),name="ER")
-		eh1 = Conv2D(512,2, activation='relu',name = "EH1")
-		eh2 = Conv2D(512,2, activation='relu',name = "EH2")
-		#eh3 = Dense(64, activation='relu',name = "EH3")
-		fe = Flatten(name="FE")
-		mean = Dense(codeSize, activation='linear',name = "MU")
-		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
-
-		mu = mean(fe((eh2(eh1(er(inputs))))))
-		log_sigma = logsg(fe((eh2(eh1(er(inputs))))))
-		encoder = Model(inputs,[mu, log_sigma])
-		if(summary):
-			print("Encoder")
-			encoder.summary()
-		
-		# Sample z ~ Q(z|X)
-		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
-		# P(X|z) -- decoder
-		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
-		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
-		dr = Reshape((1, 1, codeSize),name="DR")
-		dh1 = Conv2DTranspose(32,2, activation='relu',name = "DH1")
-		dh2 = Conv2DTranspose(16,2, activation='relu',name = "DH2")
-		#dh3 = Dense(64, activation='relu',name = "DH3")
-		fd = Flatten(name = "FD")
-		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
-		
-		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
-		
-		decOut = decoderOut( decoded(fd( dh2 ( dh1(dr(latent_inputs))) )))
-		decoder = Model(latent_inputs,decOut)
-		if(summary):
-			print("Decoder")
-			decoder.summary()
-
-		trainDecOut = decoderOut( decoded(fd(dh2(dh1(dr(z)))))) 
-		vae = Model(inputs, trainDecOut)
-		if(summary):
-			print("VAE")
-			vae.summary()
-		
-		opt = optimizers.Adam(lr=0.0001) 
-
-		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
-		return vae, encoder, decoder
 	
-	def VAE(self,inputFeatures,outputFeatures,timesteps,summary = False):
+	def Conv2DQR(self,inputFeatures,outputFeatures,timesteps):
 		
-		codeSize = codeDimension
-		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		eh1 = Dense(512, activation='relu',name = "EH1")
-		eh2 = Dense(256, activation='relu',name = "EH2")
-		#eh3 = Dense(64, activation='relu',name = "EH3")
-		flatE = Flatten(name="FE")
-		mean = Dense(codeSize, activation='linear',name = "MU")
-		logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
-
-		mu = mean(flatE((eh2(eh1((inputs))))))
-		log_sigma = logsg(flatE((eh2(eh1((inputs))))))
-		encoder = Model(inputs,[mu, log_sigma])
-		if(summary):
-			print("Encoder")
-			encoder.summary()
-		
-		# Sample z ~ Q(z|X)
-		z = Lambda(sample_z,name="CODE")([mu, log_sigma])
-		# P(X|z) -- decoder
-		#latent_inputs = Input(shape=(1,2,codeSize,), name='z_sampling')
-		latent_inputs = Input(shape=(codeSize,), name='z_sampling')
-		dh1 = Dense(512, activation='relu',name = "DH1")
-		dh2 = Dense(256, activation='relu',name = "DH2")
-		#dh3 = Dense(64, activation='relu',name = "DH3")
-		decoded = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")
-		#fd = Flatten(name = "FD")
-		decoderOut = Reshape((timesteps, outputFeatures),name="OUT")
-		
-		decOut = decoderOut( decoded(( dh2 ( dh1(latent_inputs) ) )))
-		decoder = Model(latent_inputs,decOut)
-		if(summary):
-			print("Decoder")
-			decoder.summary()
-
-		trainDecOut = decoderOut( decoded((dh2(dh1(z))))) 
-		vae = Model(inputs, trainDecOut)
-		if(summary):
-			print("VAE")
-			vae.summary()
-		
-		opt = optimizers.Adam(lr=0.0001) 
-
-		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
-		return vae, encoder, decoder
-
-	def Conv2D_QR(self,inputFeatures,outputFeatures,timesteps):
-		dropPerc = 0.5
 		strideSize = 2
 		codeSize = codeDimension
-		norm = 5.
-
+		lr = 0.0001
+		outputActivation = 'linear'
+		hiddenActication = 'tanh'
+	
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((4,5,2),name="R2E")(inputs)
-		c = Conv2D(128,strideSize,activation='relu',name="E1")(c)
-		
-	
-		c = Dropout(dropPerc)(c)
-		c = Conv2D(48,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="E2")(c)
+		c = Conv2D(128,strideSize,activation=hiddenActication,name="E1")(c)
+		c = Conv2D(512,strideSize,activation=hiddenActication,name="E2")(c)
 
 		
 		preEncodeFlat = Flatten(name="F1")(c) 
 		enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
 		c = Reshape((1,1,codeSize),name="R2D")(enc)
 
-		c = Conv2DTranspose(512,strideSize,activation='relu',name="D1")(c)
-		c = Dropout(dropPerc)(c) 
-		c = Conv2DTranspose(64,strideSize,kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)
-		c = Conv2DTranspose(32,strideSize,activation='relu',name="D3")(c)
+		c = Conv2DTranspose(512,strideSize,activation=hiddenActication,name="D1")(c)
 		
 		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(preDecFlat)
+		c = Dense(timesteps*outputFeatures,activation=outputActivation,name="DECODED")(preDecFlat)
 		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 		autoencoderModel = Model(inputs=inputs, outputs=out)
-		opt = optimizers.Adam(lr=0.00005) 
+		opt = optimizers.Adam(lr=lr) 
 		autoencoderModel.compile(loss=huber_loss, optimizer=opt,metrics=['mae'])
 		return autoencoderModel, None, None
 	
@@ -480,21 +380,22 @@ class Minerva():
 		
 		model,_,_ = self.getModel(inputFeatures,outputFeatures,timesteps)
 
+		#print(model.summary())
+		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min',save_weights_only=True)
 		
-		early = EarlyStopping(monitor='val_mean_absolute_error', min_delta=0.0001, patience=100, verbose=1, mode='min')
-		
-		validY = y_valid
-		trainY = y_train
-		
+		#early = EarlyStopping(monitor='val_mean_absolute_error',
+		#	min_delta=0.0001, patience=100, verbose=1, mode='min')
+				
 		history  = model.fit(x_train, x_train,
 			verbose = 0,
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,x_valid)
-			,callbacks=[checkpoint,early]
+			,callbacks=[checkpoint]
+			#,callbacks=[checkpoint,early]
 		)
 		elapsed = (time.clock() - tt)
 		

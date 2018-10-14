@@ -14,12 +14,20 @@ def VAEFC(train, valid, agedTrain, agedValid):
 	from keras import optimizers
 	from Minerva import huber_loss #,sample_z
 	
-	codeSize = {{choice([5,6,7,8,9,10,11])}}
+	codeSize = {{choice([7,9,11,13])}}
 
 	def sample_z(args):
 		mu, log_sigma = args
 		eps = K.random_normal(shape=(codeSize,),mean=0.,stddev=1.)
 		return mu + K.exp(log_sigma / 2) * eps
+	
+	
+	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
+	outputActivation = {{choice(['linear', 'relu','tanh'])}}
+	
+	batch_size = {{choice([64,128])}}
+	lr = {{choice([0.00005,0.0001,0.0002])}}
+	
 	
 	dim1 = {{choice([16,32,48,64,96,128,256,512])}}
 	dim2 = {{choice([16,32,48,64,96,128,256,512])}}
@@ -41,21 +49,21 @@ def VAEFC(train, valid, agedTrain, agedValid):
 	### ENCODER LAYERS
 	inputs = Input(shape=(20,2),name="IN")
 	
-	eh1 = Dense(dim1, activation='relu',name = "EH1")
-	eh2 = Dense(dim2, activation='relu',name = "EH2")
-	eh3 = Dense(dim2, activation='relu',name = "EH3")
+	eh1 = Dense(dim1, activation=hiddenActivation,name = "EH1")
+	eh2 = Dense(dim2, activation=hiddenActivation,name = "EH2")
+	eh3 = Dense(dim3, activation=hiddenActivation,name = "EH3")
 	edrop = Dropout(dropPerc,name= "DE")
-	mean = Dense(codeSize, activation='linear',name = "MU")
-	logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
+	mean = Dense(codeSize, activation=outputActivation,name = "MU")
+	logsg =  Dense(codeSize, activation=outputActivation, name = "LOG_SIGMA")
 	
 	
 	### DECODER LAYERS
-	dh1 = Dense(dim4, activation='relu',name = "DH1")
-	dh2 = Dense(dim5, activation='relu',name = "DH2")
-	dh3 = Dense(dim6, activation='relu',name = "DH3")
+	dh1 = Dense(dim4, activation=hiddenActivation,name = "DH1")
+	dh2 = Dense(dim5, activation=hiddenActivation,name = "DH2")
+	dh3 = Dense(dim6, activation=hiddenActivation,name = "DH3")
 	ddrop = Dropout(dropPerc,name = "DD")
 	
-	decoded = Dense(20*2,activation='linear',name="DECODED")
+	decoded = Dense(20*2,activation=outputActivation,name="DECODED")
 	decoderOut = Reshape((20, 2),name="OUT")
 	
 	### MODEL
@@ -87,7 +95,7 @@ def VAEFC(train, valid, agedTrain, agedValid):
 
 	vae = Model(inputs, trainDecOut)
 	
-	opt = optimizers.Adam(lr=0.0001) 
+	opt = optimizers.Adam(lr=lr) 
 	saved = "./optimizedW.h5"
 	checkpoint = ModelCheckpoint(saved, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min',save_weights_only=True)
@@ -98,8 +106,8 @@ def VAEFC(train, valid, agedTrain, agedValid):
 	
 	vae.fit(train, train,
 			verbose = 0,
-			batch_size=64,
-			epochs=250,
+			batch_size=batch_size,
+			epochs=300,
 			validation_data=(valid,valid),
 			callbacks=[checkpoint]
 	)
@@ -114,10 +122,10 @@ def VAEFC(train, valid, agedTrain, agedValid):
 	for sampleCount in range(0,ydecoded.shape[0]):
 		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
 	
-	prc = np.percentile(maes,[3,97])
+	prc = np.percentile(maes,[10,90])
 	sigma = np.std(maes)
 	
-	score = HL_full #MAE_full + sigma + prc[1] 
+	score =  MAE_full + sigma + prc[1] # HL_full
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': vae}
 
@@ -414,68 +422,76 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	inputFeatures = 2
 	outputFeatures = 2
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	
 	# START HyperParameters
 	dropPerc = 0.5
+	
+	
+	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
+	outputActivation = {{choice(['linear', 'relu','tanh'])}}
+	
+	batch_size = {{choice([64,128])}}
+	lr = {{choice([0.00005,0.0001,0.0002])}}
+	
+	
 	norm = {{choice([2.,3.,4.,5.])}}
-	codeSize = {{choice([7,8,9,10,11,12])}}
+	codeSize = {{choice([7,9,11,13])}}
 	codeMultiplier = {{choice([2,3,4])}}
 	
 	# END HyperParameters
-	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="E1")(inputs)
+	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation=hiddenActivation,name="E1")(inputs)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="E2")(d)
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="E2")(d)
 		else:
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation='relu',name="E2")(d)
+				,activation=hiddenActivation,name="E2")(d)
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="E3")(d)
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="E3")(d)
 		else:
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation='relu',name="E3")(d)
+				,activation=hiddenActivation,name="E3")(d)
 	
-	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="E4")(d)
+	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation=hiddenActivation,name="E4")(d)
 	
 	### s - encoding
 	d = Flatten(name="F1")(d) 
-	enc = Dense(codeSize,activation='relu',name="ENC")(d)
+	enc = Dense(codeSize,activation=hiddenActivation,name="ENC")(d)
 	### e - encoding
 	
 	
-	d = Dense(codeSize*codeMultiplier,activation='relu',name="D1")(enc)
+	d = Dense(codeSize*codeMultiplier,activation=hiddenActivation,name="D1")(enc)
 	d = Reshape((codeSize, codeMultiplier),name="R")(d)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="D2")(d)
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="D2")(d)
 		else:
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation='relu',name="D2")(d)
+				,activation=hiddenActivation,name="D2")(d)
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}} == 'drop':
 			d = Dropout(dropPerc)(d)
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="D3")(d)
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="D3")(d)
 		else:
 			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation='relu',name="D3")(d)
+				,activation=hiddenActivation,name="D3")(d)
 	
-	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="D4")(d)
+	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation=hiddenActivation,name="D4")(d)
 	d = Flatten(name="F2")(d)
-	d = Dense(outputFeatures*timesteps,activation='linear',name="DEC")(d)
+	d = Dense(outputFeatures*timesteps,activation=outputActivation,name="DEC")(d)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(d)
 	model = Model(inputs=inputs, outputs=out)
 	
-	adam = optimizers.Adam(lr=0.0005)		
+	adam = optimizers.Adam(lr=lr)		
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 	
 	#print(model.summary())
@@ -486,8 +502,8 @@ def denseModelClassic(train, valid, agedTrain, agedValid):
 	
 	model.fit(train, train,
 		verbose = 0,
-		batch_size=100,
-		epochs=150,
+		batch_size=batch_size,
+		epochs=300,
 		validation_data=(valid, valid)
 		,callbacks=[checkpoint]
 	)
@@ -525,75 +541,85 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	from sklearn.metrics import mean_absolute_error
 	from keras.constraints import max_norm
 	
-	
 	inputFeatures = 2
 	outputFeatures = 2
 	timesteps = 20
 	dropPerc = 0.5
+	
+	
+	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
+	outputActivation = {{choice(['linear', 'relu','tanh'])}}
+	
+	batch_size = {{choice([64,128])}}
+	lr = {{choice([0.00005,0.0001,0.0002])}}
+	
+	
 	norm = {{choice([2.,3.,4.,5.])}}
 	codeSize = {{choice([7,8,9,10,11,12])}}
 	
 	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([5,9])}}
-		,activation='relu',name="E1")(inputs)
+	c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3,4,5,6,7])}}
+		,activation=hiddenActivation,name="E1")(inputs)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
-			c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3,4,5,6,7,8,9])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="E2")(c)
+			c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3,4,5,6])}}
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="E2")(c)
 		else:
-			c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3,4,5,6,7,8,9])}}
-				,activation='relu',name="E2")(c)
+			c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3,4,5,6])}}
+				,activation=hiddenActivation,name="E2")(c)
 		
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
 			c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3,4,5])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="E3")(c)
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="E3")(c)
 		else:
 			c = Conv1D({{choice([16,32,48,64,96,128,256,512])}}, {{choice([2,3,4,5])}}
-				,activation='relu',name="E3")(c)
+				,activation=hiddenActivation,name="E3")(c)
 	
 	preEncodeFlat = Flatten(name="F1")(c) 
-	enc = Dense(codeSize,activation='relu',name="ENC")(preEncodeFlat)
+	enc = Dense(codeSize,activation=hiddenActivation,name="ENC")(preEncodeFlat)
 	
-	c = Dense({{choice([16,32,48,64,96,128,256,512])}},activation='relu',name="D1")(enc)
+	c = Dense({{choice([16,32,48,64,96,128,256,512])}},activation=hiddenActivation,name="D1")(enc)
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
 			c = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="D2")(c)
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="D2")(c)
 		else:
 			c = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation='relu',name="D2")(c)
+				,activation=hiddenActivation,name="D2")(c)
 	
 	if {{choice(['more', 'less'])}} == 'more':
 		if {{choice(['drop', 'noDrop'])}}  == 'drop':
 			c = Dropout(dropPerc)(c)
 			c = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation='relu',name="D3")(c)
+				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="D3")(c)
 		else:
 			c = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation='relu',name="D3")(c)
+				,activation=hiddenActivation,name="D3")(c)
 	
-	c = Dense(timesteps*outputFeatures,activation='linear',name="DECODED")(c)
+	c = Dense(timesteps*outputFeatures,activation=outputActivation,name="DECODED")(c)
 	out = Reshape((timesteps, outputFeatures),name="OUT")(c)
 	model = Model(inputs=inputs, outputs=out)
 	adam = optimizers.Adam(
-		lr=0.0005
+		lr=lr
 	)	
 	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 
+	#print(model.summary())
+	
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min')
 	
 	model.fit(train, train,
 		verbose = 0,
-		batch_size=100,
-		epochs=350,
+		batch_size=batch_size,
+		epochs=300,
 		validation_data=(valid, valid)
 		,callbacks=[checkpoint]
 	)
@@ -613,7 +639,7 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	prc = np.percentile(maes,[10,90])
 	sigma = np.std(maes)
 	
-	score = MAE_full + sigma  #HL_full + prc[1] 
+	score = MAE_full + sigma + prc[1]   #HL_full 
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
@@ -630,7 +656,6 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.layers import Conv2DTranspose, Conv2D
 	from Demetra import EpisodedTimeSeries
 	from keras.constraints import max_norm
-	#from keras.backend import constant as cnt
 	
 	ets = EpisodedTimeSeries(5,5,5,5)
 	
@@ -801,7 +826,7 @@ def main():
 	import time
 	start = time.clock()
 	best_run, best_model = optim.minimize(
-										  model = conv2DModelClassic,
+										  model = conv1DModelClassic,
 										  data=data,
                                           algo=tpe.suggest,
                                           max_evals=50,
