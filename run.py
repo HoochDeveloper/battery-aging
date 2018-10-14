@@ -164,52 +164,58 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
 	astrea = Astrea(tsIndex,nameIndex,minerva.ets.keepY)	
 	
-	if(mustTrain):
-		train(minerva,astrea,K,encSize,type=type)
-	
+	K = 6
 	batteries = minerva.ets.loadSyntheticBlowDataSet(100)
-	k_idx,k_data = astrea.kfoldByKind(batteries,K)
+	_,k_data = astrea.kfoldByKind(batteries,K)
 	scaler = astrea.getScaler(k_data)
+
+	folds4learn = []
+	for i in range(len(k_data)-1):
+		fold = k_data[i]
+		foldAs3d = astrea.foldAs3DArray(fold,scaler)
+		folds4learn.append(foldAs3d)
+	
+	if(mustTrain):
+		train(minerva,astrea,K,encSize,folds4learn,type=type)
+	
+	#testFold = k_data[-1]
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = True
+	mustPlot = False
+
+	name4model = None
+	# search the only best model saved
+	for count in range(0,K):
+		tmp = modelNameTemplate % (encSize,100,type,count)
+		if(os.path.exists(os.path.join(maeFolder,tmp+".out"))):
+			name4model = tmp
+			break
+	
+	fig, ax = plt.subplots()
 	ets = EpisodedTimeSeries(5,5,5,5)
-	nameIndex = ets.dataHeader.index(ets.nameIndex)
-	tsIndex = ets.dataHeader.index(ets.timeIndex)
-	astrea = Astrea(tsIndex,nameIndex,ets.keepY)
-	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
-	count = 0
-	for _, test_index in zip(trainIdx,testIdx): 
-		count += 1
-		fig, ax = plt.subplots()
-		print("Load evaluation for fold %d" % count)
-		name4model = modelNameTemplate % (encSize,100,type,count)
-		[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+	[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+	labels = []
+	for i in range(0,len(lab)):
+		mul = 100 - (5*i)
+		q = int(340 * mul / 100)
+		labels.append("%d" % q)
+	
+	x,y,n = __evaluation(maes,labels,name4model,evalBox= not mustPlot)
+
+	if(mustPlot):
+		print("AUROC %f" % auc(np.asarray(x),np.asarray(y)))
+		ax.scatter(x, y, label=type)
+		for i, txt in enumerate(n):
+			ax.annotate(txt, (x[i], y[i]))
 		
-		labels = []
-		for i in range(0,len(lab)):
-			mul = 100 - (5*i)
-			q = int(340 * mul / 100)
-			labels.append("%d" % q)
+		ax.plot((0, 1), (0, 1))
 		
-		x,y,n = __evaluation(maes,labels,name4model,evalBox= not mustPlot)
-		
-		
-		#print(np.sum()*np.asarray(y)))
-		if(mustPlot):
-			print("AUROC %f" % auc(np.asarray(x),np.asarray(y)))
-			ax.scatter(x, y, label=type)
-			for i, txt in enumerate(n):
-				ax.annotate(txt, (x[i], y[i]))
-			
-			ax.plot((0, 1), (0, 1))
-			
-			plt.xlabel('FPR')
-			plt.ylabel('TPR')
-			plt.legend()
-			plt.grid()
-			plt.show()
+		plt.xlabel('FPR')
+		plt.ylabel('TPR')
+		plt.legend()
+		plt.grid()
+		plt.show()
 
 def __evaluation(maes,labels,name4model, evalBox=False):
 	
@@ -410,58 +416,75 @@ def precisionRecallOnRandPopulation(errors,lowTH,population):
 		plt.xlabel('Status')
 		plt.ylabel('MAE')
 		plt.show()
-	
-	
+
 	return precision,recall,fpRate
 	
 def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,showScatter=False,boxPlot=False):
 
 	if not os.path.exists(maeFolder):
 		os.makedirs(maeFolder)
+	
+	#selecting best model to evaluate on test set
+	
+	ageScale = 100
+	batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
+	_,k_data = astrea.kfoldByKind(batteries,K)
+	
+	folds4learn = []
+	fold = k_data[-1]
+	foldAs3d = astrea.foldAs3DArray(fold,scaler)
+	folds4learn.append(foldAs3d)
+	test =  np.concatenate(folds4learn)
+	print("Selecting best model on train folds")
+	bestMae = float('Inf')
+	bestModel = None
+	for count in range(0,K-1):
+		name4model = modelNameTemplate % (encSize,100,type,count+1)
+		#minerva.codeProjection(name4model,test)
+		mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
+		score = np.mean(mae)
+		if(score < bestMae):
+			bestMae = score
+			bestModel = name4model
+		count +=1
+	
+	print("Best model is %s with mae %f" % ( bestModel, bestMae) )
+	
 
-	trainIdx,testIdx = astrea.leaveOneFoldOut(K)
+	#mae2Save = [None] * (K-1)
+	#lab2Save = [None] * (K-1)
+	#for c in range(0,K-1):
 	
-	
-	mae2Save = [None] * K
-	lab2Save = [None] * K
-	for c in range(0,K):
+	mae2Save = [None] * (1)
+	lab2Save = [None] * (1)
+	for c in range(0,1):
 		foldMaes = [None] * len(ageScales)
 		foldLabels = [None] * len(ageScales)
 		mae2Save[c] = foldMaes
 		lab2Save[c] = foldLabels
 	
+	count = 0
 	for a in range(0,len(ageScales)):
 		
 		ageScale = ageScales[a]
-		
 		batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
 		_,k_data = astrea.kfoldByKind(batteries,K)
 		
-		count = 0
-		for _, test_index in zip(trainIdx,testIdx): 
-			
-			print("Fold %d Age: %d" % (count+1,ageScale))
-			name4model = modelNameTemplate % (encSize,100,type,count+1)
-			maes = []
-			labels = []
-			folds4learn = []
-			for i in test_index:
-				fold = k_data[i]
-				foldAs3d = astrea.foldAs3DArray(fold,scaler)
-				folds4learn.append(foldAs3d)
+		folds4learn = []
+		fold = k_data[-1]
+		foldAs3d = astrea.foldAs3DArray(fold,scaler)
+		folds4learn.append(foldAs3d)
+		test =  np.concatenate(folds4learn)
 		
-			test =  np.concatenate(folds4learn)
-			mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
-			mae2Save[count][a] = mae
-			lab2Save[count][a] = "Q@%d" % ageScale
-			count += 1
-			
-		
-	for c in range(0,K):
-		name4model = modelNameTemplate % (encSize,100,type,c+1)
-		maes = mae2Save[c]
-		labels = lab2Save[c]
-		minerva.ets.saveZip(maeFolder,name4model+".out",[maes,labels])
+		print("Model %s Age: %d" % (bestModel,ageScale))	
+		#minerva.codeProjection(name4model,test)
+		mae = minerva.evaluateModelOnArray(test, test,bestModel,plotMode,scaler,False)
+		mae2Save[count][a] = mae
+		lab2Save[count][a] = "SOH %d" % ageScale
+	# end evaluation on all ages
+	maes = mae2Save[0]
+	labels = lab2Save[0]
+	minerva.ets.saveZip(maeFolder,bestModel+".out",[maes,labels])
 
 def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 	
@@ -525,67 +548,22 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 			plt.show()
 	
 	return precision,recall
-		
-		
-def train(minerva,astrea,K,encSize,type="Dense"):
-	
-	train_ageScale = 100
-	batteries = minerva.ets.loadSyntheticBlowDataSet(train_ageScale)
-	k_idx,k_data = astrea.kfoldByKind(batteries,K)
-	
-	if(False):
-		degraded = []
-		for i in range(50,110,10):
-			
-			corrupted = minerva.ets.loadSyntheticBlowDataSet(i)
-			degraded.append(corrupted)
-		
-		degradationPerc = [.02,.04,.06,.08,.10]
-		#degradationPerc = [.01,.02,.03,.04,.05]
-		print("Degraded")
-		k_idx,k_data = astrea.kFoldWithDegradetion(batteries,degraded,degradationPerc,K)
-	
-	scaler = astrea.getScaler(k_data)
-	folds4learn = []
-	
-	for i in range(len(k_data)):
-		fold = k_data[i]
-		foldAs3d = astrea.foldAs3DArray(fold,scaler)
-		folds4learn.append(foldAs3d)
-		
 
-	trainIdx,testIdx = astrea.leaveOneFoldOut(K)	
+def train(minerva,astrea,K,encSize,folds4learn,type="Dense"):
+	trainIdx,valIdx = astrea.leaveOneFoldOut(K-1)	
 	count = 0
-	for train_index, test_index in zip(trainIdx,testIdx): 
+	for train_index, valid_index in zip(trainIdx,valIdx): 
 		# TRAIN #VALID
 		trainStr = ""
-		trainX = []
-		validX = None
-		validY = None
-		for i in range(0,len(train_index)):
-			if i != (count % len(train_index)):
-				trainX.append(folds4learn[train_index[i]])
-				trainStr += " TR " + str(train_index[i])
-			else:
-				validX = folds4learn[train_index[i]]
-				validY = validX
-				trainStr += " VL " + str(train_index[i])
-		
+		trainX = [folds4learn[i] for i in train_index]
 		trainX = np.concatenate(trainX)
-		trainY = trainX
-
-		#TEST
-		trainStr += " TS " + str(test_index[0])
-		testX = [folds4learn[i] for i in test_index]
-		testX =  np.concatenate(testX)
-		testY =  testX
-		print(trainStr)
+		validX = [folds4learn[i] for i in valid_index]
+		validX =  np.concatenate(validX)		
 		count += 1
 		
-		name4model = modelNameTemplate % (encSize,train_ageScale,type,count)
-		minerva.trainlModelOnArray(trainX, trainY, validX, validY,
+		name4model = modelNameTemplate % (encSize,100,type,count)
+		minerva.trainlModelOnArray(trainX, trainX, validX, validX,
 			name4model,encodedSize = encSize)
-		minerva.evaluateModelOnArray(testX, testY,name4model,plotMode,scaler,False)
 		
 def learningCurve(encSize,type,K):
 	ets = EpisodedTimeSeries(5,5,5,5)

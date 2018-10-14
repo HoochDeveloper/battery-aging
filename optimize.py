@@ -5,131 +5,6 @@ from hyperopt import Trials, STATUS_OK, tpe, rand
 from hyperas import optim
 import numpy as np
 
-def VAEFC(train, valid, agedTrain, agedValid):
-	
-	import keras.backend as K
-	from keras.callbacks import ModelCheckpoint
-	from keras.models import Model
-	from keras.layers import Dense, Input, Flatten, Reshape, Lambda, Dropout
-	from keras import optimizers
-	from Minerva import huber_loss #,sample_z
-	
-	codeSize = {{choice([7,9,11,13])}}
-
-	def sample_z(args):
-		mu, log_sigma = args
-		eps = K.random_normal(shape=(codeSize,),mean=0.,stddev=1.)
-		return mu + K.exp(log_sigma / 2) * eps
-	
-	
-	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
-	outputActivation = {{choice(['linear', 'relu','tanh'])}}
-	
-	batch_size = {{choice([64,128])}}
-	lr = {{choice([0.00005,0.0001,0.0002])}}
-	
-	
-	dim1 = {{choice([16,32,48,64,96,128,256,512])}}
-	dim2 = {{choice([16,32,48,64,96,128,256,512])}}
-	dim3 = {{choice([16,32,48,64,96,128,256,512])}}
-	
-	fe = Flatten(name = "FE")
-	encDrop = {{choice(['drop', 'noDrop'])}} == 'drop'
-	encMore = {{choice(['more', 'less'])}} == 'more'
-	
-	dim4 = {{choice([16,32,48,64,96,128,256,512])}}
-	dim5 = {{choice([16,32,48,64,96,128,256,512])}}
-	dim6 = {{choice([16,32,48,64,96,128,256,512])}}
-	
-	decDrop = {{choice(['drop', 'noDrop'])}} == 'drop'
-	decMore = {{choice(['more', 'less'])}} == 'more'
-	
-	dropPerc =0.5
-	
-	### ENCODER LAYERS
-	inputs = Input(shape=(20,2),name="IN")
-	
-	eh1 = Dense(dim1, activation=hiddenActivation,name = "EH1")
-	eh2 = Dense(dim2, activation=hiddenActivation,name = "EH2")
-	eh3 = Dense(dim3, activation=hiddenActivation,name = "EH3")
-	edrop = Dropout(dropPerc,name= "DE")
-	mean = Dense(codeSize, activation=outputActivation,name = "MU")
-	logsg =  Dense(codeSize, activation=outputActivation, name = "LOG_SIGMA")
-	
-	
-	### DECODER LAYERS
-	dh1 = Dense(dim4, activation=hiddenActivation,name = "DH1")
-	dh2 = Dense(dim5, activation=hiddenActivation,name = "DH2")
-	dh3 = Dense(dim6, activation=hiddenActivation,name = "DH3")
-	ddrop = Dropout(dropPerc,name = "DD")
-	
-	decoded = Dense(20*2,activation=outputActivation,name="DECODED")
-	decoderOut = Reshape((20, 2),name="OUT")
-	
-	### MODEL
-
-	if encMore:
-		encConv = eh3(eh2(eh1(fe(inputs))))
-	else:
-		encConv = eh2(eh1(fe(inputs)))
-	
-	if encDrop:
-		mu 		  = mean((edrop(encConv)))
-		log_sigma = logsg((edrop(encConv)))
-	else:
-		mu = mean((encConv))
-		log_sigma = logsg((encConv))
-	
-	z = Lambda(sample_z,name="CODE")([mu, log_sigma])
-	
-	if decMore:
-		decConv = dh3(dh2(dh1((z))))
-	else:
-		decConv = dh2(dh1((z)))
-	
-	if decDrop:
-		trainDecOut = decoderOut(decoded((ddrop(decConv))))
-	else:
-		trainDecOut = decoderOut(decoded((decConv)))
-	
-
-	vae = Model(inputs, trainDecOut)
-	
-	opt = optimizers.Adam(lr=lr) 
-	saved = "./optimizedW.h5"
-	checkpoint = ModelCheckpoint(saved, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min',save_weights_only=True)
-	
-	vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
-	
-	#print(vae.summary())
-	
-	vae.fit(train, train,
-			verbose = 0,
-			batch_size=batch_size,
-			epochs=300,
-			validation_data=(valid,valid),
-			callbacks=[checkpoint]
-	)
-	
-	vae.load_weights(saved,by_name=True)
-	
-	HL_full, MAE_full = vae.evaluate(valid, valid, verbose=0)
-	
-	
-	ydecoded = vae.predict(valid,  batch_size=100)
-	maes = np.zeros(ydecoded.shape[0], dtype='float32')
-	for sampleCount in range(0,ydecoded.shape[0]):
-		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
-	
-	prc = np.percentile(maes,[10,90])
-	sigma = np.std(maes)
-	
-	score =  MAE_full + sigma + prc[1] # HL_full
-	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
-	return {'loss': score, 'status': STATUS_OK, 'model': vae}
-
-
 def VAE1D(train, valid, agedTrain, agedValid):
 	
 	from keras.callbacks import ModelCheckpoint
@@ -260,19 +135,20 @@ def VAE1D(train, valid, agedTrain, agedValid):
 	score = HL_full #MAE_full + sigma + prc[1] 
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': vae}
-	
-	
+
 def VAE2D(train, valid, agedTrain, agedValid):
 	
 	from keras.callbacks import ModelCheckpoint, EarlyStopping
 	from keras.models import Model
 	from keras.layers import Dense, Input, Flatten, Reshape, Lambda, Conv2D, Dropout
 	from keras import optimizers
-	from Minerva import huber_loss
+	#from Minerva import huber_loss
+	from Minerva import vae_loss
 	
 	
 	early = EarlyStopping(monitor='val_mean_absolute_error', 
-		min_delta=0.0001, patience=50, verbose=1, mode='min')
+		min_delta=0.0001, patience=100, verbose=1, mode='min')
+	
 	saved = "./optimizedW.h5"
 	checkpoint = ModelCheckpoint(saved, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min',save_weights_only=True)	
@@ -298,9 +174,9 @@ def VAE2D(train, valid, agedTrain, agedValid):
 	decDrop = {{choice(['drop', 'noDrop'])}} == 'drop'
 	decMore = {{choice(['more', 'less'])}} == 'more'
 	
-	hiddenActivation = {{choice(['linear', 'relu'])}}
+	hiddenActivation = {{choice(['tanh', 'relu'])}}
 	
-	batch_size = {{choice([64,128])}}
+	batch_size = 64
 	lr = {{choice([0.00005,0.0001,0.0002])}}
 	
 	deconvDecoder = {{choice(['dense', 'deconv'])}} == 'deconv'
@@ -320,8 +196,8 @@ def VAE2D(train, valid, agedTrain, agedValid):
 	eh3 = Conv2D(dim3,filterSize, activation=hiddenActivation,name = "EH3")
 	fe = Flatten(name="FE")
 	edrop = Dropout(dropPerc,name= "DE")
-	mean = Dense(codeSize, activation=hiddenActivation,name = "MU")
-	logsg =  Dense(codeSize, activation=hiddenActivation, name = "LOG_SIGMA")
+	mean = Dense(codeSize, activation='linear',name = "MU")
+	logsg =  Dense(codeSize, activation='linear', name = "LOG_SIGMA")
 	
 	### MODEL ENCODER
 	if encMore:
@@ -375,7 +251,7 @@ def VAE2D(train, valid, agedTrain, agedValid):
 
 	opt = optimizers.Adam(lr=lr) 
 	
-	vae.compile(loss = huber_loss,
+	vae.compile(loss = vae_loss(mu,log_sigma),
 		optimizer=opt,metrics=['mae'])
 	
 	#print(vae.summary())
@@ -386,12 +262,12 @@ def VAE2D(train, valid, agedTrain, agedValid):
 			epochs=300,
 			validation_data=(valid,valid),
 			callbacks=[checkpoint,early]
+			#callbacks=[checkpoint]
 	)
 	
 	vae.load_weights(saved,by_name=True)
 	
 	HL_full, MAE_full = vae.evaluate(valid, valid, verbose=0)
-	
 	
 	ydecoded = vae.predict(valid,  batch_size=batch_size)
 	maes = np.zeros(ydecoded.shape[0], dtype='float32')
@@ -401,133 +277,11 @@ def VAE2D(train, valid, agedTrain, agedValid):
 	prc = np.percentile(maes,[95])
 	sigma = np.std(maes)
 	
-	score =  MAE_full + sigma + prc[0]  # HL_full
+	score = HL_full #MAE_full + sigma + prc[0]  #
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" 
 		% (score,sigma,MAE_full,HL_full, prc[0]))
 	return {'loss': score, 'status': STATUS_OK, 'model': vae}
 	
-
-def denseModelClassic(train, valid, agedTrain, agedValid):
-	from keras.models import load_model
-	from keras.callbacks import ModelCheckpoint
-	from keras.models import Model
-	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
-	from keras import optimizers
-	from Minerva import huber_loss
-	from Demetra import EpisodedTimeSeries
-	from keras.constraints import max_norm
-	
-	ets = EpisodedTimeSeries(5,5,5,5)
-	timesteps = 20
-	inputFeatures = 2
-	outputFeatures = 2
-	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-	# START HyperParameters
-	dropPerc = 0.5
-	
-	
-	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
-	outputActivation = {{choice(['linear', 'relu','tanh'])}}
-	
-	batch_size = {{choice([64,128])}}
-	lr = {{choice([0.00005,0.0001,0.0002])}}
-	
-	
-	norm = {{choice([2.,3.,4.,5.])}}
-	codeSize = {{choice([7,9,11,13])}}
-	codeMultiplier = {{choice([2,3,4])}}
-	
-	# END HyperParameters
-	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation=hiddenActivation,name="E1")(inputs)
-	
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="E2")(d)
-		else:
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation=hiddenActivation,name="E2")(d)
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="E3")(d)
-		else:
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation=hiddenActivation,name="E3")(d)
-	
-	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation=hiddenActivation,name="E4")(d)
-	
-	### s - encoding
-	d = Flatten(name="F1")(d) 
-	enc = Dense(codeSize,activation=hiddenActivation,name="ENC")(d)
-	### e - encoding
-	
-	
-	d = Dense(codeSize*codeMultiplier,activation=hiddenActivation,name="D1")(enc)
-	d = Reshape((codeSize, codeMultiplier),name="R")(d)
-	
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="D2")(d)
-		else:
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation=hiddenActivation,name="D2")(d)
-	if {{choice(['more', 'less'])}} == 'more':
-		if {{choice(['drop', 'noDrop'])}} == 'drop':
-			d = Dropout(dropPerc)(d)
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,kernel_constraint=max_norm(norm),activation=hiddenActivation,name="D3")(d)
-		else:
-			d = Dense({{choice([16,32,48,64,96,128,256,512])}}
-				,activation=hiddenActivation,name="D3")(d)
-	
-	d = Dense({{choice([16,32,48,64,96,128,256,512])}},activation=hiddenActivation,name="D4")(d)
-	d = Flatten(name="F2")(d)
-	d = Dense(outputFeatures*timesteps,activation=outputActivation,name="DEC")(d)
-	out = Reshape((timesteps, outputFeatures),name="OUT")(d)
-	model = Model(inputs=inputs, outputs=out)
-	
-	adam = optimizers.Adam(lr=lr)		
-	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-	
-	#print(model.summary())
-	
-	path4save = "./optimizedModel.h5"
-	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min')
-	
-	model.fit(train, train,
-		verbose = 0,
-		batch_size=batch_size,
-		epochs=300,
-		validation_data=(valid, valid)
-		,callbacks=[checkpoint]
-	)
-	# loading the best model
-	customLoss = {'huber_loss': huber_loss}
-	model = load_model(path4save
-			,custom_objects=customLoss)
-	
-	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
-	
-	
-	ydecoded = model.predict(valid,  batch_size=100)
-	maes = np.zeros(ydecoded.shape[0], dtype='float32')
-	for sampleCount in range(0,ydecoded.shape[0]):
-		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
-	
-	prc = np.percentile(maes,[3,97])
-	sigma = np.std(maes)
-	
-	score = HL_full #MAE_full + sigma + prc[1] 
-	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
-	return {'loss': score, 'status': STATUS_OK, 'model': model}
-	
-
 	
 def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import load_model
@@ -535,7 +289,8 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import Model
 	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
 	from keras import optimizers
-	from Minerva import huber_loss
+	#from Minerva import huber_loss
+	from Minerva import sparse_loss
 	from keras.layers import Conv1D
 	from Demetra import EpisodedTimeSeries
 	from sklearn.metrics import mean_absolute_error
@@ -550,12 +305,12 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
 	outputActivation = {{choice(['linear', 'relu','tanh'])}}
 	
-	batch_size = {{choice([64,128])}}
+	batch_size = 64
 	lr = {{choice([0.00005,0.0001,0.0002])}}
 	
 	
 	norm = {{choice([2.,3.,4.,5.])}}
-	codeSize = {{choice([7,8,9,10,11,12])}}
+	codeSize = {{choice([40,60])}}
 	
 	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -608,13 +363,13 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	adam = optimizers.Adam(
 		lr=lr
 	)	
-	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
+	model.compile(loss=sparse_loss(enc), optimizer=adam,metrics=['mae'])
 
 	#print(model.summary())
 	
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min')
+			save_best_only=True,save_weights_only=True, mode='min')
 	
 	model.fit(train, train,
 		verbose = 0,
@@ -624,14 +379,11 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 		,callbacks=[checkpoint]
 	)
 	
-	customLoss = {'huber_loss': huber_loss}
-	model = load_model(path4save
-			,custom_objects=customLoss)
-	
+	model.load_weights(path4save)
 	
 	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
 	
-	ydecoded = model.predict(valid,  batch_size=100)
+	ydecoded = model.predict(valid,  batch_size=batch_size)
 	maes = np.zeros(ydecoded.shape[0], dtype='float32')
 	for sampleCount in range(0,ydecoded.shape[0]):
 		maes[sampleCount] = mean_absolute_error(valid[sampleCount],ydecoded[sampleCount])
@@ -639,7 +391,7 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	prc = np.percentile(maes,[10,90])
 	sigma = np.std(maes)
 	
-	score = MAE_full + sigma + prc[1]   #HL_full 
+	score = HL_full #MAE_full + sigma + prc[1]   # 
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
@@ -789,7 +541,7 @@ def data():
 	from Minerva import Minerva
 	from sklearn.model_selection import train_test_split
 	
-	folds = 5
+	folds = 6
 	minerva = Minerva(eps1=5,eps2=5,alpha1=5,alpha2=5,plotMode="GUI")	
 	nameIndex = minerva.ets.dataHeader.index(minerva.ets.nameIndex)
 	tsIndex = minerva.ets.dataHeader.index(minerva.ets.timeIndex)
@@ -817,8 +569,6 @@ def data():
 	v = folds4learn[train_index[0]]
 	train = minerva.batchCompatible(128,t)
 	valid = minerva.batchCompatible(128,v)
-	#	break
-	
 	return train, valid, train, valid
 	
 	
