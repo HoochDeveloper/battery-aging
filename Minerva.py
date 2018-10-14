@@ -35,7 +35,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
-codeDimension = 80 #13
+codeDimension =  13 # 80
 
 '''
  ' Huber loss.
@@ -87,8 +87,8 @@ class Minerva():
 	def getModel(self,inputFeatures,outputFeatures,timesteps):
 		#return self.conv1DQR(inputFeatures,outputFeatures,timesteps)
 		#return self.Conv2DQR(inputFeatures,outputFeatures,timesteps)
-		#return self.VAE2D(inputFeatures,outputFeatures,timesteps)
-		return self.Conv2DSparse(inputFeatures,outputFeatures,timesteps)
+		return self.VAE2D(inputFeatures,outputFeatures,timesteps)
+		#return self.Conv2DSparse(inputFeatures,outputFeatures,timesteps)
 	
 	def codeProjection(self,name4model,x_valid):
 		
