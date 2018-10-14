@@ -9,6 +9,8 @@ maps/
 evaluation/
 synthetic_data_fixedR/
 optimizedModel.h5
+synthetic_data_FR/
+synthetic_data_QR/
 *.png
 # Byte-compiled / optimized / DLL files
 __pycache__/
