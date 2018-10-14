@@ -183,7 +183,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 		train(minerva,astrea,K,encSize,folds4learn,type=type)
 	
 	#testFold = k_data[-1]
-	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
+	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),folds4learn,show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
 	mustPlot = True
@@ -423,42 +423,37 @@ def precisionRecallOnRandPopulation(errors,lowTH,population):
 
 	return precision,recall,fpRate
 	
-def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,showScatter=False,boxPlot=False):
+def evaluate(minerva,astrea,K,encSize,scaler,ageScales,folds4learn,type="Dense",show=False,showScatter=False,boxPlot=False):
 
 	if not os.path.exists(maeFolder):
 		os.makedirs(maeFolder)
 	
 	#selecting best model to evaluate on test set
 	
+	print("Selecting best model on train folds")
+	bestMae = float('Inf')
+	bestModel = None
+	
 	ageScale = 100
 	batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
 	_,k_data = astrea.kfoldByKind(batteries,K)
 	
-	folds4learn = []
-	fold = k_data[-1]
-	foldAs3d = astrea.foldAs3DArray(fold,scaler)
-	folds4learn.append(foldAs3d)
-	test =  np.concatenate(folds4learn)
-	print("Selecting best model on train folds")
-	bestMae = float('Inf')
-	bestModel = None
-	for count in range(0,K-1):
-		name4model = modelNameTemplate % (encSize,100,type,count+1)
-		#minerva.codeProjection(name4model,test)
-		mae = minerva.evaluateModelOnArray(test, test,name4model,plotMode,scaler,False)
+	trainIdx,valIdx = astrea.leaveOneFoldOut(K-1)	
+	count = 0
+	for train_index, valid_index in zip(trainIdx,valIdx): 
+		# TRAIN #VALID
+		validX = [folds4learn[i] for i in valid_index]
+		validX =  np.concatenate(validX)		
+		count += 1
+		name4model = modelNameTemplate % (encSize,100,type,count)
+		mae = minerva.evaluateModelOnArray(validX, validX,name4model,plotMode,scaler,False)
 		score = np.mean(mae)
 		if(score < bestMae):
 			bestMae = score
 			bestModel = name4model
-		count +=1
-	
+		
 	print("Best model is %s with mae %f" % ( bestModel, bestMae) )
-	
 
-	#mae2Save = [None] * (K-1)
-	#lab2Save = [None] * (K-1)
-	#for c in range(0,K-1):
-	
 	mae2Save = [None] * (1)
 	lab2Save = [None] * (1)
 	for c in range(0,1):
@@ -474,14 +469,13 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,type="Dense",show=False,s
 		batteries = minerva.ets.loadSyntheticBlowDataSet(ageScale)
 		_,k_data = astrea.kfoldByKind(batteries,K)
 		
-		folds4learn = []
+		folds4test = []
 		fold = k_data[-1]
 		foldAs3d = astrea.foldAs3DArray(fold,scaler)
-		folds4learn.append(foldAs3d)
-		test =  np.concatenate(folds4learn)
+		folds4test.append(foldAs3d)
+		test =  np.concatenate(folds4test)
 		
 		print("Model %s Age: %d" % (bestModel,ageScale))	
-		#minerva.codeProjection(name4model,test)
 		mae = minerva.evaluateModelOnArray(test, test,bestModel,plotMode,scaler,False)
 		mae2Save[count][a] = mae
 		lab2Save[count][a] = "SOH %d" % ageScale
