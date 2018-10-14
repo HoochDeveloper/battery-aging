@@ -190,7 +190,7 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 
 	name4model = None
 	# search the only best model saved
-	for count in range(0,K):
+	for count in range(1,K+1):
 		tmp = modelNameTemplate % (encSize,100,type,count)
 		if(os.path.exists(os.path.join(maeFolder,tmp+".out"))):
 			name4model = tmp

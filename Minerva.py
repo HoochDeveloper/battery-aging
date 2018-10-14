@@ -35,7 +35,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
-codeDimension = 60 #13
+codeDimension = 80 #13
 
 '''
  ' Huber loss.
@@ -256,21 +256,21 @@ class Minerva():
 		
 		strideSize = 2
 		codeSize = codeDimension
-		lr = 0.0001
+		lr = 0.0002
 		outputActivation = 'linear'
 		hiddenActication = 'relu'
 	
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
 		c = Reshape((4,5,2),name="R2E")(inputs)
-		c = Conv2D(64,strideSize,activation=hiddenActication,name="E1")(c)
-		c = Conv2D(128,strideSize,activation=hiddenActication,name="E2")(c)
+		c = Conv2D(32,strideSize,activation=hiddenActication,name="E1")(c)
+		c = Conv2D(16,strideSize,activation=hiddenActication,name="E2")(c)
 
 		preEncodeFlat = Flatten(name="F1")(c) 
 		enc = Dense(codeSize,activation=hiddenActication,name="ENC")(preEncodeFlat)
 		c = Reshape((1,1,codeSize),name="R2D")(enc)
 
-		c = Conv2DTranspose(48,strideSize,activation=hiddenActication,name="D1")(c)
-		c = Conv2DTranspose(256,strideSize,activation=hiddenActication,name="D2")(c)
+		c = Conv2DTranspose(256,strideSize,activation=hiddenActication,name="D1")(c)
+		c = Conv2DTranspose(16,strideSize,activation=hiddenActication,name="D2")(c)
 		
 		preDecFlat = Flatten(name="F2")(c) 
 		c = Dense(timesteps*outputFeatures,activation=outputActivation,name="DECODED")(preDecFlat)
@@ -278,6 +278,7 @@ class Minerva():
 		autoencoderModel = Model(inputs=inputs, outputs=out)
 		opt = optimizers.Adam(lr=lr) 
 		autoencoderModel.compile(loss=sparse_loss(enc), optimizer=opt,metrics=['mae'])
+		
 		return autoencoderModel, None, None
 		
 		
@@ -354,8 +355,6 @@ class Minerva():
 		
 		model,_,_ = self.getModel(inputFeatures,outputFeatures,timesteps)
 
-		#print(model.summary())
-		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min',save_weights_only=True)
