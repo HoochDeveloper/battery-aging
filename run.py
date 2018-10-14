@@ -79,7 +79,7 @@ def mapTable(encSize,type,modelNumber,thresholdPercentile):
 			
 			mae = loadmaes[b][i]
 			mapMaes.append(mae)
-			if(b <= 2):
+			if(b <= 1):
 				n += 1
 				if(mae >= thresholdValue):
 					fp.append(1); tp.append(0); fn.append(0); tn.append(0)
@@ -98,7 +98,11 @@ def mapTable(encSize,type,modelNumber,thresholdPercentile):
 		
 		dataSet.sort_values(by="MAE",ascending=False,inplace=True)
 		
-		print(dataSet.head(15))
+		intervention = 150
+		right = dataSet.head(intervention)["TP"].sum()
+		
+		print(right / intervention)
+		#print(dataSet.head(100))
 		
 		tmp = dataSet.loc[ (dataSet["TP"] == 1) | (dataSet["FP"] == 1) ]
 		
@@ -182,7 +186,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = False
+	mustPlot = True
 
 	name4model = None
 	# search the only best model saved
@@ -242,7 +246,7 @@ def __evaluation(maes,labels,name4model, evalBox=False):
 	if(evalBox == False):
 		ran = range(10,99)
 	else:
-		#ran = range(80,81)
+		#ran = range(85,86)
 		ran = range(95,96)
 	
 	for perc in ran:
@@ -604,7 +608,7 @@ def main():
 		execute(False,encSize,type=type, K = K)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
-		#mapTable(encSize,type,2,90)
+		#mapTable(encSize,type,1,98)
 	elif(action=="learning_curve"):
 		learningCurve(encSize,type,K)
 	else:
