@@ -404,7 +404,8 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	from keras.models import Model
 	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
 	from keras import optimizers
-	from Minerva import huber_loss
+	#from Minerva import huber_loss
+	from Minerva import sparse_loss
 	from keras.layers import Conv2DTranspose, Conv2D
 	from Demetra import EpisodedTimeSeries
 	from keras.constraints import max_norm
@@ -412,10 +413,10 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	ets = EpisodedTimeSeries(5,5,5,5)
 	
 	
-	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
-	outputActivation = {{choice(['linear', 'relu','tanh'])}}
+	hiddenActivation = 'relu'
+	outputActivation = 'linear'
 	
-	batch_size = {{choice([64,128])}}
+	batch_size = 64
 	lr = {{choice([0.00005,0.0001,0.0002])}}
 	
 	inputFeatures = 2
@@ -424,7 +425,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	
 	dropPerc = 0.5
 	strideSize = 2
-	codeSize = {{choice([7,9,11,13])}}
+	codeSize = {{choice([40,60,80])}}
 	norm = {{choice([1.,2.,3.,4.,5.,6.,7.,8.])}}
 
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -451,7 +452,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 				activation=hiddenActivation,name="E3")(c)
 
 	preEncodeFlat = Flatten(name="F1")(c) 
-	enc = Dense(codeSize,activation=outputActivation,name="ENC")(preEncodeFlat)
+	enc = Dense(codeSize,activation=hiddenActivation,name="ENC")(preEncodeFlat)
 	c = Reshape((1,1,codeSize),name="R2D")(enc)
 
 	c = Conv2DTranspose({{choice([16,32,48,64,96,128,256,512])}},strideSize,
@@ -492,11 +493,11 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	adam = optimizers.Adam(
 		lr=lr
 	)	
-	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
-	#print(model.summary())
+	model.compile(loss=sparse_loss(enc), optimizer=adam,metrics=['mae'])
+	print(model.summary())
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
-			save_best_only=True, mode='min')
+			save_best_only=True,save_weights_only=True, mode='min')
 	
 	model.fit(train, train,
 		verbose = 0,
@@ -506,10 +507,8 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 		,callbacks=[checkpoint]
 	)
 	# loading the best model
-	customLoss = {'huber_loss': huber_loss}
-	model = load_model(path4save
-			,custom_objects=customLoss)
-
+	
+	model.load_weights(path4save)
 	
 	HL_full, MAE_full = model.evaluate(valid, valid, verbose=0)
 
@@ -522,7 +521,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	sigma = np.std(maes)
 	mean = np.mean(maes)
 	
-	score = mean + sigma + prc[0] # HL_full  #variance + MAE_full
+	score = MAE_full + prc[0] # variance + HL_full  mean + sigma + prc[0]
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f MeanC: %f" % (score,sigma,MAE_full,HL_full, prc[0],mean))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
@@ -576,10 +575,10 @@ def main():
 	import time
 	start = time.clock()
 	best_run, best_model = optim.minimize(
-										  model = conv1DModelClassic,
+										  model = conv2DModelClassic,
 										  data=data,
                                           algo=tpe.suggest,
-                                          max_evals=50,
+                                          max_evals=25,
                                           trials=Trials())
 	
 	train, valid, agedTrain, agedValid = data()

@@ -35,7 +35,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 
-codeDimension = 13
+codeDimension = 60 #13
 
 '''
  ' Huber loss.
@@ -86,9 +86,10 @@ class Minerva():
 	
 	def getModel(self,inputFeatures,outputFeatures,timesteps):
 		#return self.conv1DQR(inputFeatures,outputFeatures,timesteps)
-		return self.Conv2DQR(inputFeatures,outputFeatures,timesteps)
+		#return self.Conv2DQR(inputFeatures,outputFeatures,timesteps)
 		#return self.VAE2D(inputFeatures,outputFeatures,timesteps)
-		
+		return self.Conv2DSparse(inputFeatures,outputFeatures,timesteps)
+	
 	def codeProjection(self,name4model,x_valid):
 		
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
@@ -251,6 +252,35 @@ class Minerva():
 		vae.compile(loss = huber_loss,optimizer=opt,metrics=['mae'])
 		return vae, encoder, decoder
 
+	def Conv2DSparse(self,inputFeatures,outputFeatures,timesteps):
+		
+		strideSize = 2
+		codeSize = codeDimension
+		lr = 0.0001
+		outputActivation = 'linear'
+		hiddenActication = 'relu'
+	
+		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
+		c = Reshape((4,5,2),name="R2E")(inputs)
+		c = Conv2D(64,strideSize,activation=hiddenActication,name="E1")(c)
+		c = Conv2D(128,strideSize,activation=hiddenActication,name="E2")(c)
+
+		preEncodeFlat = Flatten(name="F1")(c) 
+		enc = Dense(codeSize,activation=hiddenActication,name="ENC")(preEncodeFlat)
+		c = Reshape((1,1,codeSize),name="R2D")(enc)
+
+		c = Conv2DTranspose(48,strideSize,activation=hiddenActication,name="D1")(c)
+		c = Conv2DTranspose(256,strideSize,activation=hiddenActication,name="D2")(c)
+		
+		preDecFlat = Flatten(name="F2")(c) 
+		c = Dense(timesteps*outputFeatures,activation=outputActivation,name="DECODED")(preDecFlat)
+		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
+		autoencoderModel = Model(inputs=inputs, outputs=out)
+		opt = optimizers.Adam(lr=lr) 
+		autoencoderModel.compile(loss=sparse_loss(enc), optimizer=opt,metrics=['mae'])
+		return autoencoderModel, None, None
+		
+		
 	def Conv2DQR(self,inputFeatures,outputFeatures,timesteps):
 		
 		strideSize = 2
@@ -338,8 +368,8 @@ class Minerva():
 			batch_size=self.batchSize,
 			epochs=self.epochs,
 			validation_data=(x_valid,x_valid)
-			#,callbacks=[checkpoint]
-			,callbacks=[checkpoint,early]
+			,callbacks=[checkpoint]
+			#,callbacks=[checkpoint,early]
 		)
 		elapsed = (time.clock() - tt)
 		
