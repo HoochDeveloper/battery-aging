@@ -186,7 +186,7 @@ def execute(mustTrain,encSize = 8,K = 3,type="Dense"):
 	evaluate(minerva,astrea,K,encSize,scaler,range(100,75,-5),folds4learn,show=False,showScatter=False,type=type)
 	
 def loadEvaluation(encSize,K=3,type="Dense"):
-	mustPlot = True
+	mustPlot = False
 
 	name4model = None
 	# search the only best model saved
@@ -198,14 +198,14 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 	
 	fig, ax = plt.subplots()
 	ets = EpisodedTimeSeries(5,5,5,5)
-	[maes,lab] = ets.loadZip(maeFolder,name4model+".out")
+	[maes,lab,thresholdsValid] = ets.loadZip(maeFolder,name4model+".out")
 	labels = []
 	for i in range(0,len(lab)):
 		mul = 100 - (5*i)
 		q = int(340 * mul / 100)
 		labels.append("%d" % q)
 	
-	x,y,n = __evaluation(maes,labels,name4model,evalBox= not mustPlot)
+	x,y,n = __evaluation(maes,labels,name4model,thresholdsValid,evalBox= not mustPlot)
 
 	if(mustPlot):
 		print("AUROC %f" % auc(np.asarray(x),np.asarray(y)))
@@ -221,7 +221,7 @@ def loadEvaluation(encSize,K=3,type="Dense"):
 		plt.grid()
 		plt.show()
 
-def __evaluation(maes,labels,name4model, evalBox=False):
+def __evaluation(maes,labels,name4model,thresholdsValid, evalBox=False):
 	
 	tit = "MAE %s" % name4model 
 	
@@ -236,6 +236,12 @@ def __evaluation(maes,labels,name4model, evalBox=False):
 	
 	#population = [0.90,0.80,0.70,0.25]
 	population = [0.95,0.85,0.45,0.15]
+	
+	#population = [0.99,0.97,0.96,0.95] #100
+	#population = [0.99,0.97,0.96,0.01] #95
+	#population = [0.99,0.97,0.02,0.01] #90
+	#population = [0.99,0.03,0.02,0.01]  #85
+	#population = [0.04,0.03,0.02,0.01]  #80
 	#for perc in range(86,87):
 	
 	bestScore = 0
@@ -244,11 +250,11 @@ def __evaluation(maes,labels,name4model, evalBox=False):
 	bestRecall = 0
 	
 	if(evalBox == False):
-		ran = range(10,99)
+		ran = thresholdsValid
 	else:
 		#ran = range(85,86)
-		ran = range(95,96)
-	
+		ran = [thresholdsValid[-20]] #-6
+	count = 10
 	for perc in ran:
 		
 		if(evalBox == False):
@@ -268,8 +274,8 @@ def __evaluation(maes,labels,name4model, evalBox=False):
 			bestPrc = precision
 			bestRecall = recall
 		
-		n.append(perc)
-		
+		n.append(count)
+		count += 1
 		a[i,0] = "{:10.3f}".format(perc) 
 		a[i,1] = "{:10.3f}".format(precision)
 		a[i,2] = "{:10.3f}".format(recall)
@@ -282,14 +288,15 @@ def __evaluation(maes,labels,name4model, evalBox=False):
 	return x,y,n
 			
 
-def precisionRecallOnRandPopulation(errors,lowTH,population):
+def precisionRecallOnRandPopulation(errors,fullTh,population):
 	
 	#percFull = np.percentile(errors[0],[25,75])
 	#iqr = percFull[1] - percFull[0]
 	#fullTh = percFull[1] + 1.5*iqr #
 	
-	percFull = np.percentile(errors[0],[lowTH])
-	fullTh = percFull[0]
+	#percFull = np.percentile(errors[0],[lowTH])
+	#fullTh = percFull[0]
+	
 	
 
 	healthly = []
@@ -440,6 +447,7 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,folds4learn,type="Dense",
 	
 	trainIdx,valIdx = astrea.leaveOneFoldOut(K-1)	
 	count = 0
+	prcs = None
 	for train_index, valid_index in zip(trainIdx,valIdx): 
 		# TRAIN #VALID
 		validX = [folds4learn[i] for i in valid_index]
@@ -448,9 +456,11 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,folds4learn,type="Dense",
 		name4model = modelNameTemplate % (encSize,100,type,count)
 		mae = minerva.evaluateModelOnArray(validX, validX,name4model,plotMode,scaler,False)
 		score = np.mean(mae)
+		
 		if(score < bestMae):
 			bestMae = score
 			bestModel = name4model
+			prcs = np.percentile(mae,range(10,100,1))
 		
 	print("Best model is %s with mae %f" % ( bestModel, bestMae) )
 
@@ -475,14 +485,29 @@ def evaluate(minerva,astrea,K,encSize,scaler,ageScales,folds4learn,type="Dense",
 		folds4test.append(foldAs3d)
 		test =  np.concatenate(folds4test)
 		
+		
+		
 		print("Model %s Age: %d" % (bestModel,ageScale))	
 		mae = minerva.evaluateModelOnArray(test, test,bestModel,plotMode,scaler,False)
+		total = mae.shape[0]
 		mae2Save[count][a] = mae
 		lab2Save[count][a] = "SOH %d" % ageScale
+		
+		#thLevel = 2
+		#
+		#pos = np.where(mae > prcs[thLevel])[0].shape[0]
+		#neg = np.where(mae <= prcs[thLevel])[0].shape[0]
+		#
+		#if(a < 2):
+		#	print("FP %d over %s. Pos Perc %f" % ( pos ,  total, float(pos/total)) )
+		#else:
+		#	print("FN %d over %s. Pos Perc %f" % ( neg ,total , float(pos/total)) )
+		
+		
 	# end evaluation on all ages
 	maes = mae2Save[0]
 	labels = lab2Save[0]
-	minerva.ets.saveZip(maeFolder,bestModel+".out",[maes,labels])
+	minerva.ets.saveZip(maeFolder,bestModel+".out",[maes,labels,prcs])
 
 def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 	
@@ -492,14 +517,14 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 	#iqd = (percFull[1] - percFull[0]) / 3
 	#fullTh =  percFull[1] + iqd
 	
-	percFull = np.percentile(errors[0],[lastPerc])
-	fullTh =  percFull[0]
+	#percFull = np.percentile(errors[0],[lastPerc])
+	fullTh =  lastPerc#percFull[0]
 	
 	errAtAge = errors[0]
 	errAtAge = np.where(errAtAge >= fullTh)
 	fp += errAtAge[0].shape[0]
 	
-	ageThIdx = 2
+	ageThIdx = 3
 	lastAge = 5 #len(errors)
 	for error in range(1,ageThIdx):
 		errAtAge = errors[error]
@@ -529,7 +554,7 @@ def errorBoxPlot(errors,labels,title,lastPerc=90,save=True,plot=False):
 		print("TP %d FN %d FP %d" % (tp,fn,fp))
 		
 		#fig = plt.figure()
-		plt.boxplot(errors,sym='',whis=[100-lastPerc, lastPerc]) #
+		plt.boxplot(errors,sym='',whis=[10,90]) #
 		plt.axhline(y=fullTh, color='blue', linestyle='-')
 		plt.axvline(x=(ageThIdx+0.5),color='gray',)
 		#plt.axvline(x=(ageThIdx+1.5),color='gray',)
@@ -602,7 +627,7 @@ def main():
 		execute(False,encSize,type=type, K = K)
 	elif(action=="show_evaluation"):
 		loadEvaluation(encSize,type=type, K = K)
-		#mapTable(encSize,type,1,98)
+		#mapTable(encSize,type,4,81)
 	elif(action=="learning_curve"):
 		learningCurve(encSize,type,K)
 	else:

@@ -283,16 +283,16 @@ def VAE2D(train, valid, agedTrain, agedValid):
 	return {'loss': score, 'status': STATUS_OK, 'model': vae}
 	
 	
-def conv1DModelClassic(train, valid, agedTrain, agedValid):
-	from keras.models import load_model
+def CV1D(train, valid, agedTrain, agedValid):
+	
 	from keras.callbacks import ModelCheckpoint
 	from keras.models import Model
 	from keras.layers import Dense, Input, Flatten, Reshape, Dropout
 	from keras import optimizers
-	#from Minerva import huber_loss
-	from Minerva import sparse_loss
+	from Minerva import huber_loss #,sparse_loss
+	#from Minerva import 
 	from keras.layers import Conv1D
-	from Demetra import EpisodedTimeSeries
+
 	from sklearn.metrics import mean_absolute_error
 	from keras.constraints import max_norm
 	
@@ -302,15 +302,15 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	dropPerc = 0.5
 	
 	
-	hiddenActivation = {{choice(['linear', 'relu','tanh'])}}
-	outputActivation = {{choice(['linear', 'relu','tanh'])}}
+	hiddenActivation =  'relu'
+	outputActivation = 'linear'
 	
 	batch_size = 64
 	lr = {{choice([0.00005,0.0001,0.0002])}}
 	
 	
 	norm = {{choice([2.,3.,4.,5.])}}
-	codeSize = {{choice([40,60])}}
+	codeSize = {{choice([7,8,9,10,11])}}
 	
 	
 	inputs = Input(shape=(timesteps,inputFeatures),name="IN")
@@ -363,7 +363,7 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	adam = optimizers.Adam(
 		lr=lr
 	)	
-	model.compile(loss=sparse_loss(enc), optimizer=adam,metrics=['mae'])
+	model.compile(loss=huber_loss, optimizer=adam,metrics=['mae'])
 
 	#print(model.summary())
 	
@@ -391,13 +391,13 @@ def conv1DModelClassic(train, valid, agedTrain, agedValid):
 	prc = np.percentile(maes,[10,90])
 	sigma = np.std(maes)
 	
-	score = HL_full #MAE_full + sigma + prc[1]   # 
+	score =  MAE_full + prc[1]  #  #  HL_full
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f" % (score,sigma,MAE_full,HL_full, prc[1]))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
 	
 	
-def conv2DModelClassic(train, valid, agedTrain, agedValid):
+def C2D(train, valid, agedTrain, agedValid):
 	
 	from keras.models import load_model
 	from keras.callbacks import ModelCheckpoint
@@ -407,12 +407,10 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	#from Minerva import huber_loss
 	from Minerva import sparse_loss
 	from keras.layers import Conv2DTranspose, Conv2D
-	from Demetra import EpisodedTimeSeries
+
 	from keras.constraints import max_norm
 	
-	ets = EpisodedTimeSeries(5,5,5,5)
-	
-	
+
 	hiddenActivation = 'relu'
 	outputActivation = 'linear'
 	
@@ -494,7 +492,7 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 		lr=lr
 	)	
 	model.compile(loss=sparse_loss(enc), optimizer=adam,metrics=['mae'])
-	print(model.summary())
+	#print(model.summary())
 	path4save = "./optimizedModel.h5"
 	checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True,save_weights_only=True, mode='min')
@@ -525,7 +523,6 @@ def conv2DModelClassic(train, valid, agedTrain, agedValid):
 	print("Score: %f Sigma: %f MAE: %f Loss: %f Perc: %f MeanC: %f" % (score,sigma,MAE_full,HL_full, prc[0],mean))
 	return {'loss': score, 'status': STATUS_OK, 'model': model}
 	
-
 def batchCompatible(batch_size,data):
 	"""
 	Transform data shape 0 in a multiple of batch_size
@@ -575,10 +572,10 @@ def main():
 	import time
 	start = time.clock()
 	best_run, best_model = optim.minimize(
-										  model = conv2DModelClassic,
+										  model = FC,
 										  data=data,
                                           algo=tpe.suggest,
-                                          max_evals=25,
+                                          max_evals=50,
                                           trials=Trials())
 	
 	train, valid, agedTrain, agedValid = data()
