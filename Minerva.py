@@ -35,7 +35,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler) 
 
 isVae = False
-codeDimension = 11  #11 # # 80
+codeDimension = 13 #11 # # 80
 
 '''
  ' Huber loss.
@@ -88,8 +88,8 @@ class Minerva():
 	
 	def getModel(self,inputFeatures,outputFeatures,timesteps):
 		#return self.conv1DQR(inputFeatures,outputFeatures,timesteps)
-		#return self.Conv2DQR(inputFeatures,outputFeatures,timesteps)
-		return self.FullyConnected(inputFeatures,outputFeatures,timesteps)
+		return self.Conv2DQR(inputFeatures,outputFeatures,timesteps)
+		#return self.FullyConnected(inputFeatures,outputFeatures,timesteps)
 		
 	def codeProjection(self,name4model,x_valid):
 		
@@ -100,7 +100,7 @@ class Minerva():
 		valid_decoded = None
 		samples = []
 		codes = []
-		tsne = TSNE(n_components=2, n_iter=300)
+		tsne = TSNE(n_components=2, n_iter=1000)
 		if(encoder is not None):
 			if(isVae == True):
 				m,s = encoder.predict(x_valid)
@@ -117,7 +117,7 @@ class Minerva():
 			codes.append(proj)
 			for code in codes:
 				plt.scatter(code[:,0],code[:,1])
-				plt.show()
+				
 		
 		
 		
@@ -196,28 +196,31 @@ class Minerva():
 		
 		strideSize = 2
 		codeSize = codeDimension
-
 		outputActivation = 'linear'
 		hiddenActication = 'relu'
 	
 		inputs = Input(shape=(timesteps,inputFeatures),name="IN")
-		c = Reshape((4,5,2),name="R2E")(inputs)
-		c = Conv2D(128,strideSize,activation=hiddenActication,name="E1")(c)
-		c = Conv2D(512,strideSize,activation=hiddenActication,name="E2")(c)
-
-		preEncodeFlat = Flatten(name="F1")(c) 
-		enc = Dense(codeSize,activation='relu',name="CODE")(preEncodeFlat)
-		c = Reshape((1,1,codeSize),name="R2D")(enc)
-
-		c = Conv2DTranspose(512,strideSize,activation=hiddenActication,name="D1")(c)
+		e1 = Reshape((4,5,2),name="R2E")
+		e2 = Conv2D(128,strideSize,activation=hiddenActication,name="E1")
+		e3 = Conv2D(512,strideSize,activation=hiddenActication,name="E2")
+		e4 = Flatten(name="EF1") 
+		code = Dense(codeSize,activation=hiddenActication,name="CODE")
 		
-		preDecFlat = Flatten(name="F2")(c) 
-		c = Dense(timesteps*outputFeatures,activation=outputActivation,name="DECODED")(preDecFlat)
-		out = Reshape((timesteps, outputFeatures),name="OUT")(c)
-		autoencoderModel = Model(inputs=inputs, outputs=out)
+		d1 = Reshape((1,1,codeSize),name="R2D")
+		d2 = Conv2DTranspose(512,strideSize,activation=hiddenActication,name="D1")
+		d3 = Flatten(name="DF1")
+		d4 = Dense(timesteps*outputFeatures,activation=outputActivation,name="DECODED")
+		out = Reshape((timesteps, outputFeatures),name="OUT")
+		encoderOut = code(e4(e3(e2(e1(inputs)))))
+		encoder = Model(inputs=inputs, outputs=encoderOut)
+		latent_inputs = Input(shape=(codeSize,), name='CODE_IN')
+		decoderOut = out(d4(d3(d2(d1((latent_inputs)))))) 
+		trainDecoderOut = out(d4(d3(d2(d1(encoderOut)))))
+		decoder = Model(latent_inputs,decoderOut)
+		autoencoderModel = Model(inputs=inputs, outputs=trainDecoderOut)
 		opt = optimizers.Adam(lr=self.lr) 
 		autoencoderModel.compile(loss=huber_loss, optimizer=opt,metrics=['mae'])
-		return autoencoderModel, None, None
+		return autoencoderModel, encoder, decoder
 	
 	def conv1DQR(self,inputFeatures,outputFeatures,timesteps):
 		
@@ -259,7 +262,7 @@ class Minerva():
 			maes[sampleCount] = mean_absolute_error(testX[sampleCount],ydecoded[sampleCount])
 		return maes
 
-	def trainlModelOnArray(self,x_train, y_train, x_valid, y_valid,name4model,encodedSize = 8):
+	def trainlModelOnArray(self,x_train, y_train, x_valid, y_valid,name4model):
 		
 		tt = time.clock()
 		logger.debug("trainlModelOnArray - start")
@@ -277,14 +280,12 @@ class Minerva():
 		
 		model,_,_ = self.getModel(inputFeatures,outputFeatures,timesteps)
 	
-		#print(model.summary())
-	
 		path4save = os.path.join( self.ets.rootResultFolder , name4model+self.modelExt )
 		checkpoint = ModelCheckpoint(path4save, monitor='val_loss', verbose=0,
 			save_best_only=True, mode='min',save_weights_only=True)
 		
 		rop = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-									patience=50, min_lr=self.minlr,cooldown=10,verbose=1, mode='min')
+									patience=50, min_lr=self.minlr,cooldown=10,verbose=0, mode='min')
 		
 		early = EarlyStopping(monitor='val_loss',
 			min_delta=0.000001, patience=100, verbose=1, mode='min')
