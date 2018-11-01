@@ -1,6 +1,7 @@
 function [ ] = generate_all_synthetic_data(batterySOCs )
 %GENERATE_ALL_SYNTHETIC_DATA generate synthetic data for specified initial
 %SOCs
+% get_param('battery_synthetic/battery','ObjectParameters')
 %   
     
     saveRoot = './synthetic_data/';
@@ -10,6 +11,7 @@ function [ ] = generate_all_synthetic_data(batterySOCs )
     mdl = 'battery_synthetic';
     in = Simulink.SimulationInput(mdl);
     root = './exportEpisodes';
+    %root = './test';
     batteryDirs = dir(root);
     
     dirFlags = [batteryDirs.isdir];
@@ -30,12 +32,29 @@ function [ ] = generate_all_synthetic_data(batterySOCs )
         numEp = size(episodes);
         numEpisode = numEp(1);
         
+        maxQ = 386;
+        ndC = 68;
+        cnv = 326;
+        expCurrent = 95;
         for k = 1:length(batterySOCs)
             
-            agedQ = int32(350 * batterySOCs(k) / 100);
+
+            agedMaxQ = num2str( int32(maxQ * batterySOCs(k) / 100));
+            agedNdc = num2str(int32(ndC * batterySOCs(k) / 100));
+            agedCnv = num2str(int32(cnv * batterySOCs(k) / 100));
+            agedExpC = num2str(int32(expCurrent * batterySOCs(k) / 100));
+            
+            set_param( strcat( mdl,'/battery'),'expZone',strcat("[25.6094    ",agedExpC,"]"));
+            
+            set_param( strcat( mdl,'/battery'),'MaxQ',agedMaxQ);
+            set_param( strcat( mdl,'/battery'),'Dis_rate',agedNdc);
+            set_param( strcat( mdl,'/battery'),'Normal_OP',agedCnv);
+            
+            agedQ = int32(340 * batterySOCs(k) / 100);
+
             nomQ2set = num2str(agedQ);
             set_param( strcat( mdl,'/battery'),'NomQ',nomQ2set);
-         
+            %set_param( strcat( mdl,'/battery'),'R','0,00070588' )
             episodeSaveFolder = strcat(saveRoot,batteryName,'_',num2str( batterySOCs(k)));
             if not(exist(episodeSaveFolder, 'dir'))
                 mkdir(episodeSaveFolder);
@@ -50,8 +69,9 @@ function [ ] = generate_all_synthetic_data(batterySOCs )
                 
                 simOut = sim(in);
                 fileForSave = strcat(episodeSaveFolder,'/',episodes(e).name);
-                data4save = [simOut.current.Data, simOut.voltage.Data  ];
-                csvwrite(fileForSave,data4save);
+
+                csvwrite(fileForSave,[simOut.current.Data  ,simOut.voltage.Data]);
+
             end
         end
     end

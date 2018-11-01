@@ -760,4 +760,3 @@ class EpisodedTimeSeries():
 		else:
 			logger.warning("File %s does not exists" % toLoad)
 		return out
-	
