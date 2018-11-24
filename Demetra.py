@@ -65,8 +65,8 @@ class EpisodedTimeSeries():
 	synthetcBlowPath = "synthetic_%d_%d_%d_%d"
 	
 	
-	chargeThreshold = 10 # specify current threshold for the battery to be considered in charge state
-	dischargeThreshold = -10 # specify current threshold for the battery to be considered in discharge state
+	chargeThreshold = 5 # specify current threshold for the battery to be considered in charge state
+	dischargeThreshold = -5 # specify current threshold for the battery to be considered in discharge state
 	swabThreshold = 5 # current between -swabThreshold and +swabThreshold will considered in SWAB state
 	
 	eps1 = 10
